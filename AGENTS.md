@@ -54,6 +54,7 @@ Always use `make` targets — never invoke `cargo` directly. The Makefile is the
 - **Error types** — domain errors go in `Error`; startup/config errors go in `AppError`.
 - **Storage init** — call `store.initialize()` then `store.initialize_vectors(dims)` once at startup; both are idempotent.
 - **Function arguments** — functions and methods must have at most 2 parameters (excluding `self`/`&self`). If more data is needed, define a dedicated struct to carry the parameters; do not add a third bare argument under any circumstance.
+- **TDD** — always write unit tests before implementing the code logic. Define the test cases first, confirm they fail, then write the minimum code to make them pass.
 - **sqlite-vec** — extension is loaded via `sqlite3_auto_extension` (with `std::sync::Once`) before each `Connection` open; vec0 MATCH queries do not support JOINs — use two queries instead.
 - **Semantic search** — embedding failures on `add`/`update` are non-fatal; the entry is always saved. Run `kb reindex` to rebuild missing embeddings.
 

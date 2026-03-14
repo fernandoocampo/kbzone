@@ -58,6 +58,7 @@ make check   # full CI gate (fmt-check + lint + test)
 - **Error split** — domain/storage errors → `errors::Error`; startup failures → `errors::AppError`.
 - **Storage init** — always call `store.initialize()` once at startup; DDL is idempotent.
 - **Function arguments** — functions and methods must have at most 2 parameters (excluding `self`/`&self`). If more data is needed, define a dedicated struct to carry the parameters; do not add a third bare argument under any circumstance.
+- **TDD** — always write unit tests before implementing the code logic. Define the test cases first, confirm they fail, then write the minimum code to make them pass.
 
 ## Configuration
 
