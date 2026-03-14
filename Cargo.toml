@@ -1,0 +1,19 @@
+[package]
+name = "kbzone"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kb"
+path = "src/main.rs"
+
+[dependencies]
+clap       = { version = "4", features = ["derive"] }
+rusqlite   = { version = "0.31", features = ["bundled", "load_extension"] }
+uuid       = { version = "1", features = ["v4"] }
+thiserror  = "2"
+chrono     = { version = "0.4", default-features = false, features = ["clock"] }
+serde      = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+sqlite-vec = "0.1"
+fastembed  = "4"

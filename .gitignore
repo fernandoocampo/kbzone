@@ -1,0 +1,4 @@
+target/
+bin/
+*.log
+.fastembed_cache/

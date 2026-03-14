@@ -1,0 +1,137 @@
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+/// Configuration for the embedding provider.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingConfig {
+    /// Which provider to use. Supported values: `"fastembed"` (default).
+    #[serde(default = "default_provider")]
+    pub provider: String,
+}
+
+fn default_provider() -> String {
+    "fastembed".to_string()
+}
+
+impl Default for EmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_provider(),
+        }
+    }
+}
+
+/// Configuration loaded from `~/kbzona/config.yaml`
+/// (or `$KBZONA_HOME/config.yaml`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    /// Path to the SQLite database file. Tilde is expanded.
+    pub db_path: String,
+    /// Embedding provider configuration. Defaults to fastembed (local).
+    #[serde(default)]
+    pub embedding: EmbeddingConfig,
+}
+
+impl Config {
+    /// Returns the config file path, honouring `$KBZONA_HOME`.
+    pub fn config_file_path() -> PathBuf {
+        let home = std::env::var("KBZONA_HOME").unwrap_or_else(|_| {
+            let h = dirs_next();
+            format!("{}/kbzona", h)
+        });
+        PathBuf::from(home).join("config.yaml")
+    }
+
+    /// Loads config from disk, creating a default file if absent.
+    pub fn load() -> Result<Self, String> {
+        let path = Self::config_file_path();
+
+        if !path.exists() {
+            let cfg = Self::default_config()?;
+            cfg.save(&path)?;
+            return Ok(cfg);
+        }
+
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read config at {}: {}", path.display(), e))?;
+
+        let cfg: Config =
+            serde_yaml::from_str(&content).map_err(|e| format!("invalid config YAML: {}", e))?;
+
+        Ok(cfg)
+    }
+
+    /// Validates that the parent directory of `db_path` exists and is writable.
+    pub fn validate(&self) -> Result<(), String> {
+        let expanded = expand_tilde(&self.db_path);
+        let path = PathBuf::from(&expanded);
+        let parent = path
+            .parent()
+            .ok_or_else(|| format!("invalid db_path: {}", expanded))?;
+
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create db directory {}: {}", parent.display(), e))?;
+        }
+
+        // Quick write-access check: try opening the parent dir.
+        let meta = std::fs::metadata(parent)
+            .map_err(|e| format!("cannot stat db directory {}: {}", parent.display(), e))?;
+
+        if meta.permissions().readonly() {
+            return Err(format!("db directory {} is read-only", parent.display()));
+        }
+
+        Ok(())
+    }
+
+    /// Returns the expanded (tilde-resolved) `db_path`.
+    pub fn resolved_db_path(&self) -> String {
+        expand_tilde(&self.db_path)
+    }
+
+    /// Returns the directory used to cache embedding model files.
+    /// Defaults to `~/.kbzona/fastembed_cache/`.
+    pub fn model_cache_dir(&self) -> PathBuf {
+        let expanded = expand_tilde(&self.db_path);
+        PathBuf::from(expanded)
+            .parent()
+            .map(|p| p.join("fastembed_cache"))
+            .unwrap_or_else(|| PathBuf::from("fastembed_cache"))
+    }
+
+    fn default_config() -> Result<Self, String> {
+        let home = dirs_next();
+        Ok(Config {
+            db_path: format!("{}/.kbzona/kbzona.db", home),
+            embedding: EmbeddingConfig::default(),
+        })
+    }
+
+    fn save(&self, path: &PathBuf) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create config dir: {}", e))?;
+        }
+        let yaml =
+            serde_yaml::to_string(self).map_err(|e| format!("cannot serialise config: {}", e))?;
+        std::fs::write(path, yaml)
+            .map_err(|e| format!("cannot write config to {}: {}", path.display(), e))?;
+        Ok(())
+    }
+}
+
+/// Resolves `~` to the current user's home directory.
+pub fn expand_tilde(path: &str) -> String {
+    if path.starts_with("~/") || path == "~" {
+        let home = dirs_next();
+        path.replacen('~', &home, 1)
+    } else {
+        path.to_string()
+    }
+}
+
+/// Returns the home directory as a string, falling back to `/tmp`.
+fn dirs_next() -> String {
+    std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+}

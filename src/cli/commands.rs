@@ -1,0 +1,129 @@
+use clap::{Parser, Subcommand};
+
+/// kbzone — local knowledge base CLI
+#[derive(Parser, Debug)]
+#[command(name = "kb", about = "Manage your local knowledge base")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Add a new knowledge base entry.
+    Add {
+        #[arg(
+            long,
+            required = true,
+            help = "Unique string key (e.g. rust-ownership)"
+        )]
+        key: String,
+
+        #[arg(long, required = true, help = "Content / answer for this entry")]
+        value: String,
+
+        #[arg(long, default_value = "", help = "Extended notes or elaboration")]
+        notes: String,
+
+        #[arg(
+            long,
+            default_value = "",
+            help = "Entry type (concept, quote, command, …)"
+        )]
+        category: String,
+
+        #[arg(long, default_value = "", help = "Grouping namespace")]
+        namespace: String,
+
+        #[arg(long, default_value = "", help = "Source (book, person, URL, …)")]
+        reference: String,
+
+        /// Comma-separated tags, e.g. `rust,memory,concepts`
+        #[arg(long, value_delimiter = ',', help = "Comma-separated search tags")]
+        tags: Vec<String>,
+    },
+
+    /// Get a single entry by key or ID.
+    Get {
+        #[arg(long, help = "Unique string key", conflicts_with = "id")]
+        key: Option<String>,
+
+        #[arg(long, help = "UUID", conflicts_with = "key")]
+        id: Option<String>,
+    },
+
+    /// List entries, optionally filtered.
+    List {
+        #[arg(long, help = "Filter by category")]
+        category: Option<String>,
+
+        #[arg(long, help = "Filter by namespace")]
+        namespace: Option<String>,
+
+        /// Comma-separated tags to filter by
+        #[arg(long, value_delimiter = ',', help = "Filter by tags (comma-separated)")]
+        tags: Vec<String>,
+
+        #[arg(long, default_value = "20", help = "Maximum rows to return")]
+        limit: i64,
+
+        #[arg(long, default_value = "0", help = "Row offset for pagination")]
+        offset: i64,
+    },
+
+    /// Update an existing entry (identified by --id).
+    Update {
+        #[arg(long, required = true, help = "UUID of the entry to update")]
+        id: String,
+
+        #[arg(long, help = "New key")]
+        key: Option<String>,
+
+        #[arg(long, help = "New value")]
+        value: Option<String>,
+
+        #[arg(long, help = "New notes")]
+        notes: Option<String>,
+
+        #[arg(long, help = "New category")]
+        category: Option<String>,
+
+        #[arg(long, help = "New namespace")]
+        namespace: Option<String>,
+
+        #[arg(long, help = "New reference")]
+        reference: Option<String>,
+
+        /// Comma-separated tags
+        #[arg(
+            long,
+            value_delimiter = ',',
+            help = "New tags (comma-separated); replaces existing"
+        )]
+        tags: Option<Vec<String>>,
+    },
+
+    /// Delete an entry by ID.
+    Delete {
+        #[arg(long, required = true, help = "UUID of the entry to delete")]
+        id: String,
+    },
+
+    /// Full-text search over tags.
+    Search {
+        #[arg(long, required = true, help = "Keyword to search for in tags")]
+        keyword: String,
+    },
+
+    /// Semantic / vector search using natural language.
+    Ask {
+        #[arg(help = "Natural language query (e.g. \"how do I list kubernetes pods\")")]
+        query: String,
+
+        #[arg(long, default_value = "10", help = "Maximum results to return")]
+        limit: i64,
+    },
+
+    /// Re-generate embeddings for all existing KB entries.
+    Reindex,
+}
