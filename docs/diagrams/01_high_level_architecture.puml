@@ -1,0 +1,121 @@
+@startuml 01_high_level_architecture
+title kbzone — High-Level Hexagonal Architecture
+
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName "DejaVu Sans"
+skinparam defaultFontSize 11
+
+skinparam actor {
+    BorderColor #444444
+    BackgroundColor #FFFDE7
+    FontStyle bold
+}
+skinparam component {
+    BorderColor #555555
+    FontSize 11
+}
+skinparam package {
+    BorderColor #888888
+    FontStyle bold
+}
+skinparam interface {
+    BorderColor #1565C0
+    BackgroundColor #E3F2FD
+}
+skinparam note {
+    BackgroundColor #FFF9C4
+    BorderColor #F9A825
+}
+
+actor "User\n(Terminal)" as User #FFFDE7
+
+package "Filesystem" #F3E5F5 {
+    database "config.yaml\n~/kbzona/config.yaml\nor $KBZONA_HOME/config.yaml" as ConfigFile #EDE7F6
+    database "kbzona.db\n~/.kbzona/kbzona.db\n(SQLite + sqlite-vec)" as SQLiteDB #EDE7F6
+    database "fastembed_cache/\n~/.kbzona/fastembed_cache/\n(BAAI/bge-small-en-v1.5)" as ModelCache #EDE7F6
+}
+
+package "kb binary" #E8F5E9 {
+
+    package "CLI Layer" #C8E6C9 {
+        component "commands.rs\n(Clap Subcommands)\nadd | get | list | update\ndelete | search | ask | reindex" as Commands
+        component "handlers.rs\n(Handler Functions)\nServices<S,V,E>" as Handlers
+    }
+
+    package "Application Layer" #DCEDC8 {
+        component "Config\n(config.yaml loading\ntilde expansion\nvalidation)" as Config
+        component "App\n(App::build()\nApp::run()\nwiring + dispatch)" as App
+    }
+
+    package "Service Layer" #B3E5FC {
+        component "Service<T: KbStore>\nadd_kb | get_kb_by_id\nget_kb_by_key | update_kb\ndelete_kb | list_kbs\nsearch_kbs" as KbService <<service>>
+        component "SemanticService<V,E>\nindex_kb | remove_index\nask" as SemanticService <<service>>
+    }
+
+    package "Ports (Outbound Interfaces)" #FFF9C4 {
+        interface "KbStore\ninitialize()\nget_kb_by_id()\nget_kb_by_key()\nlist_kbs()\nsearch_kbs()\nsave_kb()\nupdate_kb()\ndelete_kb()" as KbStore <<port>>
+        interface "VectorStore\ninitialize_vectors()\nsave_embedding()\ndelete_embedding()\nsearch_similar()" as VectorStore <<port>>
+        interface "EmbeddingProvider\ndimensions()\nembed()" as EmbeddingProvider <<port>>
+    }
+
+    package "Domain" #FCE4EC {
+        component "Kb | NewKb | KbUpdate\nKbFilter | KbItem\nScoredKbItem\nSemanticQuery | EmbeddingInput" as DomainStructs <<domain>>
+    }
+
+    package "Adapters" #FFE0B2 {
+        component "SqliteStore\nimplements KbStore + VectorStore\nArc<Mutex<Connection>>\nsqlite-vec auto-extension\nFTS5 + vec0 tables" as SqliteStore <<adapter>>
+        component "FastEmbedProvider\nimplements EmbeddingProvider\nBAAI/bge-small-en-v1.5\n384 dimensions" as FastEmbedProvider <<adapter>>
+    }
+}
+
+User --> Commands : "invokes\nkb <subcommand>"
+Commands --> Handlers : "parsed args"
+Handlers --> App : "dispatch"
+
+App --> Config : "loads"
+Config --> ConfigFile : "reads / writes\nconfig.yaml"
+App --> KbService : "creates"
+App --> SemanticService : "creates"
+App --> SqliteStore : "instantiates"
+App --> FastEmbedProvider : "instantiates"
+
+Handlers --> KbService : "CRUD calls"
+Handlers --> SemanticService : "index / ask calls"
+
+KbService --> KbStore : "uses"
+SemanticService --> VectorStore : "uses"
+SemanticService --> EmbeddingProvider : "uses"
+
+KbService --> DomainStructs : "operates on"
+SemanticService --> DomainStructs : "operates on"
+
+SqliteStore ..|> KbStore : "implements"
+SqliteStore ..|> VectorStore : "implements"
+FastEmbedProvider ..|> EmbeddingProvider : "implements"
+
+SqliteStore --> SQLiteDB : "reads / writes\nSELECT, INSERT\nUPDATE, DELETE\nKNN MATCH (vec0)"
+FastEmbedProvider --> ModelCache : "loads model\nfiles on first use"
+
+note right of SqliteStore
+  Single Arc<Mutex<Connection>>
+  shared between KbStore and
+  VectorStore roles.
+  sqlite-vec registered once
+  via sqlite3_auto_extension.
+end note
+
+note right of SemanticService
+  Embedding failures on add/update
+  are non-fatal — entry is saved
+  and a warning is printed.
+  Run: kb reindex to recover.
+end note
+
+note bottom of SQLiteDB
+  Tables: kbs (main data)
+  tags_idx (FTS5 virtual)
+  kb_embeddings (vec0 virtual)
+  Triggers: kbs_ai, kbs_ad, kbs_au
+end note
+
+@enduml

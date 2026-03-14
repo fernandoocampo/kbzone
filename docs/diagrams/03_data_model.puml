@@ -1,0 +1,214 @@
+@startuml 03_data_model
+title kbzone — Data Model & Database Schema
+
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName "DejaVu Sans"
+skinparam defaultFontSize 10
+skinparam entity {
+    BorderColor #1B5E20
+    BackgroundColor #E8F5E9
+    FontSize 10
+}
+skinparam note {
+    BackgroundColor #FFF9C4
+    BorderColor #F9A825
+    FontSize 9
+}
+
+' ─── Rust Domain Structs ───────────────────────────────────────────────────
+
+package "Domain Structs (Rust)" #FCE4EC {
+
+    entity Kb <<struct>> {
+        * id         : String <<UUID>>
+        --
+        * key        : String
+        * value      : String
+          notes      : String
+          category   : String
+          namespace  : String
+          reference  : String
+          tags       : Vec<String>
+          created_on : String
+    }
+
+    entity NewKb <<struct>> {
+        * key       : String
+        --
+          value     : String
+          notes     : String
+          category  : String
+          namespace : String
+          reference : String
+          tags      : Vec<String>
+    }
+
+    entity KbUpdate <<struct>> {
+        * id        : String <<FK → Kb.id>>
+        --
+          key       : Option<String>
+          value     : Option<String>
+          notes     : Option<String>
+          category  : Option<String>
+          namespace : Option<String>
+          reference : Option<String>
+          tags      : Option<Vec<String>>
+    }
+
+    entity KbItem <<struct>> {
+        * id        : String
+        --
+          key       : String
+          category  : String
+          namespace : String
+          tags      : Vec<String>
+    }
+
+    entity ScoredKbItem <<struct>> {
+        * item  : KbItem
+        --
+          score : f32
+    }
+
+    entity KbFilter <<struct>> {
+        category  : Option<String>
+        --
+        namespace : Option<String>
+        tags      : Option<Vec<String>>
+        keyword   : Option<String>
+        limit     : Option<i64>
+        offset    : Option<i64>
+    }
+
+    entity SemanticQuery <<struct>> {
+        * text  : String
+        --
+          limit : Option<i64>
+    }
+
+    entity EmbeddingInput <<struct>> {
+        * kb_id : String <<FK → Kb.id>>
+        --
+          text  : String
+    }
+
+    NewKb    ||--o{ Kb            : "to_kb() generates\nUUID + timestamp"
+    KbUpdate }o--|| Kb            : "patch applied to"
+    Kb       ||--o{ KbItem        : "projected to\n(lightweight view)"
+    ScoredKbItem ||--|| KbItem    : "wraps"
+    Kb       ||--o{ EmbeddingInput : "embedding_text()\nbuilds input"
+}
+
+' ─── SQLite Tables ─────────────────────────────────────────────────────────
+
+package "SQLite Database  (~/.kbzona/kbzona.db)" #E8F5E9 {
+
+    entity kbs <<table>> {
+        * INTERNAL_ID : INTEGER <<PK AUTOINCREMENT>>
+        --
+        * KB_ID       : TEXT    <<UNIQUE>>
+        * KB_KEY      : TEXT    <<UNIQUE>>
+        * KB_VALUE    : TEXT
+          NOTES       : TEXT    DEFAULT ''
+          CATEGORY    : TEXT    DEFAULT ''
+          NAMESPACE   : TEXT    DEFAULT ''
+          REFERENCE   : TEXT    DEFAULT ''
+          TAG_VALUES  : TEXT    DEFAULT ''
+        * CREATED_ON  : TEXT
+    }
+
+    entity tags_idx <<FTS5 virtual table\ncontent='kbs'\ncontent_rowid='INTERNAL_ID'>> {
+        * rowid      : INTEGER  <<content_rowid>>
+        --
+          TAG_VALUES : TEXT
+    }
+
+    entity kb_embeddings <<vec0 virtual table\n(sqlite-vec)>> {
+        * kb_id     : TEXT      <<PK>>
+        --
+          embedding : float[384]
+    }
+
+    kbs         ||--o{ tags_idx       : "INTERNAL_ID =\ncontent_rowid"
+    kbs         ||--o{ kb_embeddings  : "KB_ID =\nkb_id"
+}
+
+' ─── FTS5 Triggers ──────────────────────────────────────────────────────────
+
+note as triggers_note #FFF8E1
+  **FTS5 Sync Triggers on** kbs
+
+  kbs_ai (AFTER INSERT):
+    INSERT INTO tags_idx(rowid, TAG_VALUES)
+    VALUES (new.INTERNAL_ID, new.TAG_VALUES)
+
+  kbs_ad (AFTER DELETE):
+    INSERT INTO tags_idx(tags_idx, rowid, TAG_VALUES)
+    VALUES ('delete', old.INTERNAL_ID, old.TAG_VALUES)
+
+  kbs_au (AFTER UPDATE):
+    Delete old FTS entry, insert new FTS entry
+end note
+
+tags_idx .. triggers_note
+
+' ─── Rust ↔ SQLite mapping ─────────────────────────────────────────────────
+
+Kb "1" --> "1" kbs : "persisted as one row"
+
+note on link
+  KB_ID      ← Kb.id
+  KB_KEY     ← Kb.key (lowercased)
+  KB_VALUE   ← Kb.value
+  NOTES      ← Kb.notes
+  CATEGORY   ← Kb.category
+  NAMESPACE  ← Kb.namespace
+  REFERENCE  ← Kb.reference
+  TAG_VALUES ← Kb.tags.join(" ")
+  CREATED_ON ← Kb.created_on
+end note
+
+' ─── Embedding Pipeline ────────────────────────────────────────────────────
+
+note as embed_note #E3F2FD
+  **Embedding Pipeline**
+
+  Kb.embedding_text() builds:
+    key + category + namespace
+    + tags.join(" ")
+    + value[0..200]     ← first 200 chars only
+    (notes excluded)
+
+  FastEmbedProvider.embed(text)
+    Model : BAAI/bge-small-en-v1.5
+    Output: Vec<f32> [384 dims]
+    Cache : ~/.kbzona/fastembed_cache/
+
+  Result stored in kb_embeddings.embedding
+
+  ⚠ Embedding failures are NON-FATAL:
+    Kb row is saved to kbs regardless.
+    Run  kb reindex  to recover.
+end note
+
+kb_embeddings .. embed_note
+
+' ─── Search paths ──────────────────────────────────────────────────────────
+
+note as search_note #E8EAF6
+  **FTS5 Search**  (kb search <keyword>)
+    tags_idx MATCH "keyword*"
+    → rowid JOIN kbs.INTERNAL_ID
+    → returns KbItem rows
+
+  **Semantic Search**  (kb ask "<query>")
+    1. embed(query) → Vec<f32>[384]
+    2. kb_embeddings MATCH embedding
+       ORDER BY distance LIMIT n
+    3. SELECT kbs WHERE KB_ID = ?  (per hit)
+    → returns Vec<ScoredKbItem>
+end note
+
+kbs .. search_note
+
+@enduml

@@ -1,0 +1,285 @@
+@startuml 02_internal_architecture
+title kbzone — Internal Package & Component Architecture
+
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName "DejaVu Sans"
+skinparam defaultFontSize 10
+skinparam package {
+    BorderColor #555555
+    FontStyle bold
+    FontSize 12
+}
+skinparam class {
+    BorderColor #555555
+    BackgroundColor #FFFFFF
+    FontSize 10
+    ArrowColor #444444
+}
+skinparam interface {
+    BorderColor #1565C0
+    BackgroundColor #E3F2FD
+    FontSize 10
+}
+skinparam note {
+    BackgroundColor #FFF9C4
+    BorderColor #F9A825
+    FontSize 9
+}
+
+package "domain" #FCE4EC {
+    class Kb {
+        + id: String
+        + key: String
+        + value: String
+        + notes: String
+        + category: String
+        + reference: String
+        + namespace: String
+        + tags: Vec<String>
+        + created_on: String
+        --
+        + tags_as_string() -> String
+        + embedding_text() -> String
+        + display()
+    }
+    class NewKb {
+        + key: String
+        + value: String
+        + notes: String
+        + category: String
+        + reference: String
+        + namespace: String
+        + tags: Vec<String>
+        --
+        + to_kb() -> Kb
+    }
+    class KbUpdate {
+        + id: String
+        + key: Option<String>
+        + value: Option<String>
+        + notes: Option<String>
+        + category: Option<String>
+        + namespace: Option<String>
+        + reference: Option<String>
+        + tags: Option<Vec<String>>
+    }
+    class KbFilter {
+        + category: Option<String>
+        + namespace: Option<String>
+        + tags: Option<Vec<String>>
+        + keyword: Option<String>
+        + limit: Option<i64>
+        + offset: Option<i64>
+    }
+    class KbItem {
+        + id: String
+        + key: String
+        + category: String
+        + namespace: String
+        + tags: Vec<String>
+    }
+    class ScoredKbItem {
+        + item: KbItem
+        + score: f32
+    }
+    class SemanticQuery {
+        + text: String
+        + limit: Option<i64>
+    }
+    class EmbeddingInput {
+        + kb_id: String
+        + text: String
+    }
+    ScoredKbItem *-- KbItem
+    NewKb ..> Kb : "to_kb()"
+}
+
+package "errors" #EFEBE9 {
+    enum Error <<thiserror>> {
+        KBNotFound
+        GetKBError
+        CreateKBError
+        UpdateKBError
+        KBWasNotUpdatedError
+        DeleteKBError
+        DuplicateKBError
+        SearchError
+        ListError
+        DatabaseQueryError
+        StorageInitError(String)
+        EmbeddingError(String)
+        VectorSearchError
+        VectorStoreInitError(String)
+        ReindexError(String)
+    }
+    enum AppError <<thiserror>> {
+        ConfigError(String)
+        StorageError(String)
+        EmbeddingSetupError(String)
+        CommandError(#from Error)
+    }
+    AppError ..> Error : "#[from]"
+}
+
+package "ports" #E3F2FD {
+    interface KbStore <<port>> {
+        + initialize() -> Result<(), Error>
+        + get_kb_by_id(id: &str) -> Result<Option<Kb>, Error>
+        + get_kb_by_key(key: &str) -> Result<Option<Kb>, Error>
+        + list_kbs(filter: &KbFilter) -> Result<Vec<KbItem>, Error>
+        + search_kbs(filter: &KbFilter) -> Result<Vec<KbItem>, Error>
+        + save_kb(kb: &Kb) -> Result<(), Error>
+        + update_kb(kb: &Kb) -> Result<bool, Error>
+        + delete_kb(id: &str) -> Result<bool, Error>
+    }
+    interface VectorStore <<port>> {
+        + initialize_vectors(dimensions: usize) -> Result<(), Error>
+        + save_embedding(input: &EmbeddingInput, embedding: &[f32]) -> Result<(), Error>
+        + delete_embedding(kb_id: &str) -> Result<(), Error>
+        + search_similar(query: &SemanticQuery, embedding: &[f32]) -> Result<Vec<ScoredKbItem>, Error>
+    }
+    interface EmbeddingProvider <<port>> {
+        + dimensions() -> usize
+        + embed(text: &str) -> Result<Vec<f32>, Error>
+    }
+}
+
+package "service" #E8F5E9 {
+    class "Service<T: KbStore>" as Service <<service>> {
+        - store: T
+        --
+        + new(store: T) -> Self
+        + add_kb(new_kb: NewKb) -> Result<Kb, Error>
+        + get_kb_by_id(id: &str) -> Result<Option<Kb>, Error>
+        + get_kb_by_key(key: &str) -> Result<Option<Kb>, Error>
+        + update_kb(kb: Kb) -> Result<(), Error>
+        + delete_kb(id: &str) -> Result<(), Error>
+        + list_kbs(filter: KbFilter) -> Result<Vec<KbItem>, Error>
+        + search_kbs(keyword: &str) -> Result<Vec<KbItem>, Error>
+    }
+    class "SemanticService<V: VectorStore, E: EmbeddingProvider>" as SemanticService <<service>> {
+        - vector_store: V
+        - embedder: E
+        --
+        + new(vector_store: V, embedder: E) -> Self
+        + index_kb(input: &EmbeddingInput) -> Result<(), Error>
+        + remove_index(kb_id: &str) -> Result<(), Error>
+        + ask(query: &SemanticQuery) -> Result<Vec<ScoredKbItem>, Error>
+    }
+    Service --> KbStore : "uses (T)"
+    SemanticService --> VectorStore : "uses (V)"
+    SemanticService --> EmbeddingProvider : "uses (E)"
+}
+
+package "adapters::sqlite" #FFE0B2 {
+    class SqliteStore <<adapter>> {
+        - conn: Arc<Mutex<Connection>>
+        --
+        + new(db_path: &str) -> Result<Self, Error>
+        + in_memory() -> Result<Self, Error>
+        .. KbStore impl ..
+        + initialize()
+        + get_kb_by_id() / get_kb_by_key()
+        + list_kbs() / search_kbs()
+        + save_kb() / update_kb() / delete_kb()
+        .. VectorStore impl ..
+        + initialize_vectors(dimensions)
+        + save_embedding(input, embedding)
+        + delete_embedding(kb_id)
+        + search_similar(query, embedding)
+    }
+    note right of SqliteStore
+      sqlite-vec registered once via
+      sqlite3_auto_extension (Once guard).
+      KNN: two queries — vec0 MATCH
+      then SELECT kbs WHERE KB_ID = ?
+      (vec0 does not support JOINs)
+    end note
+    SqliteStore ..|> KbStore : "implements"
+    SqliteStore ..|> VectorStore : "implements"
+}
+
+package "adapters::fastembed" #FFF3E0 {
+    class FastEmbedProvider <<adapter>> {
+        - model: Arc<TextEmbedding>
+        - dims: usize
+        --
+        + new(cache_dir: PathBuf) -> Result<Self, Error>
+        + dimensions() -> usize
+        + embed(text: &str) -> Result<Vec<f32>, Error>
+    }
+    note right of FastEmbedProvider
+      Model: BAAI/bge-small-en-v1.5
+      Dimensions: 384
+      Cache: ~/.kbzona/fastembed_cache/
+      Downloaded on first use only.
+    end note
+    FastEmbedProvider ..|> EmbeddingProvider : "implements"
+}
+
+package "cli" #F3E5F5 {
+    class Cli <<clap::Parser>> {
+        + command: Command
+    }
+    enum Command <<clap::Subcommand>> {
+        Add
+        Get
+        List
+        Update
+        Delete
+        Search
+        Ask
+        Reindex
+    }
+    class "handlers" <<module>> {
+        + Services<S,V,E> { kb: Service<S>, semantic: SemanticService<V,E> }
+        --
+        + handle_add(services, NewKb)
+        + handle_get(svc, key, id)
+        + handle_list(svc, category, namespace, tags, limit, offset)
+        + handle_update(services, KbUpdate)
+        + handle_delete(services, id)
+        + handle_search(svc, keyword)
+        + handle_ask(sem_svc, SemanticQuery)
+        + handle_reindex(services)
+    }
+    Cli *-- Command
+    handlers --> Service : "calls"
+    handlers --> SemanticService : "calls"
+}
+
+package "application" #ECEFF1 {
+    class Config {
+        + db_path: String
+        + embedding: EmbeddingConfig
+        --
+        + load() -> Result<Self, String>
+        + validate() -> Result<(), String>
+        + resolved_db_path() -> String
+        + model_cache_dir() -> PathBuf
+        + config_file_path() -> PathBuf
+    }
+    class EmbeddingConfig {
+        + provider: String
+    }
+    class App {
+        - services: Services<SqliteStore, SqliteStore, FastEmbedProvider>
+        --
+        + build() -> Result<Self, AppError>
+        + run(self) -> Result<(), AppError>
+    }
+    Config *-- EmbeddingConfig
+    App --> Config : "loads"
+    App --> SqliteStore : "creates"
+    App --> FastEmbedProvider : "creates"
+    App --> Service : "creates kb:"
+    App --> SemanticService : "creates semantic:"
+    App --> handlers : "dispatches to"
+}
+
+Service ..> Kb : "operates on"
+Service ..> KbItem : "returns"
+SemanticService ..> EmbeddingInput : "accepts"
+SemanticService ..> ScoredKbItem : "returns"
+
+@enduml
