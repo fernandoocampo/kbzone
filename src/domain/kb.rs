@@ -192,6 +192,20 @@ impl From<ImportKbItem> for NewKb {
     }
 }
 
+/// Result of a reindex operation.
+pub struct ReindexResult {
+    /// (kb_key, kb_id) for entries successfully re-indexed.
+    pub succeeded: Vec<(String, String)>,
+    /// (kb_key_or_id, error_message) for entries that failed.
+    pub failed: Vec<(String, String)>,
+}
+
+impl ReindexResult {
+    pub fn total(&self) -> usize {
+        self.succeeded.len() + self.failed.len()
+    }
+}
+
 /// Result of a batch import operation.
 pub struct ImportBatchResult {
     pub saved: Vec<Kb>,
@@ -322,6 +336,18 @@ mod tests {
         let yaml = "Value: memory management\n";
         let result: Result<ImportKbItem, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn reindex_result_total_counts_both_outcomes() {
+        let result = ReindexResult {
+            succeeded: vec![
+                ("key-a".to_string(), "id-1".to_string()),
+                ("key-b".to_string(), "id-2".to_string()),
+            ],
+            failed: vec![("id-3".to_string(), "not found".to_string())],
+        };
+        assert_eq!(result.total(), 3);
     }
 
     #[test]

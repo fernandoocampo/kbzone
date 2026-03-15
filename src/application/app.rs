@@ -4,15 +4,15 @@ use crate::adapters::fastembed::FastEmbedProvider;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
-use crate::cli::handlers::{self, GetParams, ImportParams, ListParams, Services};
+use crate::cli::handlers::{self, GetParams, ImportParams, ListParams};
 use crate::domain::{KbUpdate, NewKb, SemanticQuery};
 use crate::errors::AppError;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
-use crate::service::{SemanticService, Service};
+use crate::service::{KBService, SemanticDeps};
 
-/// Top-level application object. Owns both services and drives the CLI.
+/// Top-level application object. Owns the unified service and drives the CLI.
 pub struct App {
-    services: Services<SqliteStore, SqliteStore, FastEmbedProvider>,
+    svc: KBService<SqliteStore, SqliteStore, FastEmbedProvider>,
 }
 
 impl App {
@@ -35,12 +35,15 @@ impl App {
             .initialize_vectors(embedder.dimensions())
             .map_err(|e| AppError::StorageError(e.to_string()))?;
 
-        let services = Services {
-            kb: Service::new(store.clone()),
-            semantic: SemanticService::new(store, embedder),
-        };
+        let svc = KBService::new(
+            store.clone(),
+            SemanticDeps {
+                vector_store: store,
+                embedder,
+            },
+        );
 
-        Ok(App { services })
+        Ok(App { svc })
     }
 
     /// Parses the CLI arguments and dispatches to the appropriate handler.
@@ -57,7 +60,7 @@ impl App {
                 reference,
                 tags,
             } => handlers::handle_add(
-                &self.services,
+                &self.svc,
                 NewKb {
                     key,
                     value,
@@ -69,9 +72,7 @@ impl App {
                 },
             )?,
 
-            Command::Get { key, id } => {
-                handlers::handle_get(&self.services.kb, GetParams { key, id })?
-            }
+            Command::Get { key, id } => handlers::handle_get(&self.svc, GetParams { key, id })?,
 
             Command::List {
                 category,
@@ -80,7 +81,7 @@ impl App {
                 limit,
                 offset,
             } => handlers::handle_list(
-                &self.services.kb,
+                &self.svc,
                 ListParams {
                     category,
                     namespace,
@@ -100,7 +101,7 @@ impl App {
                 reference,
                 tags,
             } => handlers::handle_update(
-                &self.services,
+                &self.svc,
                 KbUpdate {
                     id,
                     key,
@@ -113,25 +114,25 @@ impl App {
                 },
             )?,
 
-            Command::Delete { id } => handlers::handle_delete(&self.services, id)?,
+            Command::Delete { id } => handlers::handle_delete(&self.svc, id)?,
 
-            Command::Search { keyword } => handlers::handle_search(&self.services.kb, keyword)?,
+            Command::Search { keyword } => handlers::handle_search(&self.svc, keyword)?,
 
             Command::Ask { query, limit } => handlers::handle_ask(
-                &self.services.semantic,
+                &self.svc,
                 SemanticQuery {
                     text: query,
                     limit: Some(limit),
                 },
             )?,
 
-            Command::Reindex => handlers::handle_reindex(&self.services)?,
+            Command::Reindex => handlers::handle_reindex(&self.svc)?,
 
             Command::Import {
                 file,
                 failed_items_file,
             } => handlers::handle_import(
-                &self.services,
+                &self.svc,
                 ImportParams {
                     file,
                     failed_items_file,

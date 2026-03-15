@@ -1,20 +1,9 @@
 use serde::Deserialize;
 
-use crate::domain::{
-    EmbeddingInput, ImportKbItem, KbFilter, KbUpdate, NewKb, ScoredKbItem, SemanticQuery,
-};
+use crate::domain::{ImportKbItem, KbFilter, KbUpdate, NewKb, ScoredKbItem, SemanticQuery};
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
-use crate::service::{SemanticService, Service};
-
-// ---------------------------------------------------------------------------
-// Services container — groups kb + semantic services to satisfy the 2-param rule
-// ---------------------------------------------------------------------------
-
-pub struct Services<S: KbStore, V: VectorStore, E: EmbeddingProvider> {
-    pub kb: Service<S>,
-    pub semantic: SemanticService<V, E>,
-}
+use crate::service::KBService;
 
 // ---------------------------------------------------------------------------
 // Parameter structs (satisfy the 2-param rule)
@@ -74,22 +63,18 @@ fn print_table_header() {
 // ---------------------------------------------------------------------------
 
 pub fn handle_add<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    services: &Services<S, V, E>,
+    svc: &KBService<S, V, E>,
     new_kb: NewKb,
 ) -> Result<(), Error> {
-    let kb = services.kb.add_kb(new_kb)?;
-    let input = EmbeddingInput {
-        kb_id: kb.id.clone(),
-        text: kb.embedding_text(),
-    };
-    if let Err(e) = services.semantic.index_kb(&input) {
-        eprintln!("Warning: could not index embedding for '{}': {}", kb.key, e);
-    }
+    let kb = svc.add_kb(new_kb)?;
     println!("Created: {}", kb.id);
     Ok(())
 }
 
-pub fn handle_get<T: KbStore>(svc: &Service<T>, params: GetParams) -> Result<(), Error> {
+pub fn handle_get<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
+    svc: &KBService<S, V, E>,
+    params: GetParams,
+) -> Result<(), Error> {
     let kb = match (params.key, params.id) {
         (Some(k), _) => svc.get_kb_by_key(&k)?,
         (_, Some(i)) => svc.get_kb_by_id(&i)?,
@@ -106,7 +91,10 @@ pub fn handle_get<T: KbStore>(svc: &Service<T>, params: GetParams) -> Result<(),
     Ok(())
 }
 
-pub fn handle_list<T: KbStore>(svc: &Service<T>, params: ListParams) -> Result<(), Error> {
+pub fn handle_list<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
+    svc: &KBService<S, V, E>,
+    params: ListParams,
+) -> Result<(), Error> {
     let filter = KbFilter {
         category: params.category,
         namespace: params.namespace,
@@ -144,61 +132,28 @@ pub fn handle_list<T: KbStore>(svc: &Service<T>, params: ListParams) -> Result<(
 }
 
 pub fn handle_update<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    services: &Services<S, V, E>,
+    svc: &KBService<S, V, E>,
     update: KbUpdate,
 ) -> Result<(), Error> {
-    let existing = services
-        .kb
-        .get_kb_by_id(&update.id)?
-        .ok_or(Error::KBNotFound)?;
-
-    let old_embed_text = existing.embedding_text();
-
-    let updated = crate::domain::Kb {
-        id: existing.id,
-        key: update.key.unwrap_or(existing.key),
-        value: update.value.unwrap_or(existing.value),
-        notes: update.notes.unwrap_or(existing.notes),
-        category: update.category.unwrap_or(existing.category),
-        namespace: update.namespace.unwrap_or(existing.namespace),
-        reference: update.reference.unwrap_or(existing.reference),
-        tags: update.tags.unwrap_or(existing.tags),
-        created_on: existing.created_on,
-    };
-    let embed_text = updated.embedding_text();
-    let kb_id = updated.id.clone();
-
-    if old_embed_text != embed_text {
-        let input = EmbeddingInput {
-            kb_id,
-            text: embed_text,
-        };
-        if let Err(e) = services.semantic.index_kb(&input) {
-            eprintln!(
-                "Warning: could not update embedding for '{}': {}",
-                update.id, e
-            );
-        }
-    }
-
-    services.kb.update_kb(updated)?;
-    println!("Updated: {}", update.id);
+    let id = update.id.clone();
+    svc.update_kb(update)?;
+    println!("Updated: {}", id);
     Ok(())
 }
 
 pub fn handle_delete<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    services: &Services<S, V, E>,
+    svc: &KBService<S, V, E>,
     id: String,
 ) -> Result<(), Error> {
-    services.kb.delete_kb(&id)?;
-    if let Err(e) = services.semantic.remove_index(&id) {
-        eprintln!("Warning: could not remove embedding for '{}': {}", id, e);
-    }
+    svc.delete_kb(&id)?;
     println!("Deleted: {}", id);
     Ok(())
 }
 
-pub fn handle_search<T: KbStore>(svc: &Service<T>, keyword: String) -> Result<(), Error> {
+pub fn handle_search<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
+    svc: &KBService<S, V, E>,
+    keyword: String,
+) -> Result<(), Error> {
     let items = svc.search_kbs(&keyword)?;
     if items.is_empty() {
         println!("No results for '{}'.", keyword);
@@ -223,11 +178,11 @@ pub fn handle_search<T: KbStore>(svc: &Service<T>, keyword: String) -> Result<()
     Ok(())
 }
 
-pub fn handle_ask<V: VectorStore, E: EmbeddingProvider>(
-    sem_svc: &SemanticService<V, E>,
+pub fn handle_ask<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
+    svc: &KBService<S, V, E>,
     query: SemanticQuery,
 ) -> Result<(), Error> {
-    let results = sem_svc.ask(&query)?;
+    let results = svc.ask(&query)?;
     if results.is_empty() {
         println!("No semantic matches found.");
         return Ok(());
@@ -240,46 +195,26 @@ pub fn handle_ask<V: VectorStore, E: EmbeddingProvider>(
 }
 
 pub fn handle_reindex<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    services: &Services<S, V, E>,
+    svc: &KBService<S, V, E>,
 ) -> Result<(), Error> {
-    let items = services.kb.list_kbs(KbFilter::default())?;
-    let total = items.len();
-    println!("Reindexing {} entries...", total);
-
-    let mut success = 0usize;
-    let mut failed = 0usize;
-
-    for item in items {
-        match services.kb.get_kb_by_id(&item.id)? {
-            Some(kb) => {
-                let input = EmbeddingInput {
-                    kb_id: kb.id.clone(),
-                    text: kb.embedding_text(),
-                };
-                match services.semantic.index_kb(&input) {
-                    Ok(_) => {
-                        success += 1;
-                        println!("  [OK] {}", kb.key);
-                    }
-                    Err(e) => {
-                        failed += 1;
-                        eprintln!("  [FAIL] {}: {}", kb.key, e);
-                    }
-                }
-            }
-            None => {
-                failed += 1;
-                eprintln!("  [FAIL] id={} not found", item.id);
-            }
-        }
+    let result = svc.reindex()?;
+    println!("Reindexing {} entries...", result.total());
+    for (key, _id) in &result.succeeded {
+        println!("  [OK] {}", key);
     }
-
-    println!("Done: {} indexed, {} failed.", success, failed);
+    for (key_or_id, err) in &result.failed {
+        eprintln!("  [FAIL] {}: {}", key_or_id, err);
+    }
+    println!(
+        "Done: {} indexed, {} failed.",
+        result.succeeded.len(),
+        result.failed.len()
+    );
     Ok(())
 }
 
 pub fn handle_import<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    services: &Services<S, V, E>,
+    svc: &KBService<S, V, E>,
     params: ImportParams,
 ) -> Result<(), Error> {
     let start = std::time::Instant::now();
@@ -294,19 +229,9 @@ pub fn handle_import<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let result = services.kb.add_kbs(items);
+    let result = svc.import_kbs(items);
     let saved_count = result.saved.len();
     let failed_count = result.failed.len();
-
-    for kb in &result.saved {
-        let input = EmbeddingInput {
-            kb_id: kb.id.clone(),
-            text: kb.embedding_text(),
-        };
-        if let Err(e) = services.semantic.index_kb(&input) {
-            eprintln!("Warning: could not index embedding for '{}': {}", kb.key, e);
-        }
-    }
 
     if !result.failed.is_empty() {
         let failed_items: Vec<ImportKbItem> = result.failed.into_iter().map(|f| f.item).collect();
@@ -397,6 +322,7 @@ fn print_scored_row(scored: &ScoredKbItem) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::SemanticDeps;
     use std::cell::RefCell;
     use std::collections::HashMap;
 
@@ -509,11 +435,14 @@ mod tests {
         }
     }
 
-    fn make_services() -> Services<MockKbStore, MockVectorStore, MockEmbeddingProvider> {
-        Services {
-            kb: Service::new(MockKbStore::new()),
-            semantic: SemanticService::new(MockVectorStore, MockEmbeddingProvider),
-        }
+    fn make_svc() -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider> {
+        KBService::new(
+            MockKbStore::new(),
+            SemanticDeps {
+                vector_store: MockVectorStore,
+                embedder: MockEmbeddingProvider,
+            },
+        )
     }
 
     fn write_temp_yaml(name: &str, content: &str) -> String {
@@ -527,24 +456,24 @@ mod tests {
 
     #[test]
     fn handle_import_returns_file_error_on_missing_file() {
-        let services = make_services();
+        let svc = make_svc();
         let params = ImportParams {
             file: "/no/such/file.yaml".to_string(),
             failed_items_file: "/tmp/failed.yaml".to_string(),
         };
-        let result = handle_import(&services, params);
+        let result = handle_import(&svc, params);
         assert!(matches!(result, Err(Error::ImportFileError(_))));
     }
 
     #[test]
     fn handle_import_returns_parse_error_on_malformed_yaml() {
         let path = write_temp_yaml("malformed_test.yaml", "Key: [\nbad yaml{{{");
-        let services = make_services();
+        let svc = make_svc();
         let params = ImportParams {
             file: path.clone(),
             failed_items_file: "/tmp/failed_malformed.yaml".to_string(),
         };
-        let result = handle_import(&services, params);
+        let result = handle_import(&svc, params);
         let _ = std::fs::remove_file(&path);
         assert!(matches!(result, Err(Error::ParseImportFileError(_))));
     }
@@ -553,12 +482,12 @@ mod tests {
     fn handle_import_succeeds_for_valid_file() {
         let yaml = "Key: rust-ownership\nValue: memory management\n";
         let path = write_temp_yaml("valid_import_test.yaml", yaml);
-        let services = make_services();
+        let svc = make_svc();
         let params = ImportParams {
             file: path.clone(),
             failed_items_file: "/tmp/failed_valid.yaml".to_string(),
         };
-        let result = handle_import(&services, params);
+        let result = handle_import(&svc, params);
         let _ = std::fs::remove_file(&path);
         assert!(result.is_ok());
     }
@@ -571,12 +500,12 @@ mod tests {
             .join("failed_items_test.yaml")
             .to_string_lossy()
             .to_string();
-        let services = make_services();
+        let svc = make_svc();
         let params = ImportParams {
             file: path.clone(),
             failed_items_file: failed_path.clone(),
         };
-        let result = handle_import(&services, params);
+        let result = handle_import(&svc, params);
         let _ = std::fs::remove_file(&path);
         assert!(result.is_ok());
         let failed_content = std::fs::read_to_string(&failed_path).unwrap_or_default();
