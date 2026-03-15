@@ -1,32 +1,32 @@
 /// Domain and storage errors.
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("KB not found")]
     KBNotFound,
-    #[error("unable to get this KB")]
-    GetKBError,
-    #[error("unable to create KB")]
-    CreateKBError,
-    #[error("unable to update KB")]
-    UpdateKBError,
+    #[error("unable to get KB: {0}")]
+    GetKBError(String),
+    #[error("unable to create KB: {0}")]
+    CreateKBError(String),
+    #[error("unable to update KB: {0}")]
+    UpdateKBError(String),
     #[error("KB was not updated")]
     KBWasNotUpdatedError,
-    #[error("unable to delete KB")]
-    DeleteKBError,
+    #[error("unable to delete KB: {0}")]
+    DeleteKBError(String),
     #[error("KB already exists")]
     DuplicateKBError,
-    #[error("unable to search")]
-    SearchError,
-    #[error("unable to list entries")]
-    ListError,
-    #[error("repository query failed")]
-    DatabaseQueryError,
+    #[error("unable to search: {0}")]
+    SearchError(String),
+    #[error("unable to list entries: {0}")]
+    ListError(String),
+    #[error("repository query failed: {0}")]
+    DatabaseQueryError(String),
     #[error("storage init failed: {0}")]
     StorageInitError(String),
     #[error("embedding error: {0}")]
     EmbeddingError(String),
-    #[error("vector search failed")]
-    VectorSearchError,
+    #[error("vector search failed: {0}")]
+    VectorSearchError(String),
     #[error("vector store init failed: {0}")]
     VectorStoreInitError(String),
     #[error("reindex failed: {0}")]

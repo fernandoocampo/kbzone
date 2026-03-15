@@ -58,6 +58,17 @@ Always use `make` targets — never invoke `cargo` directly. The Makefile is the
 - **sqlite-vec** — extension is loaded via `sqlite3_auto_extension` (with `std::sync::Once`) before each `Connection` open; vec0 MATCH queries do not support JOINs — use two queries instead.
 - **Semantic search** — embedding failures on `add`/`update` are non-fatal; the entry is always saved. Run `kb reindex` to rebuild missing embeddings.
 
+## Idiomatic Rust Rules
+
+- **Error context** — `Error` variants wrapping I/O or storage failures must carry a `String` (e.g. `GetKBError(String)`). Always use `map_err(|e| Error::Foo(e.to_string()))` — never `map_err(|_| Error::Foo)`.
+- **No `PartialEq` on `Error`** — `Error` does not derive `PartialEq`. Tests assert on error variants with `matches!()`: `assert!(matches!(result, Err(Error::SomeVariant)))`.
+- **Standard conversion traits** — use `impl From<A> for B` instead of custom `to_b(self)` methods. Callers use `B::from(a)` or `a.into()`.
+- **`Display` not side-effecting methods** — domain structs must not call `println!` or any I/O. Implement `std::fmt::Display` and let callers use `print!("{}", value)`.
+- **No I/O in the domain layer** — `domain/` has zero dependencies on `std::io`, `println!`, or adapters. All output lives in `cli/handlers.rs`.
+- **Row parsers take `&Row`** — SQLite row helpers must be `fn foo(row: &rusqlite::Row) -> rusqlite::Result<T>`. Do not pass individual column values as separate arguments.
+- **Module visibility** — internal-only modules (`adapters`, `cli`, `service`) use `pub(crate) mod`. Public-API modules (`domain`, `errors`, `ports`) and the binary entry-point module (`application`) use `pub mod`.
+- **Test-only constructors** — functions only needed in tests (e.g. `in_memory()`) must carry `#[cfg(test)]`.
+
 ## CLI Commands
 
 | Command | Description |

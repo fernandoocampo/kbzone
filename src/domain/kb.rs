@@ -42,20 +42,22 @@ impl Kb {
             truncated_value
         )
     }
+}
 
-    /// Formats the entry for `kb get` output.
-    pub fn display(&self) {
-        println!("ID        : {}", self.id);
-        println!("Key       : {}", self.key);
-        println!("Value     : {}", self.value);
-        println!("Category  : {}", self.category);
-        println!("Namespace : {}", self.namespace);
-        println!("Reference : {}", self.reference);
-        println!("Tags      : {}", self.tags.join(", "));
-        println!("Created   : {}", self.created_on);
+impl std::fmt::Display for Kb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "ID        : {}", self.id)?;
+        writeln!(f, "Key       : {}", self.key)?;
+        writeln!(f, "Value     : {}", self.value)?;
+        writeln!(f, "Category  : {}", self.category)?;
+        writeln!(f, "Namespace : {}", self.namespace)?;
+        writeln!(f, "Reference : {}", self.reference)?;
+        writeln!(f, "Tags      : {}", self.tags.join(", "))?;
+        writeln!(f, "Created   : {}", self.created_on)?;
         if !self.notes.is_empty() {
-            println!("Notes     :\n{}", self.notes);
+            writeln!(f, "Notes     :\n{}", self.notes)?;
         }
+        Ok(())
     }
 }
 
@@ -71,19 +73,19 @@ pub struct NewKb {
     pub tags: Vec<String>,
 }
 
-impl NewKb {
+impl From<NewKb> for Kb {
     /// Converts into a full `Kb`, generating UUID and timestamp, normalising
     /// key / category / namespace to lowercase.
-    pub fn to_kb(self) -> Kb {
+    fn from(new: NewKb) -> Self {
         Kb {
             id: Uuid::new_v4().to_string(),
-            key: self.key.to_lowercase(),
-            value: self.value,
-            notes: self.notes,
-            category: self.category.to_lowercase(),
-            reference: self.reference,
-            namespace: self.namespace.to_lowercase(),
-            tags: self.tags,
+            key: new.key.to_lowercase(),
+            value: new.value,
+            notes: new.notes,
+            category: new.category.to_lowercase(),
+            reference: new.reference,
+            namespace: new.namespace.to_lowercase(),
+            tags: new.tags,
             created_on: Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string(),
         }
     }

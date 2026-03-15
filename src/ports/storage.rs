@@ -4,6 +4,10 @@ use crate::domain::{Kb, KbFilter, KbItem};
 use crate::errors::Error;
 
 /// Outbound port — all storage adapters must implement this trait.
+///
+/// The `Clone` bound exists because `SqliteStore` wraps `Arc<Mutex<Connection>>`
+/// and must be cheaply cloneable so both `Service` and `SemanticService` can
+/// share the same connection without requiring `Arc<dyn KbStore>` at the wiring layer.
 pub trait KbStore: Debug + Clone {
     /// Runs DDL to ensure the schema exists (idempotent).
     fn initialize(&self) -> Result<(), Error>;

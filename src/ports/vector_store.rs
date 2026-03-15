@@ -4,6 +4,10 @@ use crate::domain::{EmbeddingInput, ScoredKbItem, SemanticQuery};
 use crate::errors::Error;
 
 /// Outbound port for vector storage adapters.
+///
+/// The `Clone` bound exists for the same reason as `KbStore`: `SqliteStore`
+/// implements both traits via the same `Arc<Mutex<Connection>>`, so cheap cloning
+/// is the mechanism for sharing the connection between services.
 pub trait VectorStore: Debug + Clone {
     /// Creates the vector table schema (idempotent). Must be called once at startup.
     fn initialize_vectors(&self, dimensions: usize) -> Result<(), Error>;

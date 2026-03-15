@@ -14,10 +14,10 @@
 //! - [`cli`] — Clap command definitions and handler functions
 //! - [`application`] — wiring: config loading, `App::build()`, and `App::run()`
 
-pub mod adapters;
+pub(crate) mod adapters;
 pub mod application;
-pub mod cli;
+pub(crate) mod cli;
 pub mod domain;
 pub mod errors;
 pub mod ports;
-pub mod service;
+pub(crate) mod service;

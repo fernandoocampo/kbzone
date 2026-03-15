@@ -48,6 +48,34 @@ AFTER UPDATE ON kbs BEGIN
 END";
 
 // ---------------------------------------------------------------------------
+// CRUD DML constants
+// ---------------------------------------------------------------------------
+
+const GET_KB_BY_ID: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+                             REFERENCE, TAG_VALUES, CREATED_ON \
+                             FROM kbs WHERE KB_ID = ?1";
+
+const GET_KB_BY_KEY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+                              REFERENCE, TAG_VALUES, CREATED_ON \
+                              FROM kbs WHERE KB_KEY = ?1";
+
+const INSERT_KB: &str = "INSERT INTO kbs \
+                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON) \
+                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
+
+const UPDATE_KB: &str = "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGORY=?4, \
+                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7 \
+                          WHERE KB_ID=?8";
+
+const DELETE_KB: &str = "DELETE FROM kbs WHERE KB_ID=?1";
+
+const SEARCH_FTS: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
+                           FROM kbs k \
+                           JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
+                           WHERE tags_idx MATCH ?1 \
+                           ORDER BY k.CREATED_ON DESC";
+
+// ---------------------------------------------------------------------------
 // Vector DDL / DML constants
 // ---------------------------------------------------------------------------
 
@@ -116,6 +144,7 @@ impl SqliteStore {
     }
 
     /// Creates an in-memory store (used by integration tests).
+    #[cfg(test)]
     pub fn in_memory() -> Result<Self, Error> {
         register_vec_extension();
         let conn =
@@ -130,24 +159,19 @@ impl SqliteStore {
 // Helper — parse a row into KbItem
 // ---------------------------------------------------------------------------
 
-fn row_to_kb_item(
-    id: String,
-    key: String,
-    category: String,
-    namespace: String,
-    tag_values: String,
-) -> KbItem {
-    KbItem {
-        id,
-        key,
-        category,
-        namespace,
+fn row_to_kb_item(row: &rusqlite::Row) -> rusqlite::Result<KbItem> {
+    let tag_values: String = row.get(4).unwrap_or_default();
+    Ok(KbItem {
+        id: row.get(0)?,
+        key: row.get(1)?,
+        category: row.get(2)?,
+        namespace: row.get(3)?,
         tags: if tag_values.is_empty() {
             vec![]
         } else {
             tag_values.split_whitespace().map(str::to_string).collect()
         },
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -173,16 +197,14 @@ impl KbStore for SqliteStore {
     fn get_kb_by_id(&self, id: &str) -> Result<Option<Kb>, Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
         let mut stmt = conn
-            .prepare(
-                "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE,
-                        REFERENCE, TAG_VALUES, CREATED_ON
-                 FROM kbs WHERE KB_ID = ?1",
-            )
-            .map_err(|_| Error::GetKBError)?;
+            .prepare(GET_KB_BY_ID)
+            .map_err(|e| Error::GetKBError(e.to_string()))?;
 
-        let mut rows = stmt.query(params![id]).map_err(|_| Error::GetKBError)?;
+        let mut rows = stmt
+            .query(params![id])
+            .map_err(|e| Error::GetKBError(e.to_string()))?;
 
-        if let Some(row) = rows.next().map_err(|_| Error::GetKBError)? {
+        if let Some(row) = rows.next().map_err(|e| Error::GetKBError(e.to_string()))? {
             Ok(Some(row_to_kb(row)?))
         } else {
             Ok(None)
@@ -192,16 +214,14 @@ impl KbStore for SqliteStore {
     fn get_kb_by_key(&self, key: &str) -> Result<Option<Kb>, Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
         let mut stmt = conn
-            .prepare(
-                "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE,
-                        REFERENCE, TAG_VALUES, CREATED_ON
-                 FROM kbs WHERE KB_KEY = ?1",
-            )
-            .map_err(|_| Error::GetKBError)?;
+            .prepare(GET_KB_BY_KEY)
+            .map_err(|e| Error::GetKBError(e.to_string()))?;
 
-        let mut rows = stmt.query(params![key]).map_err(|_| Error::GetKBError)?;
+        let mut rows = stmt
+            .query(params![key])
+            .map_err(|e| Error::GetKBError(e.to_string()))?;
 
-        if let Some(row) = rows.next().map_err(|_| Error::GetKBError)? {
+        if let Some(row) = rows.next().map_err(|e| Error::GetKBError(e.to_string()))? {
             Ok(Some(row_to_kb(row)?))
         } else {
             Ok(None)
@@ -234,7 +254,9 @@ impl KbStore for SqliteStore {
             where_clause, limit_clause, offset_clause
         );
 
-        let mut stmt = conn.prepare(&sql).map_err(|_| Error::ListError)?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| Error::ListError(e.to_string()))?;
 
         let sql_params: Vec<&dyn rusqlite::types::ToSql> = bound_params
             .iter()
@@ -242,18 +264,10 @@ impl KbStore for SqliteStore {
             .collect();
 
         let items = stmt
-            .query_map(sql_params.as_slice(), |row| {
-                Ok(row_to_kb_item(
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            })
-            .map_err(|_| Error::ListError)?
+            .query_map(sql_params.as_slice(), row_to_kb_item)
+            .map_err(|e| Error::ListError(e.to_string()))?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| Error::ListError)?;
+            .map_err(|e| Error::ListError(e.to_string()))?;
 
         Ok(items)
     }
@@ -266,27 +280,15 @@ impl KbStore for SqliteStore {
 
         let conn = self.conn.lock().expect("mutex poisoned");
 
-        let sql = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
-                   FROM kbs k \
-                   JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
-                   WHERE tags_idx MATCH ?1 \
-                   ORDER BY k.CREATED_ON DESC";
-
-        let mut stmt = conn.prepare(sql).map_err(|_| Error::SearchError)?;
+        let mut stmt = conn
+            .prepare(SEARCH_FTS)
+            .map_err(|e| Error::SearchError(e.to_string()))?;
 
         let items = stmt
-            .query_map(params![keyword], |row| {
-                Ok(row_to_kb_item(
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            })
-            .map_err(|_| Error::SearchError)?
+            .query_map(params![keyword], row_to_kb_item)
+            .map_err(|e| Error::SearchError(e.to_string()))?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| Error::SearchError)?;
+            .map_err(|e| Error::SearchError(e.to_string()))?;
 
         Ok(items)
     }
@@ -294,9 +296,7 @@ impl KbStore for SqliteStore {
     fn save_kb(&self, kb: &Kb) -> Result<(), Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
         conn.execute(
-            "INSERT INTO kbs (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE,
-                              REFERENCE, TAG_VALUES, CREATED_ON)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            INSERT_KB,
             params![
                 kb.id,
                 kb.key,
@@ -309,7 +309,7 @@ impl KbStore for SqliteStore {
                 kb.created_on,
             ],
         )
-        .map_err(|_| Error::CreateKBError)?;
+        .map_err(|e| Error::CreateKBError(e.to_string()))?;
         Ok(())
     }
 
@@ -317,9 +317,7 @@ impl KbStore for SqliteStore {
         let conn = self.conn.lock().expect("mutex poisoned");
         let rows = conn
             .execute(
-                "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGORY=?4,
-                              NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7
-                 WHERE KB_ID=?8",
+                UPDATE_KB,
                 params![
                     kb.key,
                     kb.value,
@@ -331,15 +329,15 @@ impl KbStore for SqliteStore {
                     kb.id,
                 ],
             )
-            .map_err(|_| Error::UpdateKBError)?;
+            .map_err(|e| Error::UpdateKBError(e.to_string()))?;
         Ok(rows > 0)
     }
 
     fn delete_kb(&self, id: &str) -> Result<bool, Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
         let rows = conn
-            .execute("DELETE FROM kbs WHERE KB_ID=?1", params![id])
-            .map_err(|_| Error::DeleteKBError)?;
+            .execute(DELETE_KB, params![id])
+            .map_err(|e| Error::DeleteKBError(e.to_string()))?;
         Ok(rows > 0)
     }
 }
@@ -349,21 +347,21 @@ impl KbStore for SqliteStore {
 // ---------------------------------------------------------------------------
 
 fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
-    let tag_values: String = row.get(7).map_err(|_| Error::GetKBError)?;
+    let tag_values: String = row.get(7).map_err(|e| Error::GetKBError(e.to_string()))?;
     Ok(Kb {
-        id: row.get(0).map_err(|_| Error::GetKBError)?,
-        key: row.get(1).map_err(|_| Error::GetKBError)?,
-        value: row.get(2).map_err(|_| Error::GetKBError)?,
-        notes: row.get(3).map_err(|_| Error::GetKBError)?,
-        category: row.get(4).map_err(|_| Error::GetKBError)?,
-        namespace: row.get(5).map_err(|_| Error::GetKBError)?,
-        reference: row.get(6).map_err(|_| Error::GetKBError)?,
+        id: row.get(0).map_err(|e| Error::GetKBError(e.to_string()))?,
+        key: row.get(1).map_err(|e| Error::GetKBError(e.to_string()))?,
+        value: row.get(2).map_err(|e| Error::GetKBError(e.to_string()))?,
+        notes: row.get(3).map_err(|e| Error::GetKBError(e.to_string()))?,
+        category: row.get(4).map_err(|e| Error::GetKBError(e.to_string()))?,
+        namespace: row.get(5).map_err(|e| Error::GetKBError(e.to_string()))?,
+        reference: row.get(6).map_err(|e| Error::GetKBError(e.to_string()))?,
         tags: if tag_values.is_empty() {
             vec![]
         } else {
             tag_values.split_whitespace().map(str::to_string).collect()
         },
-        created_on: row.get(8).map_err(|_| Error::GetKBError)?,
+        created_on: row.get(8).map_err(|e| Error::GetKBError(e.to_string()))?,
     })
 }
 
@@ -424,7 +422,7 @@ impl VectorStore for SqliteStore {
         let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
         let conn = self.conn.lock().expect("mutex poisoned");
         conn.execute(DELETE_EMBEDDING, params![input.kb_id])
-            .map_err(|_| Error::VectorSearchError)?;
+            .map_err(|e| Error::VectorSearchError(e.to_string()))?;
         conn.execute(INSERT_EMBEDDING, params![input.kb_id, bytes])
             .map_err(|e| Error::VectorStoreInitError(e.to_string()))?;
         Ok(())
@@ -433,7 +431,7 @@ impl VectorStore for SqliteStore {
     fn delete_embedding(&self, kb_id: &str) -> Result<(), Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
         conn.execute(DELETE_EMBEDDING, params![kb_id])
-            .map_err(|_| Error::VectorSearchError)?;
+            .map_err(|e| Error::VectorSearchError(e.to_string()))?;
         Ok(())
     }
 
@@ -449,16 +447,16 @@ impl VectorStore for SqliteStore {
         // Step 1: KNN search — vec0 MATCH queries do not support JOINs
         let mut knn_stmt = conn
             .prepare(SEARCH_KNN)
-            .map_err(|_| Error::VectorSearchError)?;
+            .map_err(|e| Error::VectorSearchError(e.to_string()))?;
         let knn_rows: Vec<(String, f32)> = knn_stmt
             .query_map(params![bytes, limit], |row| {
                 let kb_id: String = row.get(0)?;
                 let distance: f64 = row.get(1)?;
                 Ok((kb_id, distance as f32))
             })
-            .map_err(|_| Error::VectorSearchError)?
+            .map_err(|e| Error::VectorSearchError(e.to_string()))?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| Error::VectorSearchError)?;
+            .map_err(|e| Error::VectorSearchError(e.to_string()))?;
 
         if knn_rows.is_empty() {
             return Ok(vec![]);
@@ -469,19 +467,8 @@ impl VectorStore for SqliteStore {
         for (kb_id, score) in knn_rows {
             let mut item_stmt = conn
                 .prepare(GET_KB_ITEM_BY_ID)
-                .map_err(|_| Error::VectorSearchError)?;
-            let item = item_stmt
-                .query_row(params![kb_id], |row| {
-                    let tag_values: String = row.get(4).unwrap_or_default();
-                    Ok(row_to_kb_item(
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        tag_values,
-                    ))
-                })
-                .ok();
+                .map_err(|e| Error::VectorSearchError(e.to_string()))?;
+            let item = item_stmt.query_row(params![kb_id], row_to_kb_item).ok();
             if let Some(item) = item {
                 results.push(ScoredKbItem { item, score });
             }

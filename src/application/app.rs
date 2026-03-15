@@ -4,7 +4,7 @@ use crate::adapters::fastembed::FastEmbedProvider;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
-use crate::cli::handlers::{self, Services};
+use crate::cli::handlers::{self, GetParams, ListParams, Services};
 use crate::domain::{KbUpdate, NewKb, SemanticQuery};
 use crate::errors::AppError;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
@@ -69,7 +69,9 @@ impl App {
                 },
             )?,
 
-            Command::Get { key, id } => handlers::handle_get(&self.services.kb, key, id)?,
+            Command::Get { key, id } => {
+                handlers::handle_get(&self.services.kb, GetParams { key, id })?
+            }
 
             Command::List {
                 category,
@@ -77,9 +79,16 @@ impl App {
                 tags,
                 limit,
                 offset,
-            } => {
-                handlers::handle_list(&self.services.kb, category, namespace, tags, limit, offset)?
-            }
+            } => handlers::handle_list(
+                &self.services.kb,
+                ListParams {
+                    category,
+                    namespace,
+                    tags,
+                    limit,
+                    offset,
+                },
+            )?,
 
             Command::Update {
                 id,

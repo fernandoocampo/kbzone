@@ -13,6 +13,23 @@ pub struct Services<S: KbStore, V: VectorStore, E: EmbeddingProvider> {
 }
 
 // ---------------------------------------------------------------------------
+// Parameter structs (satisfy the 2-param rule)
+// ---------------------------------------------------------------------------
+
+pub struct ListParams {
+    pub category: Option<String>,
+    pub namespace: Option<String>,
+    pub tags: Vec<String>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+pub struct GetParams {
+    pub key: Option<String>,
+    pub id: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Column widths for tabular output
 // ---------------------------------------------------------------------------
 
@@ -63,41 +80,34 @@ pub fn handle_add<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
-pub fn handle_get<T: KbStore>(
-    svc: &Service<T>,
-    key: Option<String>,
-    id: Option<String>,
-) -> Result<(), Error> {
-    let kb = match (key, id) {
+pub fn handle_get<T: KbStore>(svc: &Service<T>, params: GetParams) -> Result<(), Error> {
+    let kb = match (params.key, params.id) {
         (Some(k), _) => svc.get_kb_by_key(&k)?,
         (_, Some(i)) => svc.get_kb_by_id(&i)?,
         _ => {
             eprintln!("error: provide --key or --id");
-            return Err(Error::GetKBError);
+            return Err(Error::GetKBError("no lookup key provided".to_string()));
         }
     };
 
     match kb {
-        Some(kb) => kb.display(),
+        Some(kb) => print!("{kb}"),
         None => println!("Not found."),
     }
     Ok(())
 }
 
-pub fn handle_list<T: KbStore>(
-    svc: &Service<T>,
-    category: Option<String>,
-    namespace: Option<String>,
-    tags: Vec<String>,
-    limit: i64,
-    offset: i64,
-) -> Result<(), Error> {
+pub fn handle_list<T: KbStore>(svc: &Service<T>, params: ListParams) -> Result<(), Error> {
     let filter = KbFilter {
-        category,
-        namespace,
-        tags: if tags.is_empty() { None } else { Some(tags) },
-        limit: Some(limit),
-        offset: Some(offset),
+        category: params.category,
+        namespace: params.namespace,
+        tags: if params.tags.is_empty() {
+            None
+        } else {
+            Some(params.tags)
+        },
+        limit: Some(params.limit),
+        offset: Some(params.offset),
         ..Default::default()
     };
     let items = svc.list_kbs(filter)?;
@@ -154,13 +164,12 @@ pub fn handle_update<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
             kb_id,
             text: embed_text,
         };
-        services.semantic.index_kb(&input).map_err(|e| {
+        if let Err(e) = services.semantic.index_kb(&input) {
             eprintln!(
                 "Warning: could not update embedding for '{}': {}",
                 update.id, e
             );
-            e
-        })?;
+        }
     }
 
     services.kb.update_kb(updated)?;

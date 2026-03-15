@@ -19,7 +19,7 @@ impl<T: KbStore> Service<T> {
         if self.store.get_kb_by_key(&key)?.is_some() {
             return Err(Error::DuplicateKBError);
         }
-        let kb = new_kb.to_kb();
+        let kb = Kb::from(new_kb);
         self.store.save_kb(&kb)?;
         Ok(kb)
     }
@@ -212,7 +212,7 @@ mod tests {
         let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
         let svc = Service::new(store);
         let result = svc.add_kb(make_new_kb("rust-ownership"));
-        assert_eq!(result.unwrap_err(), Error::DuplicateKBError);
+        assert!(matches!(result, Err(Error::DuplicateKBError)));
     }
 
     #[test]
@@ -224,7 +224,10 @@ mod tests {
     #[test]
     fn delete_kb_returns_not_found_for_missing_id() {
         let svc = Service::new(MockKbStore::new());
-        assert_eq!(svc.delete_kb("no-such-id").unwrap_err(), Error::KBNotFound);
+        assert!(matches!(
+            svc.delete_kb("no-such-id"),
+            Err(Error::KBNotFound)
+        ));
     }
 
     #[test]
@@ -241,7 +244,10 @@ mod tests {
         let svc = Service::new(store);
         let mut updated = make_kb("id-1", "already-taken");
         updated.value = "new value".to_string();
-        assert_eq!(svc.update_kb(updated).unwrap_err(), Error::DuplicateKBError);
+        assert!(matches!(
+            svc.update_kb(updated),
+            Err(Error::DuplicateKBError)
+        ));
     }
 
     #[test]

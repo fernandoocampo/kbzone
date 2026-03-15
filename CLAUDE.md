@@ -60,6 +60,17 @@ make check   # full CI gate (fmt-check + lint + test)
 - **Function arguments** — functions and methods must have at most 2 parameters (excluding `self`/`&self`). If more data is needed, define a dedicated struct to carry the parameters; do not add a third bare argument under any circumstance.
 - **TDD** — always write unit tests before implementing the code logic. Define the test cases first, confirm they fail, then write the minimum code to make them pass.
 
+## Idiomatic Rust Rules
+
+- **Error context** — every `Error` variant that wraps an underlying I/O or storage failure must carry a `String` payload (e.g. `GetKBError(String)`). Never discard the source with `map_err(|_| Error::Foo)` — always use `map_err(|e| Error::Foo(e.to_string()))`.
+- **No `PartialEq` on `Error`** — `Error` does not derive `PartialEq`. Tests must use `matches!()` to check error variants: `assert!(matches!(result, Err(Error::SomeVariant)))`.
+- **Standard conversion traits** — when a type is fully consumed and returned as another type, implement `From<A> for B` instead of a custom `to_b(self)` method. Callers use `B::from(a)` or `a.into()`.
+- **`Display` not side-effecting methods** — domain structs must not call `println!` or any I/O directly. Implement `std::fmt::Display` and let callers use `print!("{}", value)` or `format!`.
+- **No I/O in the domain layer** — `domain/` structs and functions must have zero dependencies on `std::io`, `println!`, or any adapter. Output belongs in `cli/handlers.rs`.
+- **Row parsers take `&Row`** — SQLite row-mapping helper functions must accept `&rusqlite::Row` and return `rusqlite::Result<T>`, matching the signature expected by `query_map` / `query_row`. Do not accept individual column values as separate arguments.
+- **Module visibility** — modules that are only consumed within the library crate (`adapters`, `cli`, `service`) must be declared `pub(crate) mod`. Modules that form the public API (`domain`, `errors`, `ports`) and the binary entry-point module (`application`) stay `pub mod`.
+- **Test-only constructors** — functions only needed for tests (e.g. `in_memory()`) must be annotated `#[cfg(test)]` to avoid dead-code warnings in production builds.
+
 ## Configuration
 
 Config file: `~/kbzona/config.yaml` (or `$KBZONA_HOME/config.yaml`).
