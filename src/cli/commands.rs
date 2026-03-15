@@ -126,4 +126,16 @@ pub enum Command {
 
     /// Re-generate embeddings for all existing KB entries.
     Reindex,
+
+    /// Import KB entries from a multi-document YAML file.
+    Import {
+        #[arg(long, required = true, help = "Path to the YAML file to import")]
+        file: String,
+        #[arg(
+            long,
+            default_value = "wrong-kb-items.yaml",
+            help = "Output file for items that failed to import (same YAML format)"
+        )]
+        failed_items_file: String,
+    },
 }

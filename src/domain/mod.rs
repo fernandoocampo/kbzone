@@ -15,4 +15,7 @@
 
 pub mod kb;
 
-pub use kb::{EmbeddingInput, Kb, KbFilter, KbItem, KbUpdate, NewKb, ScoredKbItem, SemanticQuery};
+pub use kb::{
+    EmbeddingInput, FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem,
+    KbUpdate, NewKb, ScoredKbItem, SemanticQuery,
+};

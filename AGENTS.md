@@ -41,6 +41,36 @@ src/
   application/app.rs             App::build() wires deps; App::run() dispatches CLI
 ```
 
+## Hexagonal Architecture — Layer Communication Rules
+
+| From layer | May depend on | Must NOT depend on |
+|---|---|---|
+| `domain/` | nothing (pure Rust, no crate deps beyond std + serde) | ports, service, adapters, cli, application |
+| `ports/` | `domain/` | adapters, service, cli, application |
+| `service/` | `domain/`, `ports/` (traits only) | adapters (concrete types), cli, application |
+| `adapters/` | `domain/`, `ports/` | service, cli, application |
+| `cli/` | `domain/`, `ports/`, `service/` | adapters (concrete types), application |
+| `application/` | all layers (wiring only) | — |
+
+### Data flow for a typical command
+
+```
+CLI args
+  → cli/commands.rs (parse)
+  → cli/handlers.rs (orchestrate, I/O)
+    → service/kb_service.rs (business logic)
+      → ports/storage.rs (trait)
+        → adapters/sqlite/store.rs (implementation)
+    → service/semantic_service.rs (embedding coordination)
+      → ports/embedding.rs + ports/vector_store.rs (traits)
+        → adapters/fastembed/provider.rs (implementation)
+```
+
+**Key rules:**
+- `application/app.rs` is the **composition root**: the only place where concrete adapter types are named. All other layers depend on traits.
+- `cli/handlers.rs` coordinates between services but never instantiates adapters directly.
+- New types needed for a feature (e.g. `ImportBatchResult`) belong in `domain/` if they carry no I/O or adapter logic.
+
 ## Build & Test Commands
 
 Always use `make` targets — never invoke `cargo` directly. The Makefile is the single source of truth for how to build, test, and lint this project.

@@ -146,6 +146,64 @@ pub struct EmbeddingInput {
     pub text: String,
 }
 
+/// YAML-serialisable representation of a single KB entry used by `kb import`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ImportKbItem {
+    #[serde(rename = "Key")]
+    pub key: String,
+    #[serde(rename = "Value")]
+    pub value: String,
+    #[serde(rename = "Notes", default)]
+    pub notes: String,
+    #[serde(rename = "Category", default)]
+    pub category: String,
+    #[serde(rename = "Reference", default)]
+    pub reference: String,
+    #[serde(rename = "Namespace", default)]
+    pub namespace: String,
+    #[serde(rename = "Tags", default)]
+    pub tags: Vec<String>,
+}
+
+impl ImportKbItem {
+    /// Returns `Some(reason)` if required fields are missing/blank, `None` if valid.
+    pub fn validate(&self) -> Option<String> {
+        if self.key.trim().is_empty() {
+            return Some("Key is empty".to_string());
+        }
+        if self.value.trim().is_empty() {
+            return Some("Value is empty".to_string());
+        }
+        None
+    }
+}
+
+impl From<ImportKbItem> for NewKb {
+    fn from(item: ImportKbItem) -> Self {
+        NewKb {
+            key: item.key,
+            value: item.value,
+            notes: item.notes,
+            category: item.category,
+            reference: item.reference,
+            namespace: item.namespace,
+            tags: item.tags,
+        }
+    }
+}
+
+/// Result of a batch import operation.
+pub struct ImportBatchResult {
+    pub saved: Vec<Kb>,
+    pub failed: Vec<FailedImportItem>,
+}
+
+/// An item that could not be imported, with the reason.
+pub struct FailedImportItem {
+    pub item: ImportKbItem,
+    pub reason: String,
+}
+
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
@@ -191,5 +249,95 @@ mod tests {
             .chars()
             .collect();
         assert!(value_part.len() <= 200);
+    }
+
+    fn make_import_item(key: &str, value: &str) -> ImportKbItem {
+        ImportKbItem {
+            key: key.to_string(),
+            value: value.to_string(),
+            notes: String::new(),
+            category: "concept".to_string(),
+            reference: String::new(),
+            namespace: "default".to_string(),
+            tags: vec!["rust".to_string()],
+        }
+    }
+
+    #[test]
+    fn import_kb_item_valid_passes_validation() {
+        let item = make_import_item("rust-ownership", "memory management");
+        assert!(item.validate().is_none());
+    }
+
+    #[test]
+    fn import_kb_item_empty_key_fails_validation() {
+        let item = make_import_item("", "some value");
+        let result = item.validate();
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("Key"));
+    }
+
+    #[test]
+    fn import_kb_item_blank_key_fails_validation() {
+        let item = make_import_item("   ", "some value");
+        let result = item.validate();
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("Key"));
+    }
+
+    #[test]
+    fn import_kb_item_empty_value_fails_validation() {
+        let item = make_import_item("rust-ownership", "");
+        let result = item.validate();
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("Value"));
+    }
+
+    #[test]
+    fn import_kb_item_converts_to_new_kb() {
+        let item = make_import_item("rust-ownership", "memory management");
+        let new_kb = NewKb::from(item);
+        assert_eq!(new_kb.key, "rust-ownership");
+        assert_eq!(new_kb.value, "memory management");
+    }
+
+    #[test]
+    fn import_kb_item_deserializes_from_yaml() {
+        let yaml = "Key: rust-ownership\nValue: memory management\nCategory: concept\n";
+        let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(item.key, "rust-ownership");
+        assert_eq!(item.value, "memory management");
+    }
+
+    #[test]
+    fn import_kb_item_serializes_to_yaml() {
+        let item = make_import_item("rust-ownership", "memory management");
+        let yaml = serde_yaml::to_string(&item).unwrap();
+        assert!(yaml.contains("rust-ownership"));
+        assert!(yaml.contains("memory management"));
+    }
+
+    #[test]
+    fn import_kb_item_missing_key_fails_deserialization() {
+        let yaml = "Value: memory management\n";
+        let result: Result<ImportKbItem, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn import_kb_item_missing_value_fails_deserialization() {
+        let yaml = "Key: rust-ownership\n";
+        let result: Result<ImportKbItem, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn import_kb_item_optional_fields_default_when_absent() {
+        let yaml = "Key: rust-ownership\nValue: memory management\n";
+        let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
+        assert!(item.notes.is_empty());
+        assert!(item.category.is_empty());
+        assert!(item.namespace.is_empty());
+        assert!(item.tags.is_empty());
     }
 }

@@ -31,6 +31,12 @@ pub enum Error {
     VectorStoreInitError(String),
     #[error("reindex failed: {0}")]
     ReindexError(String),
+    #[error("failed to read import file: {0}")]
+    ImportFileError(String),
+    #[error("failed to parse import file: {0}")]
+    ParseImportFileError(String),
+    #[error("failed to write failed items file: {0}")]
+    WriteFailedItemsError(String),
 }
 
 /// Application-level startup / configuration errors.

@@ -4,7 +4,7 @@ use crate::adapters::fastembed::FastEmbedProvider;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
-use crate::cli::handlers::{self, GetParams, ListParams, Services};
+use crate::cli::handlers::{self, GetParams, ImportParams, ListParams, Services};
 use crate::domain::{KbUpdate, NewKb, SemanticQuery};
 use crate::errors::AppError;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
@@ -126,6 +126,17 @@ impl App {
             )?,
 
             Command::Reindex => handlers::handle_reindex(&self.services)?,
+
+            Command::Import {
+                file,
+                failed_items_file,
+            } => handlers::handle_import(
+                &self.services,
+                ImportParams {
+                    file,
+                    failed_items_file,
+                },
+            )?,
         }
 
         Ok(())

@@ -1,4 +1,6 @@
-use crate::domain::{Kb, KbFilter, KbItem, NewKb};
+use crate::domain::{
+    FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem, NewKb,
+};
 use crate::errors::Error;
 use crate::ports::KbStore;
 
@@ -67,6 +69,30 @@ impl<T: KbStore> Service<T> {
             ..Default::default()
         };
         self.store.search_kbs(&filter)
+    }
+
+    /// Batch-imports items: validates each one, tries to save, collects failures.
+    /// Never returns Err — failures are reported inside ImportBatchResult.
+    pub fn add_kbs(&self, items: Vec<ImportKbItem>) -> ImportBatchResult {
+        let mut saved = Vec::new();
+        let mut failed = Vec::new();
+
+        for item in items {
+            if let Some(reason) = item.validate() {
+                failed.push(FailedImportItem { item, reason });
+                continue;
+            }
+            let new_kb = NewKb::from(item.clone());
+            match self.add_kb(new_kb) {
+                Ok(kb) => saved.push(kb),
+                Err(e) => failed.push(FailedImportItem {
+                    item,
+                    reason: e.to_string(),
+                }),
+            }
+        }
+
+        ImportBatchResult { saved, failed }
     }
 }
 
@@ -267,5 +293,78 @@ mod tests {
         let svc = Service::new(store);
         let results = svc.search_kbs("memo").unwrap();
         assert_eq!(results.len(), 1);
+    }
+
+    fn make_import_item(key: &str, value: &str) -> ImportKbItem {
+        ImportKbItem {
+            key: key.to_string(),
+            value: value.to_string(),
+            notes: String::new(),
+            category: "concept".to_string(),
+            reference: String::new(),
+            namespace: "default".to_string(),
+            tags: vec!["rust".to_string()],
+        }
+    }
+
+    #[test]
+    fn add_kbs_imports_all_valid_items() {
+        let svc = Service::new(MockKbStore::new());
+        let items = vec![
+            make_import_item("rust-ownership", "memory management"),
+            make_import_item("rust-borrowing", "borrow checker"),
+        ];
+        let result = svc.add_kbs(items);
+        assert_eq!(result.saved.len(), 2);
+        assert!(result.failed.is_empty());
+    }
+
+    #[test]
+    fn add_kbs_collects_item_with_empty_key() {
+        let svc = Service::new(MockKbStore::new());
+        let items = vec![make_import_item("", "some value")];
+        let result = svc.add_kbs(items);
+        assert_eq!(result.failed.len(), 1);
+        assert!(result.failed[0].reason.contains("Key"));
+    }
+
+    #[test]
+    fn add_kbs_collects_item_with_empty_value() {
+        let svc = Service::new(MockKbStore::new());
+        let items = vec![make_import_item("rust-ownership", "")];
+        let result = svc.add_kbs(items);
+        assert_eq!(result.failed.len(), 1);
+        assert!(result.failed[0].reason.contains("Value"));
+    }
+
+    #[test]
+    fn add_kbs_collects_duplicate_key() {
+        let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
+        let svc = Service::new(store);
+        let items = vec![make_import_item("rust-ownership", "some value")];
+        let result = svc.add_kbs(items);
+        assert_eq!(result.failed.len(), 1);
+    }
+
+    #[test]
+    fn add_kbs_mixed_batch_correct_counts() {
+        let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
+        let svc = Service::new(store);
+        let items = vec![
+            make_import_item("rust-borrowing", "borrow checker"), // valid
+            make_import_item("", "some value"),                   // empty key
+            make_import_item("rust-ownership", "duplicate"),      // duplicate
+        ];
+        let result = svc.add_kbs(items);
+        assert_eq!(result.saved.len(), 1);
+        assert_eq!(result.failed.len(), 2);
+    }
+
+    #[test]
+    fn add_kbs_empty_input_returns_empty_result() {
+        let svc = Service::new(MockKbStore::new());
+        let result = svc.add_kbs(vec![]);
+        assert!(result.saved.is_empty());
+        assert!(result.failed.is_empty());
     }
 }
