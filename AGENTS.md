@@ -7,16 +7,14 @@ local SQLite file. The binary is named `kb`.
 
 ## Make Targets
 
-| Target       | Equivalent cargo command            | Purpose                              |
-|--------------|-------------------------------------|--------------------------------------|
-| `make build` | `cargo build --release && cp …`     | Compile release binary → `bin/kb`    |
-| `make test`  | `cargo test`                        | Run all unit + integration tests     |
-| `make lint`  | `cargo clippy -- -D warnings`       | Lint (deny warnings)                 |
-| `make fmt`   | `cargo fmt`                         | Auto-format source                   |
-| `make fmt-check` | `cargo fmt -- --check`          | Check formatting (CI)                |
-| `make install` | `cargo install --path .`          | Install to `~/.cargo/bin`            |
-| `make check` | fmt-check + lint + test             | Full CI gate                         |
-| `make clean` | `cargo clean && rm -rf bin`         | Remove build artifacts               |
+- `make build`     — `cargo build --release && cp …` — Compile release binary → `bin/kb`
+- `make test`      — `cargo test` — Run all unit + integration tests
+- `make lint`      — `cargo clippy -- -D warnings` — Lint (deny warnings)
+- `make fmt`       — `cargo fmt` — Auto-format source
+- `make fmt-check` — `cargo fmt -- --check` — Check formatting (CI)
+- `make install`   — `cargo install --path .` — Install to `~/.cargo/bin`
+- `make check`     — fmt-check + lint + test — Full CI gate
+- `make clean`     — `cargo clean && rm -rf bin` — Remove build artifacts
 
 ## Architecture Module Map
 
@@ -75,6 +73,18 @@ CLI args
 
 Always use `make` targets — never invoke `cargo` directly. The Makefile is the single source of truth for how to build, test, and lint this project.
 
+## AI Workflow Rules
+
+### Plan First
+- Plan before writing any code — even for trivial tasks.
+- If something goes sideways during implementation, **STOP** and re-plan immediately.
+  Do not push through with a broken approach.
+
+### Verification Before Marking Done
+- Never mark a task as done without verifying it works.
+- Always run `make check` (or at minimum `make test`) before closing a task.
+- A task is only done when tests pass and linter is clean.
+
 ## Coding Constraints
 
 - **No async** — fully synchronous; tokio is not a dependency.
@@ -99,18 +109,34 @@ Always use `make` targets — never invoke `cargo` directly. The Makefile is the
 - **Module visibility** — internal-only modules (`adapters`, `cli`, `service`) use `pub(crate) mod`. Public-API modules (`domain`, `errors`, `ports`) and the binary entry-point module (`application`) use `pub mod`.
 - **Test-only constructors** — functions only needed in tests (e.g. `in_memory()`) must carry `#[cfg(test)]`.
 
+## Common Mistakes to Avoid
+
+These are structural violations that agents commonly introduce. Check before submitting.
+
+- **Putting I/O in the domain layer** — `domain/` must have zero `println!`, `eprintln!`,
+  or `std::io` usage. All output belongs in `cli/handlers.rs`.
+- **Adding a third bare parameter to a function** — if you need more than 2 args
+  (excluding `self`), define a struct. No exceptions.
+- **Using `unwrap()` in library code** — use `?` or `expect("descriptive reason")`.
+- **Deriving `PartialEq` on `Error`** — forbidden. Use `matches!()` in tests.
+- **Inline SQL string literals** — all SQL must be `const &str`, never an inline `"SELECT…"`.
+- **Reaching across layer boundaries** — e.g. importing adapter concrete types in `service/`
+  or `cli/`. Always depend on traits, not implementations (except `application/app.rs`).
+- **Discarding error context** — never `map_err(|_| Error::Foo)`. Always
+  `map_err(|e| Error::Foo(e.to_string()))`.
+- **Making `#[cfg(test)]` constructors public in production** — test-only helpers must carry
+  `#[cfg(test)]`.
+
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `kb add` | Add a new entry (also indexes embedding) |
-| `kb get` | Fetch a single entry by key or ID |
-| `kb list` | List entries with optional filters |
-| `kb update` | Update an entry (also re-indexes embedding) |
-| `kb delete` | Delete an entry (also removes embedding) |
-| `kb search --keyword <term>` | FTS5 tag search |
-| `kb ask "<query>"` | Semantic / vector search (natural language) |
-| `kb reindex` | Rebuild embeddings for all entries |
+- `kb add`                     — Add a new entry (also indexes embedding)
+- `kb get`                     — Fetch a single entry by key or ID
+- `kb list`                    — List entries with optional filters
+- `kb update`                  — Update an entry (also re-indexes embedding)
+- `kb delete`                  — Delete an entry (also removes embedding)
+- `kb search --keyword <term>` — FTS5 tag search
+- `kb ask "<query>"`           — Semantic / vector search (natural language)
+- `kb reindex`                 — Rebuild embeddings for all entries
 
 ## Configuration
 
