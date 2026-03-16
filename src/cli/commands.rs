@@ -127,6 +127,9 @@ pub enum Command {
     /// Re-generate embeddings for all existing KB entries.
     Reindex,
 
+    /// Print a random quote from the knowledge base.
+    Quote,
+
     /// Import KB entries from a multi-document YAML file.
     Import {
         #[arg(long, required = true, help = "Path to the YAML file to import")]

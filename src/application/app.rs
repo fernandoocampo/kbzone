@@ -126,6 +126,8 @@ impl App {
                 },
             )?,
 
+            Command::Quote => handlers::handle_quote(&self.svc)?,
+
             Command::Reindex => handlers::handle_reindex(&self.svc)?,
 
             Command::Import {

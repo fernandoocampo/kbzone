@@ -27,4 +27,7 @@ pub trait KbStore: Debug + Clone {
 
     /// Returns `true` if a row was deleted.
     fn delete_kb(&self, id: &str) -> Result<bool, Error>;
+
+    /// Returns a random KB entry whose category is `"quote"`.
+    fn random_quote(&self) -> Result<Kb, Error>;
 }

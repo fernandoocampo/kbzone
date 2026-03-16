@@ -94,6 +94,15 @@ impl KbStore for MockKbStore {
     fn delete_kb(&self, id: &str) -> Result<bool, Error> {
         Ok(self.data.borrow_mut().remove(id).is_some())
     }
+
+    fn random_quote(&self) -> Result<Kb, Error> {
+        self.data
+            .borrow()
+            .values()
+            .find(|kb| kb.category.to_lowercase() == "quote")
+            .cloned()
+            .ok_or(Error::QuoteNotFound)
+    }
 }
 
 // ---- GhostItemKbStore: list_kbs returns items but get_kb_by_id returns None ----
@@ -141,6 +150,10 @@ impl KbStore for GhostItemKbStore {
 
     fn delete_kb(&self, _id: &str) -> Result<bool, Error> {
         Ok(false)
+    }
+
+    fn random_quote(&self) -> Result<Kb, Error> {
+        Err(Error::QuoteNotFound)
     }
 }
 
@@ -777,6 +790,24 @@ fn add_kbs_empty_input_returns_empty_result() {
     let result = make_svc().import_kbs(vec![]);
     assert!(result.saved.is_empty());
     assert!(result.failed.is_empty());
+}
+
+// ---- quote tests ----
+
+#[test]
+fn quote_returns_quote_category_entry() {
+    let mut kb = make_kb("id-1", "stoic-wisdom");
+    kb.category = "quote".to_string();
+    let store = MockKbStore::with(vec![kb]);
+    let svc = make_svc_with_store(store);
+    let result = svc.quote().unwrap();
+    assert_eq!(result.category, "quote");
+}
+
+#[test]
+fn quote_propagates_not_found_when_no_quotes_exist() {
+    let svc = make_svc();
+    assert!(matches!(svc.quote(), Err(Error::QuoteNotFound)));
 }
 
 // ---- ask / list / search delegation smoke tests ----

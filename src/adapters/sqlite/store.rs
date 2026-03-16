@@ -69,6 +69,11 @@ const UPDATE_KB: &str = "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGO
 
 const DELETE_KB: &str = "DELETE FROM kbs WHERE KB_ID=?1";
 
+const GET_RANDOM_QUOTE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+                                 REFERENCE, TAG_VALUES, CREATED_ON \
+                                 FROM kbs WHERE LOWER(CATEGORY) = 'quote' \
+                                 ORDER BY RANDOM() LIMIT 1";
+
 const SEARCH_FTS: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
                            FROM kbs k \
                            JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
@@ -328,6 +333,20 @@ impl KbStore for SqliteStore {
             .execute(DELETE_KB, params![id])
             .map_err(|e| Error::DeleteKBError(e.to_string()))?;
         Ok(rows > 0)
+    }
+
+    fn random_quote(&self) -> Result<Kb, Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut stmt = conn
+            .prepare(GET_RANDOM_QUOTE)
+            .map_err(|e| Error::QuoteError(e.to_string()))?;
+        let mut rows = stmt
+            .query([])
+            .map_err(|e| Error::QuoteError(e.to_string()))?;
+        match rows.next().map_err(|e| Error::QuoteError(e.to_string()))? {
+            Some(row) => row_to_kb(row),
+            None => Err(Error::QuoteNotFound),
+        }
     }
 }
 

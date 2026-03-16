@@ -194,6 +194,17 @@ pub fn handle_ask<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
+pub fn handle_quote<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
+    svc: &KBService<S, V, E>,
+) -> Result<(), Error> {
+    let kb = svc.quote()?;
+    println!("\"{}\"", kb.value);
+    if !kb.reference.is_empty() {
+        println!("  — {}", kb.reference);
+    }
+    Ok(())
+}
+
 pub fn handle_reindex<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     svc: &KBService<S, V, E>,
 ) -> Result<(), Error> {

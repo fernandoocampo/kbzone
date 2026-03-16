@@ -131,6 +131,31 @@ fn search_kbs_via_fts5() {
     assert_eq!(results[0].key, "rust-ownership");
 }
 
+#[test]
+fn random_quote_returns_a_quote_category_entry() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-q1", "stoic-quote");
+    kb1.category = "quote".to_string();
+    let mut kb2 = make_kb("id-q2", "zen-quote");
+    kb2.category = "quote".to_string();
+    let kb3 = make_kb("id-c1", "rust-concept"); // category = "concept"
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let result = store.random_quote().unwrap();
+    assert_eq!(result.category.to_lowercase(), "quote");
+}
+
+#[test]
+fn random_quote_returns_not_found_when_no_quotes_exist() {
+    let store = initialized_store();
+    store.save_kb(&make_kb("id-c1", "rust-concept")).unwrap();
+
+    let result = store.random_quote();
+    assert!(matches!(result, Err(Error::QuoteNotFound)));
+}
+
 fn initialized_store_with_vectors(dims: usize) -> SqliteStore {
     let store = in_memory_store();
     store.initialize().expect("initialize");

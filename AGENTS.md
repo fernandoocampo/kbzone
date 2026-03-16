@@ -80,6 +80,11 @@ Always use `make` targets — never invoke `cargo` directly. The Makefile is the
 - If something goes sideways during implementation, **STOP** and re-plan immediately.
   Do not push through with a broken approach.
 
+### Format After Every Code Change
+- Run `make fmt` immediately after writing or editing any Rust source file.
+- Never rely on `make check` to catch formatting issues — fix them before the CI gate.
+- Workflow: write code → `make fmt` → `make check`.
+
 ### Verification Before Marking Done
 - Never mark a task as done without verifying it works.
 - Always run `make check` (or at minimum `make test`) before closing a task.
@@ -105,7 +110,10 @@ Always use `make` targets — never invoke `cargo` directly. The Makefile is the
 - **Standard conversion traits** — use `impl From<A> for B` instead of custom `to_b(self)` methods. Callers use `B::from(a)` or `a.into()`.
 - **`Display` not side-effecting methods** — domain structs must not call `println!` or any I/O. Implement `std::fmt::Display` and let callers use `print!("{}", value)`.
 - **No I/O in the domain layer** — `domain/` has zero dependencies on `std::io`, `println!`, or adapters. All output lives in `cli/handlers.rs`.
-- **Row parsers take `&Row`** — SQLite row helpers must be `fn foo(row: &rusqlite::Row) -> rusqlite::Result<T>`. Do not pass individual column values as separate arguments.
+- **Two kinds of row helpers — choose the right one**:
+  - Helpers used with `query_map` or `conn.query_row` **must** return `rusqlite::Result<T>` (e.g. `row_to_kb_item`). These can be passed directly as the row closure.
+  - Helpers that map column errors to domain `Error` (e.g. `row_to_kb`) return `Result<T, Error>` and **cannot** be passed to `query_row`/`query_map`. Use `prepare()` + `stmt.query([])` + `rows.next()` instead, then call the helper on the `&Row` manually.
+  - Never pass individual column values as separate arguments — always take `&rusqlite::Row`.
 - **Module visibility** — internal-only modules (`adapters`, `cli`, `service`) use `pub(crate) mod`. Public-API modules (`domain`, `errors`, `ports`) and the binary entry-point module (`application`) use `pub mod`.
 - **Test-only constructors** — functions only needed in tests (e.g. `in_memory()`) must carry `#[cfg(test)]`.
 
@@ -137,6 +145,7 @@ These are structural violations that agents commonly introduce. Check before sub
 - `kb search --keyword <term>` — FTS5 tag search
 - `kb ask "<query>"`           — Semantic / vector search (natural language)
 - `kb reindex`                 — Rebuild embeddings for all entries
+- `kb quote`                   — Print a random quote-category entry
 
 ## Configuration
 

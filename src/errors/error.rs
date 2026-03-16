@@ -37,6 +37,10 @@ pub enum Error {
     ParseImportFileError(String),
     #[error("failed to write failed items file: {0}")]
     WriteFailedItemsError(String),
+    #[error("no quotes found in the knowledge base")]
+    QuoteNotFound,
+    #[error("quote error: {0}")]
+    QuoteError(String),
 }
 
 /// Application-level startup / configuration errors.

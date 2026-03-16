@@ -120,6 +120,10 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
         Ok(())
     }
 
+    pub fn quote(&self) -> Result<Kb, Error> {
+        self.store.random_quote()
+    }
+
     pub fn ask(&self, query: &SemanticQuery) -> Result<Vec<ScoredKbItem>, Error> {
         let embedding = self.embedder.embed(&query.text)?;
         self.vector_store.search_similar(query, &embedding)

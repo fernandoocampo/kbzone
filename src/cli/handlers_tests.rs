@@ -68,6 +68,15 @@ impl crate::ports::KbStore for MockKbStore {
     fn delete_kb(&self, id: &str) -> Result<bool, Error> {
         Ok(self.data.borrow_mut().remove(id).is_some())
     }
+
+    fn random_quote(&self) -> Result<crate::domain::Kb, Error> {
+        self.data
+            .borrow()
+            .values()
+            .find(|kb| kb.category.to_lowercase() == "quote")
+            .cloned()
+            .ok_or(Error::QuoteNotFound)
+    }
 }
 
 #[derive(Debug, Clone)]
