@@ -130,6 +130,9 @@ pub enum Command {
     /// Print a random quote from the knowledge base.
     Quote,
 
+    /// Print version information (git hash, build date).
+    Version,
+
     /// Import KB entries from a multi-document YAML file.
     Import {
         #[arg(long, required = true, help = "Path to the YAML file to import")]

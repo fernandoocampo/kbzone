@@ -28,6 +28,23 @@ pub struct ImportParams {
 }
 
 // ---------------------------------------------------------------------------
+// Version constants (baked in at compile time via Makefile env vars)
+// ---------------------------------------------------------------------------
+
+const KB_VERSION: &str = match option_env!("KB_VERSION") {
+    Some(v) => v,
+    None => "unknown",
+};
+const KB_BUILD_DATE: &str = match option_env!("KB_BUILD_DATE") {
+    Some(v) => v,
+    None => "unknown",
+};
+const KB_GIT_HASH: &str = match option_env!("KB_GIT_HASH") {
+    Some(v) => v,
+    None => "unknown",
+};
+
+// ---------------------------------------------------------------------------
 // Column widths for tabular output
 // ---------------------------------------------------------------------------
 
@@ -107,7 +124,30 @@ pub fn handle_list<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
         offset: Some(params.offset),
         ..Default::default()
     };
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(ref c) = filter.category {
+        parts.push(format!("category={c}"));
+    }
+    if let Some(ref n) = filter.namespace {
+        parts.push(format!("namespace={n}"));
+    }
+    if let Some(ref t) = filter.tags {
+        parts.push(format!("tags={}", t.join(",")));
+    }
+    let filters = if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join(" ")
+    };
+    let start = std::time::Instant::now();
     let items = svc.list_kbs(filter)?;
+    let elapsed = start.elapsed();
+    println!(
+        "Offset: {}  Limit: {}  Filters: {}",
+        params.offset, params.limit, filters
+    );
+    println!("Duration: {:.2?}", elapsed);
+    println!();
     if items.is_empty() {
         println!("No entries found.");
         return Ok(());
@@ -154,7 +194,12 @@ pub fn handle_search<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     svc: &KBService<S, V, E>,
     keyword: String,
 ) -> Result<(), Error> {
+    let start = std::time::Instant::now();
     let items = svc.search_kbs(&keyword)?;
+    let elapsed = start.elapsed();
+    println!("Keyword: \"{}\"", keyword);
+    println!("Duration: {:.2?}", elapsed);
+    println!();
     if items.is_empty() {
         println!("No results for '{}'.", keyword);
         return Ok(());
@@ -182,7 +227,15 @@ pub fn handle_ask<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     svc: &KBService<S, V, E>,
     query: SemanticQuery,
 ) -> Result<(), Error> {
+    let limit_display = query
+        .limit
+        .map_or_else(|| "default".to_string(), |l| l.to_string());
+    let start = std::time::Instant::now();
     let results = svc.ask(&query)?;
+    let elapsed = start.elapsed();
+    println!("Query: \"{}\"  Limit: {}", query.text, limit_display);
+    println!("Duration: {:.2?}", elapsed);
+    println!();
     if results.is_empty() {
         println!("No semantic matches found.");
         return Ok(());
@@ -265,6 +318,13 @@ pub fn handle_import<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
         println!("  Failed items: {}", params.failed_items_file);
     }
 
+    Ok(())
+}
+
+pub fn handle_version() -> Result<(), Error> {
+    println!("version:    {}", KB_VERSION);
+    println!("git hash:   {}", KB_GIT_HASH);
+    println!("build date: {}", KB_BUILD_DATE);
     Ok(())
 }
 

@@ -200,6 +200,12 @@ fn handle_import_writes_failed_items_in_yaml_format() {
 }
 
 #[test]
+fn handle_version_returns_ok() {
+    let result = handle_version();
+    assert!(result.is_ok());
+}
+
+#[test]
 fn serialize_failed_items_produces_multi_doc_yaml() {
     let items = vec![
         ImportKbItem {

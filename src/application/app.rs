@@ -140,6 +140,8 @@ impl App {
                     failed_items_file,
                 },
             )?,
+
+            Command::Version => handlers::handle_version()?,
         }
 
         Ok(())
