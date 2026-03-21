@@ -142,7 +142,7 @@ These are structural violations that agents commonly introduce. Check before sub
 - `kb update`                  — Update an entry (also re-indexes embedding)
 - `kb delete`                  — Delete an entry (also removes embedding)
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`; uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
-- `kb ask "<query>"`           — Semantic / vector search (natural language)
+- `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded)
 - `kb reindex`                 — Rebuild embeddings for all entries
 - `kb quote`                   — Print a random quote-category entry
 

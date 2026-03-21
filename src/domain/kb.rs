@@ -139,6 +139,8 @@ pub struct ScoredKbItem {
 pub struct SemanticQuery {
     pub text: String,
     pub limit: Option<i64>,
+    /// Maximum distance to include (0.0–1.0). Results with a distance above this value are excluded.
+    pub threshold: Option<f32>,
 }
 
 /// Input for generating and storing an embedding for a KB entry.

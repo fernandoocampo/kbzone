@@ -208,10 +208,16 @@ pub fn handle_ask<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     let limit_display = query
         .limit
         .map_or_else(|| "default".to_string(), |l| l.to_string());
+    let threshold_display = query
+        .threshold
+        .map_or_else(|| "none".to_string(), |t| format!("{:.2}", t));
     let start = std::time::Instant::now();
     let results = svc.ask(&query)?;
     let elapsed = start.elapsed();
-    println!("Query: \"{}\"  Limit: {}", query.text, limit_display);
+    println!(
+        "Query: \"{}\"  Limit: {}  Threshold: {}",
+        query.text, limit_display, threshold_display
+    );
     println!("Duration: {:.2?}", elapsed);
     println!();
     if results.is_empty() {
@@ -327,7 +333,7 @@ fn write_failed_items(path: &str, content: &str) -> Result<(), Error> {
 fn print_scored_table_header() {
     println!(
         "{:<score$}  {:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
-        "SCORE",
+        "DISTANCE",
         "ID",
         "KEY",
         "CATEGORY",

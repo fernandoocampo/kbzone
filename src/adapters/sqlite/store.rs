@@ -515,9 +515,14 @@ impl VectorStore for SqliteStore {
             return Ok(vec![]);
         }
 
-        // Step 2: Fetch KB item metadata for each matched id
+        // Step 2: Fetch KB item metadata for each matched id, applying threshold filter
         let mut results = Vec::with_capacity(knn_rows.len());
         for (kb_id, score) in knn_rows {
+            if let Some(threshold) = query.threshold {
+                if score > threshold {
+                    continue;
+                }
+            }
             let mut item_stmt = conn
                 .prepare(GET_KB_ITEM_BY_ID)
                 .map_err(|e| Error::VectorSearchError(e.to_string()))?;

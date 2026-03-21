@@ -125,6 +125,13 @@ pub enum Command {
 
         #[arg(long, default_value = "10", help = "Maximum results to return")]
         limit: i64,
+
+        #[arg(
+            long,
+            default_value = "0.9",
+            help = "Maximum distance to include (0.0–1.0). Lower = stricter matching. Results with a distance above this threshold are excluded. Use a higher value (e.g. 0.95) to see more results."
+        )]
+        threshold: f32,
     },
 
     /// Re-generate embeddings for all existing KB entries.

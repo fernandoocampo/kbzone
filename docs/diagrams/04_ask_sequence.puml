@@ -26,13 +26,13 @@ participant "EmbeddingProvider\nports/embedding.rs\n(FastEmbedProvider)" as Embe
 participant "VectorStore\nports/vector_store.rs\n(SqliteStore)" as VectorStore #FFE0B2
 database "SQLite\nkb_embeddings (vec0)\nkbs (main)" as SQLite #EDE7F6
 
-User -> CLI : kb ask "<query>" [--limit N]
+User -> CLI : kb ask "<query>" [--limit N] [--threshold F]
 activate CLI
 
 CLI -> App : run() — dispatch Ask { query, limit }
 activate App
 
-App -> KBService : ask(SemanticQuery { text, limit })
+App -> KBService : ask(SemanticQuery { text, limit, threshold })
 activate KBService
 
 KBService -> Embedder : embed(query.text)
@@ -46,6 +46,8 @@ activate VectorStore
 note right of VectorStore
   vec0 does not support JOINs;
   two separate queries are used.
+  Entries with distance > threshold
+  are filtered out after KNN search.
 end note
 
 VectorStore -> SQLite : SELECT kb_id, distance\nFROM kb_embeddings\nWHERE embedding MATCH ?\nORDER BY distance LIMIT ?
@@ -70,7 +72,7 @@ App --> CLI : results passed to handle_ask()
 deactivate App
 
 alt results found
-    CLI -> User : print table header\n(SCORE | ID | KEY | CATEGORY | NAMESPACE | TAGS)
+    CLI -> User : print table header\n(DISTANCE | ID | KEY | CATEGORY | NAMESPACE | TAGS)
     loop for each ScoredKbItem
         CLI -> User : print row (score, id, key, category, namespace, tags)
     end

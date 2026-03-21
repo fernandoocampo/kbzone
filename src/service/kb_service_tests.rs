@@ -972,6 +972,7 @@ fn ask_returns_results_without_error() {
     let query = SemanticQuery {
         text: "rust memory".to_string(),
         limit: Some(5),
+        threshold: None,
     };
     assert!(make_svc().ask(&query).is_ok());
 }
@@ -988,6 +989,7 @@ fn ask_fails_when_embedding_provider_fails() {
     let query = SemanticQuery {
         text: "rust".to_string(),
         limit: Some(5),
+        threshold: None,
     };
     assert!(matches!(svc.ask(&query), Err(Error::EmbeddingError(_))));
 }

@@ -120,11 +120,16 @@ impl App {
                 },
             )?,
 
-            Command::Ask { query, limit } => handlers::handle_ask(
+            Command::Ask {
+                query,
+                limit,
+                threshold,
+            } => handlers::handle_ask(
                 &self.svc,
                 SemanticQuery {
                     text: query,
                     limit: Some(limit),
+                    threshold: Some(threshold),
                 },
             )?,
 

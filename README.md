@@ -92,9 +92,10 @@ kb search --keyword kubernetes
 ```sh
 kb ask "how do I manage memory in Rust"
 kb ask "kubernetes pod commands" --limit 5
+kb ask "alfred north whitehead" --threshold 0.85
 ```
 
-Finds entries by meaning, not just keywords. Returns results ranked by similarity score (lower = closer match).
+Finds entries by meaning, not just keywords. Returns results ranked by distance (lower = closer match). Use `--threshold` to filter out weakly related results (default: `0.9`).
 
 ### Best practices for `kb ask`
 
@@ -110,10 +111,12 @@ The following fields are combined into the embedding text at index time:
 
 To get the best recall:
 
+- **More context = better results** — a full name or phrase (e.g. `"alfred north whitehead"`) produces a much closer match than a single word (`"alfred"`). Short or ambiguous queries yield flat distance distributions where many unrelated entries score similarly.
 - **Write descriptive values** — only the first 200 characters are embedded, so lead with the most important information.
 - **Fill in `reference`** — author, book title, or person's name. Queries like `kb ask "Chauncey quotes"` will match entries whose reference contains "Chauncey".
 - **Use `tags` for domain keywords** — tags are included in the embedding and also power `kb search --keyword`.
 - **Set `category` and `namespace`** — these are lightweight signals that help group semantically related entries.
+- **Tune `--threshold` to control precision** — the default of `0.9` filters out weakly related results. Lower it (e.g. `--threshold 0.85`) for stricter matching; raise it (e.g. `--threshold 0.95`) if you're getting too few results.
 
 **When to re-run `kb reindex`**
 
@@ -128,6 +131,7 @@ To get the best recall:
 | Match type | Semantic / conceptual | Exact keyword in tags (FTS5) |
 | Query style | Natural language | Single term or prefix |
 | Reference filter | Via query text | `--reference <string>` |
+| Relevance control | `--threshold` (distance cutoff) | — |
 | Best for | "How do I …", "What is …" | Known tag values |
 
 ### Update an entry

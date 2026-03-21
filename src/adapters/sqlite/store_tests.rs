@@ -299,6 +299,48 @@ fn search_similar_returns_closest_entry() {
     let query = SemanticQuery {
         text: "rust ownership".to_string(),
         limit: Some(5),
+        threshold: None,
+    };
+    let results = store.search_similar(&query, &query_embedding).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].item.key, "rust-ownership");
+}
+
+#[test]
+fn search_similar_threshold_excludes_distant_entries() {
+    let store = initialized_store_with_vectors(4);
+    let kb1 = make_kb("id-1", "rust-ownership");
+    let kb2 = make_kb("id-2", "go-channels");
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    // id-1: identical to query vector (distance = 0)
+    store
+        .save_embedding(
+            &EmbeddingInput {
+                kb_id: "id-1".to_string(),
+                text: "rust ownership".to_string(),
+            },
+            &[1.0f32, 0.0, 0.0, 0.0],
+        )
+        .unwrap();
+    // id-2: orthogonal (distance will be high)
+    store
+        .save_embedding(
+            &EmbeddingInput {
+                kb_id: "id-2".to_string(),
+                text: "go channels".to_string(),
+            },
+            &[0.0f32, 1.0, 0.0, 0.0],
+        )
+        .unwrap();
+
+    let query_embedding = vec![1.0f32, 0.0, 0.0, 0.0];
+    // Strict threshold: only id-1 (distance ~0) should pass
+    let query = SemanticQuery {
+        text: "rust ownership".to_string(),
+        limit: Some(10),
+        threshold: Some(0.5),
     };
     let results = store.search_similar(&query, &query_embedding).unwrap();
     assert_eq!(results.len(), 1);
