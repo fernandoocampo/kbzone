@@ -80,11 +80,17 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
 
         let updated = Kb {
             id: existing.id,
-            key: update.key.unwrap_or(existing.key),
+            key: update.key.map(|v| v.to_lowercase()).unwrap_or(existing.key),
             value: update.value.unwrap_or(existing.value),
             notes: update.notes.unwrap_or(existing.notes),
-            category: update.category.unwrap_or(existing.category),
-            namespace: update.namespace.unwrap_or(existing.namespace),
+            category: update
+                .category
+                .map(|v| v.to_lowercase())
+                .unwrap_or(existing.category),
+            namespace: update
+                .namespace
+                .map(|v| v.to_lowercase())
+                .unwrap_or(existing.namespace),
             reference: update.reference.unwrap_or(existing.reference),
             tags: update.tags.unwrap_or(existing.tags),
             created_on: existing.created_on,

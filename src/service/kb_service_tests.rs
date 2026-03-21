@@ -568,6 +568,68 @@ fn update_kb_same_key_same_entry_is_ok() {
     assert!(svc.update_kb(update).is_ok());
 }
 
+// ---- update_kb lowercase tests ----
+
+#[test]
+fn update_kb_lowercases_key() {
+    let original = make_kb("id-1", "rust-ownership");
+    let store = MockKbStore::with(vec![original]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: Some("UpperKey".to_string()),
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+    };
+    assert!(svc.update_kb(update).is_ok());
+    let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
+    assert_eq!(fetched.key, "upperkey");
+}
+
+#[test]
+fn update_kb_lowercases_category() {
+    let original = make_kb("id-1", "rust-ownership");
+    let store = MockKbStore::with(vec![original]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: Some("UpperCat".to_string()),
+        namespace: None,
+        reference: None,
+        tags: None,
+    };
+    assert!(svc.update_kb(update).is_ok());
+    let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
+    assert_eq!(fetched.category, "uppercat");
+}
+
+#[test]
+fn update_kb_lowercases_namespace() {
+    let original = make_kb("id-1", "rust-ownership");
+    let store = MockKbStore::with(vec![original]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: Some("UpperNS".to_string()),
+        reference: None,
+        tags: None,
+    };
+    assert!(svc.update_kb(update).is_ok());
+    let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
+    assert_eq!(fetched.namespace, "upperns");
+}
+
 // ---- delete_kb tests ----
 
 #[test]
