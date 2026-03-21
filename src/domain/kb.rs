@@ -30,14 +30,15 @@ impl Kb {
         self.tags.join(" ")
     }
 
-    /// Builds the text used for embedding: key + category + namespace + tags + first 200 chars of value.
+    /// Builds the text used for embedding: key + category + namespace + reference + tags + first 200 chars of value.
     pub fn embedding_text(&self) -> String {
         let truncated_value: String = self.value.chars().take(200).collect();
         format!(
-            "{} {} {} {} {}",
+            "{} {} {} {} {} {}",
             self.key,
             self.category,
             self.namespace,
+            self.reference,
             self.tags.join(" "),
             truncated_value
         )
@@ -111,6 +112,7 @@ pub struct KbFilter {
     pub namespace: Option<String>,
     pub tags: Option<Vec<String>>,
     pub keyword: Option<String>,
+    pub reference: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

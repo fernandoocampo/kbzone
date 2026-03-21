@@ -132,6 +132,45 @@ fn search_kbs_via_fts5() {
 }
 
 #[test]
+fn search_kbs_filters_by_reference_when_provided() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.reference = "The Rust Book".to_string();
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.reference = "other source".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        reference: Some("The Rust Book".to_string()),
+        ..Default::default()
+    };
+    let results = store.search_kbs(&filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "rust-ownership");
+}
+
+#[test]
+fn search_kbs_with_reference_filter_returns_empty_when_no_match() {
+    let store = initialized_store();
+    let mut kb = make_kb("id-1", "rust-ownership");
+    kb.tags = vec!["rust".to_string()];
+    kb.reference = "The Rust Book".to_string();
+    store.save_kb(&kb).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        reference: Some("nonexistent".to_string()),
+        ..Default::default()
+    };
+    let results = store.search_kbs(&filter).unwrap();
+    assert!(results.is_empty());
+}
+
+#[test]
 fn random_quote_returns_a_quote_category_entry() {
     let store = initialized_store();
     let mut kb1 = make_kb("id-q1", "stoic-quote");

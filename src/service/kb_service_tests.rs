@@ -61,11 +61,19 @@ impl KbStore for MockKbStore {
 
     fn search_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
         let keyword = filter.keyword.as_deref().unwrap_or("");
+        let ref_filter = filter.reference.as_deref().unwrap_or("");
         Ok(self
             .data
             .borrow()
             .values()
             .filter(|kb| kb.tags.iter().any(|t| t.contains(keyword)))
+            .filter(|kb| {
+                ref_filter.is_empty()
+                    || kb
+                        .reference
+                        .to_lowercase()
+                        .contains(&ref_filter.to_lowercase())
+            })
             .map(|kb| KbItem {
                 id: kb.id.clone(),
                 key: kb.key.clone(),
@@ -677,8 +685,50 @@ fn search_kbs_returns_matching_entries() {
     kb.tags = vec!["memory".to_string(), "rust".to_string()];
     let store = MockKbStore::with(vec![kb]);
     let svc = make_svc_with_store(store);
-    let results = svc.search_kbs("memo").unwrap();
+    let filter = KbFilter {
+        keyword: Some("memo".to_string()),
+        ..Default::default()
+    };
+    let results = svc.search_kbs(filter).unwrap();
     assert_eq!(results.len(), 1);
+}
+
+#[test]
+fn search_kbs_with_reference_filter_returns_matching_entries() {
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.reference = "The Rust Book".to_string();
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.reference = "other source".to_string();
+    let store = MockKbStore::with(vec![kb1, kb2]);
+    let svc = make_svc_with_store(store);
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        reference: Some("The Rust Book".to_string()),
+        ..Default::default()
+    };
+    let results = svc.search_kbs(filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "rust-ownership");
+}
+
+#[test]
+fn search_kbs_without_reference_filter_returns_all_keyword_matches() {
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.reference = "The Rust Book".to_string();
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.reference = "other source".to_string();
+    let store = MockKbStore::with(vec![kb1, kb2]);
+    let svc = make_svc_with_store(store);
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        ..Default::default()
+    };
+    let results = svc.search_kbs(filter).unwrap();
+    assert_eq!(results.len(), 2);
 }
 
 // ---- reindex tests ----

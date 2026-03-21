@@ -60,11 +60,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
         self.store.list_kbs(&filter)
     }
 
-    pub fn search_kbs(&self, keyword: &str) -> Result<Vec<KbItem>, Error> {
-        let filter = KbFilter {
-            keyword: Some(keyword.to_string()),
-            ..Default::default()
-        };
+    pub fn search_kbs(&self, filter: KbFilter) -> Result<Vec<KbItem>, Error> {
         self.store.search_kbs(&filter)
     }
 

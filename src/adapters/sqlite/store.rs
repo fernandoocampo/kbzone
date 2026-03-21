@@ -80,6 +80,14 @@ const SEARCH_FTS: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.T
                            WHERE tags_idx MATCH ?1 \
                            ORDER BY k.CREATED_ON DESC";
 
+const SEARCH_FTS_WITH_REF: &str =
+    "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
+                                    FROM kbs k \
+                                    JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
+                                    WHERE tags_idx MATCH ?1 \
+                                    AND LOWER(k.REFERENCE) LIKE ?2 \
+                                    ORDER BY k.CREATED_ON DESC";
+
 // ---------------------------------------------------------------------------
 // Vector DDL / DML constants
 // ---------------------------------------------------------------------------
@@ -274,17 +282,31 @@ impl KbStore for SqliteStore {
 
         let conn = self.conn.lock().expect("mutex poisoned");
 
-        let mut stmt = conn
-            .prepare(SEARCH_FTS)
-            .map_err(|e| Error::SearchError(e.to_string()))?;
-
-        let items = stmt
-            .query_map(params![keyword], row_to_kb_item)
-            .map_err(|e| Error::SearchError(e.to_string()))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Error::SearchError(e.to_string()))?;
-
-        Ok(items)
+        match &filter.reference {
+            Some(r) if !r.is_empty() => {
+                let ref_pattern = format!("%{}%", r.to_lowercase());
+                let mut stmt = conn
+                    .prepare(SEARCH_FTS_WITH_REF)
+                    .map_err(|e| Error::SearchError(e.to_string()))?;
+                let items = stmt
+                    .query_map(params![keyword, ref_pattern], row_to_kb_item)
+                    .map_err(|e| Error::SearchError(e.to_string()))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| Error::SearchError(e.to_string()))?;
+                Ok(items)
+            }
+            _ => {
+                let mut stmt = conn
+                    .prepare(SEARCH_FTS)
+                    .map_err(|e| Error::SearchError(e.to_string()))?;
+                let items = stmt
+                    .query_map(params![keyword], row_to_kb_item)
+                    .map_err(|e| Error::SearchError(e.to_string()))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| Error::SearchError(e.to_string()))?;
+                Ok(items)
+            }
+        }
     }
 
     fn save_kb(&self, kb: &Kb) -> Result<(), Error> {

@@ -96,6 +96,40 @@ kb ask "kubernetes pod commands" --limit 5
 
 Finds entries by meaning, not just keywords. Returns results ranked by similarity score (lower = closer match).
 
+### Best practices for `kb ask`
+
+`kb ask` performs **semantic / vector search**: your query is converted to an embedding and matched against stored embeddings by cosine similarity — not by exact keywords.
+
+**What gets embedded per entry**
+
+The following fields are combined into the embedding text at index time:
+
+```
+{key} {category} {namespace} {reference} {tags} {value[0..200]}
+```
+
+To get the best recall:
+
+- **Write descriptive values** — only the first 200 characters are embedded, so lead with the most important information.
+- **Fill in `reference`** — author, book title, or person's name. Queries like `kb ask "Chauncey quotes"` will match entries whose reference contains "Chauncey".
+- **Use `tags` for domain keywords** — tags are included in the embedding and also power `kb search --keyword`.
+- **Set `category` and `namespace`** — these are lightweight signals that help group semantically related entries.
+
+**When to re-run `kb reindex`**
+
+- After a bulk `kb import`
+- After upgrading `kbzone` when the embedding text formula changes (e.g. this release adds `reference`)
+- If embedding generation failed silently during `add`/`update` (check for missing results in `kb ask`)
+
+**`kb ask` vs `kb search`**
+
+| | `kb ask` | `kb search --keyword` |
+|---|---|---|
+| Match type | Semantic / conceptual | Exact keyword in tags (FTS5) |
+| Query style | Natural language | Single term or prefix |
+| Reference filter | Via query text | `--reference <string>` |
+| Best for | "How do I …", "What is …" | Known tag values |
+
 ### Update an entry
 
 ```sh

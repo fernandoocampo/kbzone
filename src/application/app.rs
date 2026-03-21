@@ -4,7 +4,7 @@ use crate::adapters::fastembed::FastEmbedProvider;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
-use crate::cli::handlers::{self, GetParams, ImportParams, ListParams};
+use crate::cli::handlers::{self, GetParams, ImportParams, ListParams, SearchParams};
 use crate::domain::{KbUpdate, NewKb, SemanticQuery};
 use crate::errors::AppError;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
@@ -116,7 +116,9 @@ impl App {
 
             Command::Delete { id } => handlers::handle_delete(&self.svc, id)?,
 
-            Command::Search { keyword } => handlers::handle_search(&self.svc, keyword)?,
+            Command::Search { keyword, reference } => {
+                handlers::handle_search(&self.svc, SearchParams { keyword, reference })?
+            }
 
             Command::Ask { query, limit } => handlers::handle_ask(
                 &self.svc,

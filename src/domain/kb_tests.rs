@@ -26,6 +26,14 @@ fn embedding_text_contains_key_category_namespace_tags_and_value() {
 }
 
 #[test]
+fn embedding_text_contains_reference() {
+    let mut kb = make_kb("kubectl get pods");
+    kb.reference = "test-ref".to_string();
+    let text = kb.embedding_text();
+    assert!(text.contains("test-ref"));
+}
+
+#[test]
 fn embedding_text_truncates_value_at_200_chars() {
     let long_value = "x".repeat(300);
     let kb = make_kb(&long_value);

@@ -113,6 +113,12 @@ pub enum Command {
     Search {
         #[arg(long, required = true, help = "Keyword to search for in tags")]
         keyword: String,
+
+        #[arg(
+            long,
+            help = "Filter results to entries whose reference contains this string (case-insensitive)"
+        )]
+        reference: Option<String>,
     },
 
     /// Semantic / vector search using natural language.

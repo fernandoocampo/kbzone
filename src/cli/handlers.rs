@@ -27,6 +27,11 @@ pub struct ImportParams {
     pub failed_items_file: String,
 }
 
+pub struct SearchParams {
+    pub keyword: String,
+    pub reference: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Version constants (baked in at compile time via Makefile env vars)
 // ---------------------------------------------------------------------------
@@ -192,16 +197,24 @@ pub fn handle_delete<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
 
 pub fn handle_search<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     svc: &KBService<S, V, E>,
-    keyword: String,
+    params: SearchParams,
 ) -> Result<(), Error> {
+    let filter = KbFilter {
+        keyword: Some(params.keyword.clone()),
+        reference: params.reference.clone(),
+        ..Default::default()
+    };
     let start = std::time::Instant::now();
-    let items = svc.search_kbs(&keyword)?;
+    let items = svc.search_kbs(filter)?;
     let elapsed = start.elapsed();
-    println!("Keyword: \"{}\"", keyword);
+    println!("Keyword: \"{}\"", params.keyword);
+    if let Some(ref r) = params.reference {
+        println!("Reference: \"{}\"", r);
+    }
     println!("Duration: {:.2?}", elapsed);
     println!();
     if items.is_empty() {
-        println!("No results for '{}'.", keyword);
+        println!("No results for '{}'.", params.keyword);
         return Ok(());
     }
     print_table_header();
