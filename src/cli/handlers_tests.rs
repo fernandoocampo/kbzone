@@ -36,14 +36,7 @@ impl crate::ports::KbStore for MockKbStore {
             .cloned())
     }
 
-    fn list_kbs(
-        &self,
-        _filter: &crate::domain::KbFilter,
-    ) -> Result<Vec<crate::domain::KbItem>, Error> {
-        Ok(Vec::new())
-    }
-
-    fn search_kbs(
+    fn get_kbs(
         &self,
         _filter: &crate::domain::KbFilter,
     ) -> Result<Vec<crate::domain::KbItem>, Error> {

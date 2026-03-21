@@ -52,25 +52,6 @@ pub enum Command {
         id: Option<String>,
     },
 
-    /// List entries, optionally filtered.
-    List {
-        #[arg(long, help = "Filter by category")]
-        category: Option<String>,
-
-        #[arg(long, help = "Filter by namespace")]
-        namespace: Option<String>,
-
-        /// Comma-separated tags to filter by
-        #[arg(long, value_delimiter = ',', help = "Filter by tags (comma-separated)")]
-        tags: Vec<String>,
-
-        #[arg(long, default_value = "20", help = "Maximum rows to return")]
-        limit: i64,
-
-        #[arg(long, default_value = "0", help = "Row offset for pagination")]
-        offset: i64,
-    },
-
     /// Update an existing entry (identified by --id).
     Update {
         #[arg(long, required = true, help = "UUID of the entry to update")]
@@ -109,16 +90,32 @@ pub enum Command {
         id: String,
     },
 
-    /// Full-text search over tags.
+    /// Search entries by keyword, category, namespace, tags, or reference.
     Search {
-        #[arg(long, required = true, help = "Keyword to search for in tags")]
-        keyword: String,
+        #[arg(long, help = "Keyword to search for in tags (FTS5)")]
+        keyword: Option<String>,
+
+        #[arg(long, help = "Filter by category")]
+        category: Option<String>,
+
+        #[arg(long, help = "Filter by namespace")]
+        namespace: Option<String>,
+
+        /// Comma-separated tags to filter by
+        #[arg(long, value_delimiter = ',', help = "Filter by tags (comma-separated)")]
+        tags: Vec<String>,
 
         #[arg(
             long,
             help = "Filter results to entries whose reference contains this string (case-insensitive)"
         )]
         reference: Option<String>,
+
+        #[arg(long, default_value = "20", help = "Maximum rows to return")]
+        limit: i64,
+
+        #[arg(long, default_value = "0", help = "Row offset for pagination")]
+        offset: i64,
     },
 
     /// Semantic / vector search using natural language.

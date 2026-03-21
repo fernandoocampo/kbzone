@@ -139,10 +139,9 @@ These are structural violations that agents commonly introduce. Check before sub
 
 - `kb add`                     — Add a new entry (also indexes embedding)
 - `kb get`                     — Fetch a single entry by key or ID
-- `kb list`                    — List entries with optional filters
 - `kb update`                  — Update an entry (also re-indexes embedding)
 - `kb delete`                  — Delete an entry (also removes embedding)
-- `kb search --keyword <term>` — FTS5 tag search
+- `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`; uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
 - `kb ask "<query>"`           — Semantic / vector search (natural language)
 - `kb reindex`                 — Rebuild embeddings for all entries
 - `kb quote`                   — Print a random quote-category entry

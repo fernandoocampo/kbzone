@@ -9,14 +9,6 @@ use crate::service::KBService;
 // Parameter structs (satisfy the 2-param rule)
 // ---------------------------------------------------------------------------
 
-pub struct ListParams {
-    pub category: Option<String>,
-    pub namespace: Option<String>,
-    pub tags: Vec<String>,
-    pub limit: i64,
-    pub offset: i64,
-}
-
 pub struct GetParams {
     pub key: Option<String>,
     pub id: Option<String>,
@@ -28,8 +20,13 @@ pub struct ImportParams {
 }
 
 pub struct SearchParams {
-    pub keyword: String,
+    pub keyword: Option<String>,
+    pub category: Option<String>,
+    pub namespace: Option<String>,
+    pub tags: Vec<String>,
     pub reference: Option<String>,
+    pub limit: i64,
+    pub offset: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -113,69 +110,6 @@ pub fn handle_get<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
-pub fn handle_list<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
-    params: ListParams,
-) -> Result<(), Error> {
-    let filter = KbFilter {
-        category: params.category,
-        namespace: params.namespace,
-        tags: if params.tags.is_empty() {
-            None
-        } else {
-            Some(params.tags)
-        },
-        limit: Some(params.limit),
-        offset: Some(params.offset),
-        ..Default::default()
-    };
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(ref c) = filter.category {
-        parts.push(format!("category={c}"));
-    }
-    if let Some(ref n) = filter.namespace {
-        parts.push(format!("namespace={n}"));
-    }
-    if let Some(ref t) = filter.tags {
-        parts.push(format!("tags={}", t.join(",")));
-    }
-    let filters = if parts.is_empty() {
-        "none".to_string()
-    } else {
-        parts.join(" ")
-    };
-    let start = std::time::Instant::now();
-    let items = svc.list_kbs(filter)?;
-    let elapsed = start.elapsed();
-    println!(
-        "Offset: {}  Limit: {}  Filters: {}",
-        params.offset, params.limit, filters
-    );
-    println!("Duration: {:.2?}", elapsed);
-    println!();
-    if items.is_empty() {
-        println!("No entries found.");
-        return Ok(());
-    }
-    print_table_header();
-    for item in items {
-        println!(
-            "{:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
-            item.id,
-            item.key,
-            item.category,
-            item.namespace,
-            item.tags.join(", "),
-            id = COL_ID,
-            key = COL_KEY,
-            cat = COL_CAT,
-            ns = COL_NS,
-            tags = COL_TAGS,
-        );
-    }
-    Ok(())
-}
-
 pub fn handle_update<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     svc: &KBService<S, V, E>,
     update: KbUpdate,
@@ -199,22 +133,53 @@ pub fn handle_search<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     svc: &KBService<S, V, E>,
     params: SearchParams,
 ) -> Result<(), Error> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(ref k) = params.keyword {
+        parts.push(format!("keyword={k}"));
+    }
+    if let Some(ref c) = params.category {
+        parts.push(format!("category={c}"));
+    }
+    if let Some(ref n) = params.namespace {
+        parts.push(format!("namespace={n}"));
+    }
+    if !params.tags.is_empty() {
+        parts.push(format!("tags={}", params.tags.join(",")));
+    }
+    if let Some(ref r) = params.reference {
+        parts.push(format!("reference={r}"));
+    }
+    let filters = if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join(" ")
+    };
+
     let filter = KbFilter {
-        keyword: Some(params.keyword.clone()),
-        reference: params.reference.clone(),
-        ..Default::default()
+        keyword: params.keyword,
+        category: params.category,
+        namespace: params.namespace,
+        tags: if params.tags.is_empty() {
+            None
+        } else {
+            Some(params.tags)
+        },
+        reference: params.reference,
+        limit: Some(params.limit),
+        offset: Some(params.offset),
     };
     let start = std::time::Instant::now();
-    let items = svc.search_kbs(filter)?;
+    let items = svc.get_kbs(filter)?;
     let elapsed = start.elapsed();
-    println!("Keyword: \"{}\"", params.keyword);
-    if let Some(ref r) = params.reference {
-        println!("Reference: \"{}\"", r);
-    }
+
+    println!(
+        "Offset: {}  Limit: {}  Filters: {}",
+        params.offset, params.limit, filters
+    );
     println!("Duration: {:.2?}", elapsed);
     println!();
     if items.is_empty() {
-        println!("No results for '{}'.", params.keyword);
+        println!("No entries found.");
         return Ok(());
     }
     print_table_header();

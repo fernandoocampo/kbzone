@@ -63,17 +63,17 @@ fn get_by_id_returns_none_for_missing() {
 }
 
 #[test]
-fn list_all_returns_saved_entries() {
+fn get_kbs_returns_all_saved_entries() {
     let store = initialized_store();
     store.save_kb(&make_kb("id-1", "key-a")).unwrap();
     store.save_kb(&make_kb("id-2", "key-b")).unwrap();
     let filter = KbFilter::default();
-    let items = store.list_kbs(&filter).unwrap();
+    let items = store.get_kbs(&filter).unwrap();
     assert_eq!(items.len(), 2);
 }
 
 #[test]
-fn list_filters_by_category() {
+fn get_kbs_filters_by_category() {
     let store = initialized_store();
     let mut kb1 = make_kb("id-1", "key-a");
     kb1.category = "bookmark".to_string();
@@ -85,7 +85,42 @@ fn list_filters_by_category() {
         category: Some("bookmark".to_string()),
         ..Default::default()
     };
-    let items = store.list_kbs(&filter).unwrap();
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_with_limit_and_offset() {
+    let store = initialized_store();
+    store.save_kb(&make_kb("id-1", "key-a")).unwrap();
+    store.save_kb(&make_kb("id-2", "key-b")).unwrap();
+    store.save_kb(&make_kb("id-3", "key-c")).unwrap();
+
+    let filter = KbFilter {
+        limit: Some(2),
+        offset: Some(0),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 2);
+}
+
+#[test]
+fn get_kbs_filters_by_reference_without_keyword() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.reference = "The Rust Book".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.reference = "other source".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        reference: Some("rust book".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].key, "key-a");
 }
@@ -116,7 +151,7 @@ fn delete_kb_returns_false_for_missing() {
 }
 
 #[test]
-fn search_kbs_via_fts5() {
+fn get_kbs_via_fts5_keyword() {
     let store = initialized_store();
     let mut kb = make_kb("id-1", "rust-ownership");
     kb.tags = vec!["memory".to_string(), "rust".to_string()];
@@ -126,13 +161,13 @@ fn search_kbs_via_fts5() {
         keyword: Some("memo".to_string()),
         ..Default::default()
     };
-    let results = store.search_kbs(&filter).unwrap();
+    let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].key, "rust-ownership");
 }
 
 #[test]
-fn search_kbs_filters_by_reference_when_provided() {
+fn get_kbs_with_keyword_and_reference_filter() {
     let store = initialized_store();
     let mut kb1 = make_kb("id-1", "rust-ownership");
     kb1.tags = vec!["rust".to_string()];
@@ -148,13 +183,13 @@ fn search_kbs_filters_by_reference_when_provided() {
         reference: Some("The Rust Book".to_string()),
         ..Default::default()
     };
-    let results = store.search_kbs(&filter).unwrap();
+    let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].key, "rust-ownership");
 }
 
 #[test]
-fn search_kbs_with_reference_filter_returns_empty_when_no_match() {
+fn get_kbs_with_keyword_reference_filter_returns_empty_when_no_match() {
     let store = initialized_store();
     let mut kb = make_kb("id-1", "rust-ownership");
     kb.tags = vec!["rust".to_string()];
@@ -166,8 +201,30 @@ fn search_kbs_with_reference_filter_returns_empty_when_no_match() {
         reference: Some("nonexistent".to_string()),
         ..Default::default()
     };
-    let results = store.search_kbs(&filter).unwrap();
+    let results = store.get_kbs(&filter).unwrap();
     assert!(results.is_empty());
+}
+
+#[test]
+fn get_kbs_with_keyword_and_limit() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    let mut kb3 = make_kb("id-3", "rust-borrowing");
+    kb3.tags = vec!["rust".to_string()];
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        limit: Some(2),
+        ..Default::default()
+    };
+    let results = store.get_kbs(&filter).unwrap();
+    assert_eq!(results.len(), 2);
 }
 
 #[test]

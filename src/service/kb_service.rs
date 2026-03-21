@@ -56,12 +56,8 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
         self.store.get_kb_by_key(key)
     }
 
-    pub fn list_kbs(&self, filter: KbFilter) -> Result<Vec<KbItem>, Error> {
-        self.store.list_kbs(&filter)
-    }
-
-    pub fn search_kbs(&self, filter: KbFilter) -> Result<Vec<KbItem>, Error> {
-        self.store.search_kbs(&filter)
+    pub fn get_kbs(&self, filter: KbFilter) -> Result<Vec<KbItem>, Error> {
+        self.store.get_kbs(&filter)
     }
 
     /// Merges `update` into the existing entry, persists, and re-indexes only if the
@@ -134,7 +130,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
     /// Re-indexes all entries. Outer `Err` only if `list_kbs` fails.
     /// Per-entry failures are collected in `ReindexResult::failed`.
     pub fn reindex(&self) -> Result<ReindexResult, Error> {
-        let items = self.store.list_kbs(&KbFilter::default())?;
+        let items = self.store.get_kbs(&KbFilter::default())?;
         let mut succeeded = Vec::new();
         let mut failed = Vec::new();
 

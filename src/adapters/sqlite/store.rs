@@ -230,82 +230,10 @@ impl KbStore for SqliteStore {
         }
     }
 
-    fn list_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
-        let conn = self.conn.lock().expect("mutex poisoned");
-
-        let (conditions, bound_params) = build_list_filters(filter);
-
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", conditions.join(" AND "))
-        };
-
-        let limit_clause = filter
-            .limit
-            .map(|l| format!(" LIMIT {}", l))
-            .unwrap_or_default();
-        let offset_clause = filter
-            .offset
-            .map(|o| format!(" OFFSET {}", o))
-            .unwrap_or_default();
-
-        let sql = format!(
-            "SELECT KB_ID, KB_KEY, CATEGORY, NAMESPACE, TAG_VALUES \
-             FROM kbs{} ORDER BY CREATED_ON DESC{}{}",
-            where_clause, limit_clause, offset_clause
-        );
-
-        let mut stmt = conn
-            .prepare(&sql)
-            .map_err(|e| Error::ListError(e.to_string()))?;
-
-        let sql_params: Vec<&dyn rusqlite::types::ToSql> = bound_params
-            .iter()
-            .map(|s| s as &dyn rusqlite::types::ToSql)
-            .collect();
-
-        let items = stmt
-            .query_map(sql_params.as_slice(), row_to_kb_item)
-            .map_err(|e| Error::ListError(e.to_string()))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Error::ListError(e.to_string()))?;
-
-        Ok(items)
-    }
-
-    fn search_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
-        let keyword = match &filter.keyword {
-            Some(k) if !k.is_empty() => format!("{}*", k),
-            _ => return Ok(vec![]),
-        };
-
-        let conn = self.conn.lock().expect("mutex poisoned");
-
-        match &filter.reference {
-            Some(r) if !r.is_empty() => {
-                let ref_pattern = format!("%{}%", r.to_lowercase());
-                let mut stmt = conn
-                    .prepare(SEARCH_FTS_WITH_REF)
-                    .map_err(|e| Error::SearchError(e.to_string()))?;
-                let items = stmt
-                    .query_map(params![keyword, ref_pattern], row_to_kb_item)
-                    .map_err(|e| Error::SearchError(e.to_string()))?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| Error::SearchError(e.to_string()))?;
-                Ok(items)
-            }
-            _ => {
-                let mut stmt = conn
-                    .prepare(SEARCH_FTS)
-                    .map_err(|e| Error::SearchError(e.to_string()))?;
-                let items = stmt
-                    .query_map(params![keyword], row_to_kb_item)
-                    .map_err(|e| Error::SearchError(e.to_string()))?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| Error::SearchError(e.to_string()))?;
-                Ok(items)
-            }
+    fn get_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
+        match &filter.keyword {
+            Some(k) if !k.is_empty() => self.get_kbs_fts(filter),
+            _ => self.get_kbs_list(filter),
         }
     }
 
@@ -373,6 +301,94 @@ impl KbStore for SqliteStore {
 }
 
 // ---------------------------------------------------------------------------
+// SqliteStore private helpers
+// ---------------------------------------------------------------------------
+
+impl SqliteStore {
+    fn get_kbs_fts(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
+        let keyword = format!("{}*", filter.keyword.as_deref().unwrap_or(""));
+        let ref_pattern = filter
+            .reference
+            .as_deref()
+            .filter(|r| !r.is_empty())
+            .map(|r| format!("%{}%", r.to_lowercase()));
+
+        let mut sql = if ref_pattern.is_some() {
+            SEARCH_FTS_WITH_REF.to_string()
+        } else {
+            SEARCH_FTS.to_string()
+        };
+
+        if let Some(l) = filter.limit {
+            sql.push_str(&format!(" LIMIT {}", l));
+        }
+        if let Some(o) = filter.offset {
+            sql.push_str(&format!(" OFFSET {}", o));
+        }
+
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| Error::SearchError(e.to_string()))?;
+
+        let mut sql_params: Vec<&dyn rusqlite::types::ToSql> = vec![&keyword];
+        if let Some(ref r) = ref_pattern {
+            sql_params.push(r);
+        }
+
+        let items = stmt
+            .query_map(sql_params.as_slice(), row_to_kb_item)
+            .map_err(|e| Error::SearchError(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Error::SearchError(e.to_string()))?;
+        Ok(items)
+    }
+
+    fn get_kbs_list(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
+        let (conditions, bound_params) = build_list_filters(filter);
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", conditions.join(" AND "))
+        };
+
+        let limit_clause = filter
+            .limit
+            .map(|l| format!(" LIMIT {}", l))
+            .unwrap_or_default();
+        let offset_clause = filter
+            .offset
+            .map(|o| format!(" OFFSET {}", o))
+            .unwrap_or_default();
+
+        let sql = format!(
+            "SELECT KB_ID, KB_KEY, CATEGORY, NAMESPACE, TAG_VALUES \
+             FROM kbs{} ORDER BY CREATED_ON DESC{}{}",
+            where_clause, limit_clause, offset_clause
+        );
+
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| Error::ListError(e.to_string()))?;
+
+        let sql_params: Vec<&dyn rusqlite::types::ToSql> = bound_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let items = stmt
+            .query_map(sql_params.as_slice(), row_to_kb_item)
+            .map_err(|e| Error::ListError(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Error::ListError(e.to_string()))?;
+
+        Ok(items)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
 
@@ -429,6 +445,13 @@ fn build_list_filters(filter: &KbFilter) -> (Vec<String>, Vec<String>) {
             params.push(format!("% {}", tag));
             params.push(format!("% {} %", tag));
             idx += 4;
+        }
+    }
+
+    if let Some(r) = &filter.reference {
+        if !r.is_empty() {
+            conditions.push(format!("LOWER(REFERENCE) LIKE ?{}", idx));
+            params.push(format!("%{}%", r.to_lowercase()));
         }
     }
 

@@ -16,9 +16,7 @@ pub trait KbStore: Debug + Clone {
 
     fn get_kb_by_key(&self, key: &str) -> Result<Option<Kb>, Error>;
 
-    fn list_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error>;
-
-    fn search_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error>;
+    fn get_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error>;
 
     fn save_kb(&self, kb: &Kb) -> Result<(), Error>;
 

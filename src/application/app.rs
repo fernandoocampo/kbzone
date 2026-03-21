@@ -4,7 +4,7 @@ use crate::adapters::fastembed::FastEmbedProvider;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
-use crate::cli::handlers::{self, GetParams, ImportParams, ListParams, SearchParams};
+use crate::cli::handlers::{self, GetParams, ImportParams, SearchParams};
 use crate::domain::{KbUpdate, NewKb, SemanticQuery};
 use crate::errors::AppError;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
@@ -74,23 +74,6 @@ impl App {
 
             Command::Get { key, id } => handlers::handle_get(&self.svc, GetParams { key, id })?,
 
-            Command::List {
-                category,
-                namespace,
-                tags,
-                limit,
-                offset,
-            } => handlers::handle_list(
-                &self.svc,
-                ListParams {
-                    category,
-                    namespace,
-                    tags,
-                    limit,
-                    offset,
-                },
-            )?,
-
             Command::Update {
                 id,
                 key,
@@ -116,9 +99,26 @@ impl App {
 
             Command::Delete { id } => handlers::handle_delete(&self.svc, id)?,
 
-            Command::Search { keyword, reference } => {
-                handlers::handle_search(&self.svc, SearchParams { keyword, reference })?
-            }
+            Command::Search {
+                keyword,
+                category,
+                namespace,
+                tags,
+                reference,
+                limit,
+                offset,
+            } => handlers::handle_search(
+                &self.svc,
+                SearchParams {
+                    keyword,
+                    category,
+                    namespace,
+                    tags,
+                    reference,
+                    limit,
+                    offset,
+                },
+            )?,
 
             Command::Ask { query, limit } => handlers::handle_ask(
                 &self.svc,

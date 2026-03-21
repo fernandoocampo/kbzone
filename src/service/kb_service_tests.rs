@@ -44,24 +44,42 @@ impl KbStore for MockKbStore {
             .cloned())
     }
 
-    fn list_kbs(&self, _filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
-        Ok(self
-            .data
-            .borrow()
-            .values()
-            .map(|kb| KbItem {
-                id: kb.id.clone(),
-                key: kb.key.clone(),
-                category: kb.category.clone(),
-                namespace: kb.namespace.clone(),
-                tags: kb.tags.clone(),
-            })
-            .collect())
-    }
-
-    fn search_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
+    fn get_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
         let keyword = filter.keyword.as_deref().unwrap_or("");
         let ref_filter = filter.reference.as_deref().unwrap_or("");
+        if keyword.is_empty() {
+            return Ok(self
+                .data
+                .borrow()
+                .values()
+                .filter(|kb| {
+                    filter
+                        .category
+                        .as_deref()
+                        .map_or(true, |c| kb.category == c)
+                })
+                .filter(|kb| {
+                    filter
+                        .namespace
+                        .as_deref()
+                        .map_or(true, |n| kb.namespace == n)
+                })
+                .filter(|kb| {
+                    ref_filter.is_empty()
+                        || kb
+                            .reference
+                            .to_lowercase()
+                            .contains(&ref_filter.to_lowercase())
+                })
+                .map(|kb| KbItem {
+                    id: kb.id.clone(),
+                    key: kb.key.clone(),
+                    category: kb.category.clone(),
+                    namespace: kb.namespace.clone(),
+                    tags: kb.tags.clone(),
+                })
+                .collect());
+        }
         Ok(self
             .data
             .borrow()
@@ -134,17 +152,16 @@ impl KbStore for GhostItemKbStore {
         Ok(None)
     }
 
-    fn list_kbs(&self, _filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
-        Ok(vec![KbItem {
-            id: self.ghost_id.clone(),
-            key: self.ghost_key.clone(),
-            category: "concept".to_string(),
-            namespace: "default".to_string(),
-            tags: vec![],
-        }])
-    }
-
-    fn search_kbs(&self, _filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
+    fn get_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
+        if filter.keyword.as_deref().map_or(true, |k| k.is_empty()) {
+            return Ok(vec![KbItem {
+                id: self.ghost_id.clone(),
+                key: self.ghost_key.clone(),
+                category: "concept".to_string(),
+                namespace: "default".to_string(),
+                tags: vec![],
+            }]);
+        }
         Ok(vec![])
     }
 
@@ -677,10 +694,10 @@ fn delete_kb_returns_not_found_for_unknown_id() {
     ));
 }
 
-// ---- search_kbs tests ----
+// ---- get_kbs tests ----
 
 #[test]
-fn search_kbs_returns_matching_entries() {
+fn get_kbs_returns_matching_entries_by_keyword() {
     let mut kb = make_kb("id-1", "rust-ownership");
     kb.tags = vec!["memory".to_string(), "rust".to_string()];
     let store = MockKbStore::with(vec![kb]);
@@ -689,12 +706,12 @@ fn search_kbs_returns_matching_entries() {
         keyword: Some("memo".to_string()),
         ..Default::default()
     };
-    let results = svc.search_kbs(filter).unwrap();
+    let results = svc.get_kbs(filter).unwrap();
     assert_eq!(results.len(), 1);
 }
 
 #[test]
-fn search_kbs_with_reference_filter_returns_matching_entries() {
+fn get_kbs_with_keyword_and_reference_filter_returns_matching_entries() {
     let mut kb1 = make_kb("id-1", "rust-ownership");
     kb1.tags = vec!["rust".to_string()];
     kb1.reference = "The Rust Book".to_string();
@@ -708,13 +725,13 @@ fn search_kbs_with_reference_filter_returns_matching_entries() {
         reference: Some("The Rust Book".to_string()),
         ..Default::default()
     };
-    let results = svc.search_kbs(filter).unwrap();
+    let results = svc.get_kbs(filter).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].key, "rust-ownership");
 }
 
 #[test]
-fn search_kbs_without_reference_filter_returns_all_keyword_matches() {
+fn get_kbs_with_keyword_only_returns_all_keyword_matches() {
     let mut kb1 = make_kb("id-1", "rust-ownership");
     kb1.tags = vec!["rust".to_string()];
     kb1.reference = "The Rust Book".to_string();
@@ -727,8 +744,34 @@ fn search_kbs_without_reference_filter_returns_all_keyword_matches() {
         keyword: Some("rust".to_string()),
         ..Default::default()
     };
-    let results = svc.search_kbs(filter).unwrap();
+    let results = svc.get_kbs(filter).unwrap();
     assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn get_kbs_without_keyword_returns_all_entries() {
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
+    let results = make_svc_with_store(store)
+        .get_kbs(KbFilter::default())
+        .unwrap();
+    assert_eq!(results.len(), 1);
+}
+
+#[test]
+fn get_kbs_without_keyword_filters_by_reference() {
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.reference = "The Rust Book".to_string();
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.reference = "other source".to_string();
+    let store = MockKbStore::with(vec![kb1, kb2]);
+    let svc = make_svc_with_store(store);
+    let filter = KbFilter {
+        reference: Some("The Rust Book".to_string()),
+        ..Default::default()
+    };
+    let results = svc.get_kbs(filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "rust-ownership");
 }
 
 // ---- reindex tests ----
@@ -922,7 +965,7 @@ fn quote_propagates_not_found_when_no_quotes_exist() {
     assert!(matches!(svc.quote(), Err(Error::QuoteNotFound)));
 }
 
-// ---- ask / list / search delegation smoke tests ----
+// ---- ask / get delegation smoke tests ----
 
 #[test]
 fn ask_returns_results_without_error() {
@@ -931,15 +974,6 @@ fn ask_returns_results_without_error() {
         limit: Some(5),
     };
     assert!(make_svc().ask(&query).is_ok());
-}
-
-#[test]
-fn list_kbs_returns_all_entries() {
-    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
-    let result = make_svc_with_store(store)
-        .list_kbs(KbFilter::default())
-        .unwrap();
-    assert_eq!(result.len(), 1);
 }
 
 #[test]
