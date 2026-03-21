@@ -150,9 +150,23 @@ These are structural violations that agents commonly introduce. Check before sub
 ## Configuration
 
 Config file: `~/kbzona/config.yaml` (or `$KBZONA_HOME/config.yaml`).
+The config file is **auto-created with defaults on first run** if it does not exist.
 
 ```yaml
 db_path: ~/.kbzona/kbzona.db
 embedding:
   provider: fastembed   # default; only supported value for now
 ```
+
+- `$KBZONA_HOME` overrides the base directory (default: `~/.kbzona/`).
+- Embedding model cache: `{db_path_parent}/fastembed_cache/`.
+
+### Embedding text construction
+
+When indexing an entry (on `add`, `update`, or `reindex`), the text fed to the embedding model is:
+
+```
+"{key} {category} {namespace} {tags_as_string} {value[0..200]}"
+```
+
+This is constructed by `Kb::embedding_text()` in `domain/kb.rs`.

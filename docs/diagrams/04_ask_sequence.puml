@@ -1,0 +1,83 @@
+@startuml 04_ask_sequence
+title kbzone — Sequence Diagram: kb ask
+
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName "DejaVu Sans"
+skinparam defaultFontSize 11
+skinparam sequence {
+    ArrowColor #444444
+    ActorBorderColor #444444
+    ActorBackgroundColor #FFFDE7
+    ParticipantBorderColor #555555
+    ParticipantBackgroundColor #E8F5E9
+    GroupBorderColor #888888
+    BoxBorderColor #888888
+    NoteBackgroundColor #FFF9C4
+    NoteBorderColor #F9A825
+    LifeLineBorderColor #888888
+}
+
+actor "User\n(Terminal)" as User #FFFDE7
+
+participant "CLI\ncli/commands.rs\ncli/handlers.rs" as CLI #C8E6C9
+participant "App\napplication/app.rs" as App #DCEDC8
+participant "KBService\nservice/kb_service.rs" as KBService #B3E5FC
+participant "EmbeddingProvider\nports/embedding.rs\n(FastEmbedProvider)" as Embedder #FFE0B2
+participant "VectorStore\nports/vector_store.rs\n(SqliteStore)" as VectorStore #FFE0B2
+database "SQLite\nkb_embeddings (vec0)\nkbs (main)" as SQLite #EDE7F6
+
+User -> CLI : kb ask "<query>" [--limit N]
+activate CLI
+
+CLI -> App : run() — dispatch Ask { query, limit }
+activate App
+
+App -> KBService : ask(SemanticQuery { text, limit })
+activate KBService
+
+KBService -> Embedder : embed(query.text)
+activate Embedder
+Embedder --> KBService : Vec<f32> — 384-dim vector
+deactivate Embedder
+
+KBService -> VectorStore : search_similar(query, &embedding)
+activate VectorStore
+
+note right of VectorStore
+  vec0 does not support JOINs;
+  two separate queries are used.
+end note
+
+VectorStore -> SQLite : SELECT kb_id, distance\nFROM kb_embeddings\nWHERE embedding MATCH ?\nORDER BY distance LIMIT ?
+activate SQLite
+SQLite --> VectorStore : [(kb_id, distance), ...]
+deactivate SQLite
+
+loop for each kb_id returned
+    VectorStore -> SQLite : SELECT KB_ID, KB_KEY, CATEGORY,\nNAMESPACE, TAG_VALUES\nFROM kbs WHERE KB_ID = ?
+    activate SQLite
+    SQLite --> VectorStore : KbItem row
+    deactivate SQLite
+end
+
+VectorStore --> KBService : Vec<ScoredKbItem> { item: KbItem, score: f32 }
+deactivate VectorStore
+
+KBService --> App : Vec<ScoredKbItem>
+deactivate KBService
+
+App --> CLI : results passed to handle_ask()
+deactivate App
+
+alt results found
+    CLI -> User : print table header\n(SCORE | ID | KEY | CATEGORY | NAMESPACE | TAGS)
+    loop for each ScoredKbItem
+        CLI -> User : print row (score, id, key, category, namespace, tags)
+    end
+else no results
+    CLI -> User : (empty output)
+end
+
+deactivate CLI
+
+@enduml

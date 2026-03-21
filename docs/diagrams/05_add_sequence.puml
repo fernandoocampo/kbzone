@@ -1,0 +1,111 @@
+@startuml 05_add_sequence
+title kbzone — Sequence Diagram: kb add
+
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName "DejaVu Sans"
+skinparam defaultFontSize 11
+skinparam sequence {
+    ArrowColor #444444
+    ActorBorderColor #444444
+    ActorBackgroundColor #FFFDE7
+    ParticipantBorderColor #555555
+    ParticipantBackgroundColor #E8F5E9
+    GroupBorderColor #888888
+    BoxBorderColor #888888
+    NoteBackgroundColor #FFF9C4
+    NoteBorderColor #F9A825
+    LifeLineBorderColor #888888
+}
+
+actor "User\n(Terminal)" as User #FFFDE7
+
+participant "CLI\ncli/commands.rs\ncli/handlers.rs" as CLI #C8E6C9
+participant "App\napplication/app.rs" as App #DCEDC8
+participant "KBService\nservice/kb_service.rs" as KBService #B3E5FC
+participant "KbStore\nports/storage.rs\n(SqliteStore)" as KbStore #FFE0B2
+participant "EmbeddingProvider\nports/embedding.rs\n(FastEmbedProvider)" as Embedder #FFE0B2
+participant "VectorStore\nports/vector_store.rs\n(SqliteStore)" as VectorStore #FFE0B2
+database "SQLite\nkbs + tags_idx (FTS5)\nkb_embeddings (vec0)" as SQLite #EDE7F6
+
+User -> CLI : kb add --key <key> --value <value>\n[--notes ...] [--category ...]\n[--namespace ...] [--reference ...]\n[--tags tag1,tag2,...]
+activate CLI
+
+CLI -> App : run() — dispatch Add { key, value, ... }
+activate App
+
+App -> KBService : add_kb(NewKb)
+activate KBService
+
+group Step 1 — CRUD Save
+
+    KBService -> KbStore : get_kb_by_key(key) — duplicate check
+    activate KbStore
+    KbStore -> SQLite : SELECT KB_ID FROM kbs\nWHERE KB_KEY = ?
+    activate SQLite
+    SQLite --> KbStore : Option<Kb>
+    deactivate SQLite
+    KbStore --> KBService : Option<Kb>
+    deactivate KbStore
+
+    alt key already exists
+        KBService --> App : Err(DuplicateKBError)
+        App --> CLI : propagate error
+        CLI --> User : error: duplicate key
+    else key is new
+        KBService -> KBService : NewKb → Kb\n(id = UUID v4\ncreated_on = Local::now()\nkey/category/namespace → lowercase)
+
+        KBService -> KbStore : save_kb(&kb)
+        activate KbStore
+        KbStore -> SQLite : INSERT INTO kbs\n(KB_ID, KB_KEY, KB_VALUE, NOTES,\nCATEGORY, NAMESPACE, REFERENCE,\nTAG_VALUES, CREATED_ON)
+        activate SQLite
+        SQLite -> SQLite : trigger kbs_ai\nupdates tags_idx (FTS5)
+        SQLite --> KbStore : Ok(())
+        deactivate SQLite
+        KbStore --> KBService : Ok(())
+        deactivate KbStore
+    end
+
+end
+
+group Step 2 — Semantic Indexing (non-fatal)
+
+    KBService -> KBService : build embedding_text\n= "{key} {category} {namespace}\n{tags} {value[0..200]}"
+
+    KBService -> Embedder : embed(embedding_text)
+    activate Embedder
+
+    alt embedding success
+        Embedder --> KBService : Vec<f32> — 384-dim vector
+        deactivate Embedder
+
+        KBService -> VectorStore : save_embedding(EmbeddingInput { kb_id, text }, &embedding)
+        activate VectorStore
+        VectorStore -> SQLite : INSERT INTO kb_embeddings\n(kb_id, embedding)
+        activate SQLite
+        SQLite --> VectorStore : Ok(())
+        deactivate SQLite
+        VectorStore --> KBService : Ok(())
+        deactivate VectorStore
+
+    else embedding failure
+        Embedder --> KBService : Err(EmbeddingError)
+        deactivate Embedder
+        note right of KBService
+          Non-fatal: entry is already saved.
+          Warning printed to stderr.
+          Run: kb reindex to rebuild.
+        end note
+    end
+
+end
+
+KBService --> App : Ok(Kb)
+deactivate KBService
+
+App --> CLI : Kb { id, key, ... }
+deactivate App
+
+CLI -> User : Created: {id}
+deactivate CLI
+
+@enduml
