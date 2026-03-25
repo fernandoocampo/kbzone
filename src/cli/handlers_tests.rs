@@ -199,6 +199,77 @@ fn handle_version_returns_ok() {
 }
 
 #[test]
+fn handle_add_non_interactive_returns_ok_with_all_fields() {
+    let svc = make_svc();
+    let params = AddParams {
+        key: Some("test-key".to_string()),
+        value: Some("test-value".to_string()),
+        notes: String::new(),
+        category: String::new(),
+        reference: String::new(),
+        namespace: String::new(),
+        tags: Vec::new(),
+        interactive: false,
+    };
+    let result = handle_add(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_add_non_interactive_fails_without_key() {
+    let svc = make_svc();
+    let params = AddParams {
+        key: None,
+        value: Some("test-value".to_string()),
+        notes: String::new(),
+        category: String::new(),
+        reference: String::new(),
+        namespace: String::new(),
+        tags: Vec::new(),
+        interactive: false,
+    };
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::MissingRequiredField(_))));
+}
+
+#[test]
+fn handle_add_non_interactive_fails_without_value() {
+    let svc = make_svc();
+    let params = AddParams {
+        key: Some("test-key".to_string()),
+        value: None,
+        notes: String::new(),
+        category: String::new(),
+        reference: String::new(),
+        namespace: String::new(),
+        tags: Vec::new(),
+        interactive: false,
+    };
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::MissingRequiredField(_))));
+}
+
+#[test]
+fn build_new_kb_non_interactive_builds_correctly() {
+    let params = AddParams {
+        key: Some("my-key".to_string()),
+        value: Some("my-value".to_string()),
+        notes: "some notes".to_string(),
+        category: "concept".to_string(),
+        reference: String::new(),
+        namespace: "default".to_string(),
+        tags: vec!["rust".to_string()],
+        interactive: false,
+    };
+    let result = build_new_kb_non_interactive(params);
+    assert!(result.is_ok());
+    let new_kb = result.expect("expected Ok NewKb");
+    assert_eq!(new_kb.key, "my-key");
+    assert_eq!(new_kb.value, "my-value");
+    assert_eq!(new_kb.tags, vec!["rust".to_string()]);
+}
+
+#[test]
 fn serialize_failed_items_produces_multi_doc_yaml() {
     let items = vec![
         ImportKbItem {

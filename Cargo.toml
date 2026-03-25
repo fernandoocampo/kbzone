@@ -17,3 +17,4 @@ serde      = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 sqlite-vec = "0.1"
 fastembed  = "4"
+stop-words = "0.8"

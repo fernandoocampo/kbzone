@@ -12,15 +12,11 @@ pub struct Cli {
 pub enum Command {
     /// Add a new knowledge base entry.
     Add {
-        #[arg(
-            long,
-            required = true,
-            help = "Unique string key (e.g. rust-ownership)"
-        )]
-        key: String,
+        #[arg(long, help = "Unique string key (e.g. rust-ownership)")]
+        key: Option<String>,
 
-        #[arg(long, required = true, help = "Content / answer for this entry")]
-        value: String,
+        #[arg(long, help = "Content / answer for this entry")]
+        value: Option<String>,
 
         #[arg(long, default_value = "", help = "Extended notes or elaboration")]
         notes: String,
@@ -41,6 +37,9 @@ pub enum Command {
         /// Comma-separated tags, e.g. `rust,memory,concepts`
         #[arg(long, value_delimiter = ',', help = "Comma-separated search tags")]
         tags: Vec<String>,
+
+        #[arg(long, help = "Prompt for missing required fields interactively")]
+        interactive: bool,
     },
 
     /// Get a single entry by key or ID.

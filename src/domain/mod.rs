@@ -14,8 +14,10 @@
 //! - [`EmbeddingInput`] — text prepared for embedding generation
 
 pub mod kb;
+pub mod tag_suggestion;
 
 pub use kb::{
     EmbeddingInput, FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem,
     KbUpdate, NewKb, ReindexResult, ScoredKbItem, SemanticQuery,
 };
+pub use tag_suggestion::{suggest_tags, TagSuggestionInput};

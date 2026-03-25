@@ -4,8 +4,8 @@ use crate::adapters::fastembed::FastEmbedProvider;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
-use crate::cli::handlers::{self, GetParams, ImportParams, SearchParams};
-use crate::domain::{KbUpdate, NewKb, SemanticQuery};
+use crate::cli::handlers::{self, AddParams, GetParams, ImportParams, SearchParams};
+use crate::domain::{KbUpdate, SemanticQuery};
 use crate::errors::AppError;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
 use crate::service::{KBService, SemanticDeps};
@@ -59,9 +59,10 @@ impl App {
                 namespace,
                 reference,
                 tags,
+                interactive,
             } => handlers::handle_add(
                 &self.svc,
-                NewKb {
+                AddParams {
                     key,
                     value,
                     notes,
@@ -69,6 +70,7 @@ impl App {
                     namespace,
                     reference,
                     tags,
+                    interactive,
                 },
             )?,
 

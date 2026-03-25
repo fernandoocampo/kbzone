@@ -41,6 +41,10 @@ pub enum Error {
     QuoteNotFound,
     #[error("quote error: {0}")]
     QuoteError(String),
+    #[error("missing required field: {0}")]
+    MissingRequiredField(String),
+    #[error("interactive input error: {0}")]
+    InteractiveInputError(String),
 }
 
 /// Application-level startup / configuration errors.

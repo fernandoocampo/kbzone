@@ -1,6 +1,9 @@
 use serde::Deserialize;
 
-use crate::domain::{ImportKbItem, KbFilter, KbUpdate, NewKb, ScoredKbItem, SemanticQuery};
+use crate::domain::{
+    suggest_tags, ImportKbItem, KbFilter, KbUpdate, NewKb, ScoredKbItem, SemanticQuery,
+    TagSuggestionInput,
+};
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
 use crate::service::KBService;
@@ -27,6 +30,17 @@ pub struct SearchParams {
     pub reference: Option<String>,
     pub limit: i64,
     pub offset: i64,
+}
+
+pub struct AddParams {
+    pub key: Option<String>,
+    pub value: Option<String>,
+    pub notes: String,
+    pub category: String,
+    pub namespace: String,
+    pub reference: String,
+    pub tags: Vec<String>,
+    pub interactive: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -83,11 +97,134 @@ fn print_table_header() {
 
 pub fn handle_add<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     svc: &KBService<S, V, E>,
-    new_kb: NewKb,
+    params: AddParams,
 ) -> Result<(), Error> {
+    let new_kb = if params.interactive {
+        build_new_kb_interactive(params)?
+    } else {
+        build_new_kb_non_interactive(params)?
+    };
     let kb = svc.add_kb(new_kb)?;
-    println!("Created: {}", kb.id);
+    println!("--- Created successfully ---");
+    print!("{kb}");
+    let suggestion_input = TagSuggestionInput {
+        text_fields: vec![
+            kb.key.clone(),
+            kb.value.clone(),
+            kb.notes.clone(),
+            kb.reference.clone(),
+            kb.category.clone(),
+            kb.namespace.clone(),
+        ],
+        existing_tags: kb.tags.clone(),
+    };
+    let suggestions = suggest_tags(&suggestion_input, 5);
+    if !suggestions.is_empty() {
+        println!("Suggested tags : {}", suggestions.join(", "));
+    }
     Ok(())
+}
+
+fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
+    let key = params
+        .key
+        .ok_or_else(|| Error::MissingRequiredField("key".to_string()))?;
+    let value = params
+        .value
+        .ok_or_else(|| Error::MissingRequiredField("value".to_string()))?;
+    Ok(NewKb {
+        key,
+        value,
+        notes: params.notes,
+        category: params.category,
+        reference: params.reference,
+        namespace: params.namespace,
+        tags: params.tags,
+    })
+}
+
+fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
+    let key = params
+        .key
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| prompt_for("Key", true), Ok)?;
+    let value = params
+        .value
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| prompt_for("Value", true), Ok)?;
+    let notes = if params.notes.is_empty() {
+        prompt_for("Notes (optional)", false)?
+    } else {
+        params.notes
+    };
+    let category = if params.category.is_empty() {
+        prompt_for("Category (optional)", false)?
+    } else {
+        params.category
+    };
+    let namespace = if params.namespace.is_empty() {
+        prompt_for("Namespace (optional)", false)?
+    } else {
+        params.namespace
+    };
+    let reference = if params.reference.is_empty() {
+        prompt_for("Reference (optional)", false)?
+    } else {
+        params.reference
+    };
+    let mut tags = params.tags;
+    if tags.is_empty() {
+        let tags_input = prompt_for("Tags comma-separated (optional)", false)?;
+        if !tags_input.is_empty() {
+            tags = tags_input
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+    }
+    let mut new_kb = NewKb {
+        key,
+        value,
+        notes,
+        category,
+        reference,
+        namespace,
+        tags,
+    };
+    let suggestion_input = TagSuggestionInput {
+        text_fields: vec![
+            new_kb.key.clone(),
+            new_kb.value.clone(),
+            new_kb.notes.clone(),
+            new_kb.reference.clone(),
+            new_kb.category.clone(),
+            new_kb.namespace.clone(),
+        ],
+        existing_tags: new_kb.tags.clone(),
+    };
+    let suggestions = suggest_tags(&suggestion_input, 5);
+    if !suggestions.is_empty() {
+        eprintln!("Suggested tags : {}", suggestions.join(", "));
+        let accept = prompt_for("Add suggested tags? (y/n)", false)?;
+        if accept.to_lowercase() == "y" {
+            new_kb.tags.extend(suggestions);
+        }
+    }
+    Ok(new_kb)
+}
+
+fn prompt_for(label: &str, required: bool) -> Result<String, Error> {
+    eprint!("{}: ", label);
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| Error::InteractiveInputError(e.to_string()))?;
+    let trimmed = input.trim().to_string();
+    if required && trimmed.is_empty() {
+        return Err(Error::MissingRequiredField(label.to_string()));
+    }
+    Ok(trimmed)
 }
 
 pub fn handle_get<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
