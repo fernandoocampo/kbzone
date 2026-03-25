@@ -104,6 +104,14 @@ pub fn handle_add<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     } else {
         build_new_kb_non_interactive(params)?
     };
+    let decision = confirm_or_adjust(new_kb)?;
+    let new_kb = match decision {
+        AddDecision::Cancel => {
+            println!("Cancelled.");
+            return Ok(());
+        }
+        AddDecision::Save(kb) => kb,
+    };
     let kb = svc.add_kb(new_kb)?;
     println!("--- Created successfully ---");
     print!("{kb}");
@@ -132,14 +140,25 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
     let value = params
         .value
         .ok_or_else(|| Error::MissingRequiredField("value".to_string()))?;
+    let reference = if params.reference.is_empty() {
+        prompt_for("Reference (optional)", false)?
+    } else {
+        params.reference
+    };
+    let tags = if params.tags.is_empty() {
+        let input = prompt_for("Tags comma-separated (optional)", false)?;
+        parse_tags(&input)
+    } else {
+        params.tags
+    };
     Ok(NewKb {
         key,
         value,
         notes: params.notes,
         category: params.category,
-        reference: params.reference,
+        reference,
         namespace: params.namespace,
-        tags: params.tags,
+        tags,
     })
 }
 
@@ -172,18 +191,13 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
     } else {
         params.reference
     };
-    let mut tags = params.tags;
-    if tags.is_empty() {
+    let tags = if params.tags.is_empty() {
         let tags_input = prompt_for("Tags comma-separated (optional)", false)?;
-        if !tags_input.is_empty() {
-            tags = tags_input
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-        }
-    }
-    let mut new_kb = NewKb {
+        parse_tags(&tags_input)
+    } else {
+        params.tags
+    };
+    Ok(NewKb {
         key,
         value,
         notes,
@@ -191,27 +205,93 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         reference,
         namespace,
         tags,
-    };
-    let suggestion_input = TagSuggestionInput {
-        text_fields: vec![
-            new_kb.key.clone(),
-            new_kb.value.clone(),
-            new_kb.notes.clone(),
-            new_kb.reference.clone(),
-            new_kb.category.clone(),
-            new_kb.namespace.clone(),
-        ],
-        existing_tags: new_kb.tags.clone(),
-    };
-    let suggestions = suggest_tags(&suggestion_input, 5);
-    if !suggestions.is_empty() {
-        eprintln!("Suggested tags : {}", suggestions.join(", "));
-        let accept = prompt_for("Add suggested tags? (y/n)", false)?;
-        if accept.to_lowercase() == "y" {
-            new_kb.tags.extend(suggestions);
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Add-flow helpers
+// ---------------------------------------------------------------------------
+
+enum AddDecision {
+    Save(NewKb),
+    Cancel,
+}
+
+fn parse_tags(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn format_preview(kb: &NewKb) -> String {
+    format!(
+        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}",
+        kb.key,
+        kb.value,
+        kb.notes,
+        kb.category,
+        kb.namespace,
+        kb.reference,
+        kb.tags.join(", "),
+    )
+}
+
+fn confirm_or_adjust(mut new_kb: NewKb) -> Result<AddDecision, Error> {
+    loop {
+        println!("\n--- Preview ---");
+        println!("{}", format_preview(&new_kb));
+        println!();
+        let choice = prompt_for("Save (s), Cancel (c), or Adjust (a)?", true)?;
+        match choice.to_lowercase().as_str() {
+            "s" => return Ok(AddDecision::Save(new_kb)),
+            "c" => return Ok(AddDecision::Cancel),
+            "a" => {
+                new_kb = adjust_fields(new_kb)?;
+            }
+            _ => eprintln!("Please enter s, c, or a."),
         }
     }
-    Ok(new_kb)
+}
+
+fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
+    let key = prompt_adjust("key", &kb.key)?;
+    let value = prompt_adjust("value", &kb.value)?;
+    let notes = prompt_adjust("notes", &kb.notes)?;
+    let category = prompt_adjust("category", &kb.category)?;
+    let namespace = prompt_adjust("namespace", &kb.namespace)?;
+    let reference = prompt_adjust("reference", &kb.reference)?;
+    let tags_current = kb.tags.join(", ");
+    let tags_input = prompt_adjust("tags (comma-separated)", &tags_current)?;
+    let tags = if tags_input.is_empty() {
+        kb.tags
+    } else {
+        parse_tags(&tags_input)
+    };
+    Ok(NewKb {
+        key,
+        value,
+        notes,
+        category,
+        namespace,
+        reference,
+        tags,
+    })
+}
+
+fn prompt_adjust(label: &str, current: &str) -> Result<String, Error> {
+    eprint!("  {} [{}]: ", label, current);
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| Error::InteractiveInputError(e.to_string()))?;
+    let trimmed = input.trim().to_string();
+    if trimmed.is_empty() {
+        Ok(current.to_string())
+    } else {
+        Ok(trimmed)
+    }
 }
 
 fn prompt_for(label: &str, required: bool) -> Result<String, Error> {
