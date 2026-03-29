@@ -6,7 +6,7 @@ A personal knowledge base CLI tool with semantic search, built in Rust. Store no
 
 `kbzone` (binary: `kb`) lets you:
 
-- **Add** entries with a key, value, notes, category, namespace, tags, and a reference source
+- **Add** entries with a key, value, notes, category, namespace, tags, a reference source, and an optional parent entry
 - **Search** entries by tag keywords (full-text search via SQLite FTS5)
 - **Ask** questions in natural language — finds semantically similar entries using local vector embeddings (no external API calls)
 - **List, get, update, delete** entries with flexible filters
@@ -65,6 +65,18 @@ kb add --key rust-ownership \
        --tags rust,memory,ownership \
        --reference "The Rust Programming Language"
 ```
+
+To attach an entry to a parent, pass its UUID with `--parent`:
+
+```sh
+kb add --key rust-borrowing \
+       --value "You can have many immutable references, or one mutable reference — not both." \
+       --category concept \
+       --namespace rust \
+       --parent <parent-uuid>
+```
+
+The parent must already exist; the command fails with an error if the ID is not found.
 
 ### Get an entry
 
@@ -138,15 +150,18 @@ To get the best recall:
 
 ```sh
 kb update --id <uuid> --value "Updated value" --tags rust,ownership,borrow
+kb update --id <uuid> --parent <parent-uuid>
 ```
 
-Only the fields you pass are changed.
+Only the fields you pass are changed. Pass `--parent` to set or change the parent; the parent must already exist.
 
 ### Delete an entry
 
 ```sh
 kb delete --id <uuid>
 ```
+
+If the entry has children, the delete is rejected and the child IDs are printed. Delete the children first, then retry.
 
 ### Import from YAML
 
@@ -155,7 +170,20 @@ kb import --file my-entries.yaml
 kb import --file my-entries.yaml --failed-items-file failures.yaml
 ```
 
-The YAML file should be a multi-document file (entries separated by `---`). Items that fail validation are written to the failed items file for inspection.
+The YAML file should be a multi-document file (entries separated by `---`). Each document supports the following fields:
+
+```yaml
+Key: rust-borrowing
+Value: "You can have many immutable references, or one mutable reference — not both."
+Notes: ""
+Category: concept
+Namespace: rust
+Tags: [rust, memory, ownership]
+Reference: "The Rust Programming Language"
+ParentKey: rust-ownership   # optional: kb key of the parent entry
+```
+
+`ParentKey` is resolved to an internal UUID at import time. If the referenced key does not exist, that item is recorded as a failure and the rest of the batch continues. Items that fail validation or import are written to the failed items file for inspection.
 
 ### Rebuild embeddings
 

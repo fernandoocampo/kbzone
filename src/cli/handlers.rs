@@ -41,6 +41,7 @@ pub struct AddParams {
     pub reference: String,
     pub tags: Vec<String>,
     pub interactive: bool,
+    pub parent: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +160,7 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
         reference,
         namespace: params.namespace,
         tags,
+        parent: params.parent,
     })
 }
 
@@ -205,6 +207,7 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         reference,
         namespace,
         tags,
+        parent: params.parent,
     })
 }
 
@@ -227,7 +230,7 @@ fn parse_tags(input: &str) -> Vec<String> {
 
 fn format_preview(kb: &NewKb) -> String {
     format!(
-        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}",
+        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  parent    : {}",
         kb.key,
         kb.value,
         kb.notes,
@@ -235,6 +238,7 @@ fn format_preview(kb: &NewKb) -> String {
         kb.namespace,
         kb.reference,
         kb.tags.join(", "),
+        kb.parent.as_deref().unwrap_or("(none)"),
     )
 }
 
@@ -269,6 +273,13 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
     } else {
         parse_tags(&tags_input)
     };
+    let parent_current = kb.parent.as_deref().unwrap_or("");
+    let parent_input = prompt_adjust("parent UUID (optional)", parent_current)?;
+    let parent = if parent_input.is_empty() {
+        None
+    } else {
+        Some(parent_input)
+    };
     Ok(NewKb {
         key,
         value,
@@ -277,6 +288,7 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
         namespace,
         reference,
         tags,
+        parent,
     })
 }
 
@@ -341,8 +353,14 @@ pub fn handle_delete<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     svc: &KBService<S, V, E>,
     id: String,
 ) -> Result<(), Error> {
-    svc.delete_kb(&id)?;
-    println!("Deleted: {}", id);
+    match svc.delete_kb(&id) {
+        Ok(()) => println!("Deleted: {}", id),
+        Err(e @ Error::KBHasChildrenError(_)) => {
+            eprintln!("Cannot delete: KB has children. Delete them first: {}", e);
+            return Err(e);
+        }
+        Err(e) => return Err(e),
+    }
     Ok(())
 }
 

@@ -68,6 +68,8 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
             .get_kb_by_id(&update.id)?
             .ok_or(Error::KBNotFound)?;
 
+        self.validate_parent_exists(&update.parent)?;
+
         let old_embed_text = existing.embedding_text();
 
         let updated = Kb {
@@ -86,6 +88,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
             reference: update.reference.unwrap_or(existing.reference),
             tags: update.tags.unwrap_or(existing.tags),
             created_on: existing.created_on,
+            parent: update.parent.or(existing.parent),
         };
 
         let new_embed_text = updated.embedding_text();
@@ -107,7 +110,12 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
     }
 
     /// Deletes an entry and removes its embedding. Embedding removal failure is non-fatal.
+    /// Returns `KBHasChildrenError` if the entry has children — delete them first.
     pub fn delete_kb(&self, id: &str) -> Result<(), Error> {
+        let children = self.store.get_children_ids(id)?;
+        if !children.is_empty() {
+            return Err(Error::KBHasChildrenError(children.join(", ")));
+        }
         let deleted = self.store.delete_kb(id)?;
         if !deleted {
             return Err(Error::KBNotFound);
@@ -176,12 +184,13 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
     // Private helpers
     // ---------------------------------------------------------------------------
 
-    /// Low-level CRUD add: duplicate-key check, convert to `Kb`, persist.
+    /// Low-level CRUD add: duplicate-key check, parent existence check, convert to `Kb`, persist.
     fn add_kb_crud(&self, new_kb: NewKb) -> Result<Kb, Error> {
         let key = new_kb.key.to_lowercase();
         if self.store.get_kb_by_key(&key)?.is_some() {
             return Err(Error::DuplicateKBError);
         }
+        self.validate_parent_exists(&new_kb.parent)?;
         let kb = Kb::from(new_kb);
         self.store.save_kb(&kb)?;
         Ok(kb)
@@ -201,7 +210,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
         Ok(())
     }
 
-    /// Batch CRUD add: validates, calls `add_kb_crud`, collects failures.
+    /// Batch CRUD add: validates, resolves parent_key to parent_id, calls `add_kb_crud`, collects failures.
     fn add_kbs_crud(&self, items: Vec<ImportKbItem>) -> ImportBatchResult {
         let mut saved = Vec::new();
         let mut failed = Vec::new();
@@ -211,7 +220,30 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
                 failed.push(FailedImportItem { item, reason });
                 continue;
             }
-            let new_kb = NewKb::from(item.clone());
+            let parent_key = item.parent_key.clone();
+            let parent_id = if let Some(pk) = parent_key {
+                match self.store.get_kb_by_key(&pk) {
+                    Ok(Some(parent_kb)) => Some(parent_kb.id),
+                    Ok(None) => {
+                        failed.push(FailedImportItem {
+                            item,
+                            reason: format!("parent key not found: {}", pk),
+                        });
+                        continue;
+                    }
+                    Err(e) => {
+                        failed.push(FailedImportItem {
+                            item,
+                            reason: e.to_string(),
+                        });
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            let mut new_kb = NewKb::from(item.clone());
+            new_kb.parent = parent_id;
             match self.add_kb_crud(new_kb) {
                 Ok(kb) => saved.push(kb),
                 Err(e) => failed.push(FailedImportItem {
@@ -222,6 +254,15 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
         }
 
         ImportBatchResult { saved, failed }
+    }
+
+    fn validate_parent_exists(&self, parent: &Option<String>) -> Result<(), Error> {
+        if let Some(ref pid) = parent {
+            self.store
+                .get_kb_by_id(pid)?
+                .ok_or(Error::ParentKBNotFound)?;
+        }
+        Ok(())
     }
 
     /// Embeds the text in `input` and stores the resulting vector.

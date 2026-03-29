@@ -22,6 +22,8 @@ pub struct Kb {
     pub tags: Vec<String>,
     /// ISO-8601 creation timestamp.
     pub created_on: String,
+    /// Internal UUID of the parent KB item, if any.
+    pub parent: Option<String>,
 }
 
 impl Kb {
@@ -55,6 +57,9 @@ impl std::fmt::Display for Kb {
         writeln!(f, "Reference : {}", self.reference)?;
         writeln!(f, "Tags      : {}", self.tags.join(", "))?;
         writeln!(f, "Created   : {}", self.created_on)?;
+        if let Some(ref p) = self.parent {
+            writeln!(f, "Parent    : {}", p)?;
+        }
         if !self.notes.is_empty() {
             writeln!(f, "Notes     :\n{}", self.notes)?;
         }
@@ -72,6 +77,8 @@ pub struct NewKb {
     pub reference: String,
     pub namespace: String,
     pub tags: Vec<String>,
+    /// Internal UUID of the parent KB item, if any.
+    pub parent: Option<String>,
 }
 
 impl From<NewKb> for Kb {
@@ -88,6 +95,7 @@ impl From<NewKb> for Kb {
             namespace: new.namespace.to_lowercase(),
             tags: new.tags,
             created_on: Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string(),
+            parent: new.parent,
         }
     }
 }
@@ -103,6 +111,8 @@ pub struct KbUpdate {
     pub namespace: Option<String>,
     pub reference: Option<String>,
     pub tags: Option<Vec<String>>,
+    /// Set a new parent (by internal UUID). `None` = keep existing.
+    pub parent: Option<String>,
 }
 
 /// Parameters for list / search operations.
@@ -167,6 +177,9 @@ pub struct ImportKbItem {
     pub namespace: String,
     #[serde(rename = "Tags", default)]
     pub tags: Vec<String>,
+    /// Key of the parent KB item. Resolved to internal UUID at import time.
+    #[serde(rename = "ParentKey", default)]
+    pub parent_key: Option<String>,
 }
 
 impl ImportKbItem {
@@ -192,6 +205,7 @@ impl From<ImportKbItem> for NewKb {
             reference: item.reference,
             namespace: item.namespace,
             tags: item.tags,
+            parent: None, // parent_key is resolved to UUID in the service layer
         }
     }
 }

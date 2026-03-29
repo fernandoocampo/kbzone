@@ -129,6 +129,16 @@ impl KbStore for MockKbStore {
             .cloned()
             .ok_or(Error::QuoteNotFound)
     }
+
+    fn get_children_ids(&self, parent_id: &str) -> Result<Vec<String>, Error> {
+        Ok(self
+            .data
+            .borrow()
+            .values()
+            .filter(|kb| kb.parent.as_deref() == Some(parent_id))
+            .map(|kb| kb.id.clone())
+            .collect())
+    }
 }
 
 // ---- GhostItemKbStore: list_kbs returns items but get_kb_by_id returns None ----
@@ -179,6 +189,10 @@ impl KbStore for GhostItemKbStore {
 
     fn random_quote(&self) -> Result<Kb, Error> {
         Err(Error::QuoteNotFound)
+    }
+
+    fn get_children_ids(&self, _parent_id: &str) -> Result<Vec<String>, Error> {
+        Ok(vec![])
     }
 }
 
@@ -326,6 +340,7 @@ fn make_kb(id: &str, key: &str) -> Kb {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
         created_on: "2026-01-01T00:00:00+0000".to_string(),
+        parent: None,
     }
 }
 
@@ -338,6 +353,7 @@ fn make_new_kb(key: &str) -> NewKb {
         reference: String::new(),
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
+        parent: None,
     }
 }
 
@@ -350,6 +366,7 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
         reference: String::new(),
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
+        parent_key: None,
     }
 }
 
@@ -452,6 +469,7 @@ fn update_kb_merges_partial_fields_correctly() {
         namespace: None,
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -480,6 +498,7 @@ fn update_kb_reindexes_when_embedding_text_changes() {
         namespace: None,
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(svc.update_kb(update).is_ok());
     assert_eq!(vector.indexed.borrow().len(), 1);
@@ -506,6 +525,7 @@ fn update_kb_skips_reindex_when_only_notes_changes() {
         namespace: None,
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(svc.update_kb(update).is_ok());
     assert!(vector.indexed.borrow().is_empty());
@@ -522,6 +542,7 @@ fn update_kb_returns_not_found_for_unknown_id() {
         namespace: None,
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(matches!(
         make_svc().update_kb(update),
@@ -549,6 +570,7 @@ fn update_kb_returns_ok_when_embedding_update_fails() {
         namespace: None,
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }
@@ -569,6 +591,7 @@ fn update_kb_rejects_stolen_key() {
         namespace: None,
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(matches!(
         svc.update_kb(update),
@@ -589,6 +612,7 @@ fn update_kb_same_key_same_entry_is_ok() {
         namespace: None,
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }
@@ -609,6 +633,7 @@ fn update_kb_lowercases_key() {
         namespace: None,
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -629,6 +654,7 @@ fn update_kb_lowercases_category() {
         namespace: None,
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -649,6 +675,7 @@ fn update_kb_lowercases_namespace() {
         namespace: Some("UpperNS".to_string()),
         reference: None,
         tags: None,
+        parent: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -992,4 +1019,120 @@ fn ask_fails_when_embedding_provider_fails() {
         threshold: None,
     };
     assert!(matches!(svc.ask(&query), Err(Error::EmbeddingError(_))));
+}
+
+// ---- parent relationship tests ----
+
+#[test]
+fn add_kb_with_valid_parent_succeeds() {
+    let parent = make_kb("parent-id", "parent-key");
+    let store = MockKbStore::with(vec![parent]);
+    let svc = make_svc_with_store(store);
+    let mut new_kb = make_new_kb("child-key");
+    new_kb.parent = Some("parent-id".to_string());
+    let result = svc.add_kb(new_kb);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().parent, Some("parent-id".to_string()));
+}
+
+#[test]
+fn add_kb_with_missing_parent_fails() {
+    let svc = make_svc();
+    let mut new_kb = make_new_kb("child-key");
+    new_kb.parent = Some("nonexistent-parent-id".to_string());
+    assert!(matches!(svc.add_kb(new_kb), Err(Error::ParentKBNotFound)));
+}
+
+#[test]
+fn update_kb_with_valid_parent_succeeds() {
+    let parent = make_kb("parent-id", "parent-key");
+    let child = make_kb("child-id", "child-key");
+    let store = MockKbStore::with(vec![parent, child]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "child-id".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: Some("parent-id".to_string()),
+    };
+    assert!(svc.update_kb(update).is_ok());
+    let fetched = svc.get_kb_by_id("child-id").unwrap().unwrap();
+    assert_eq!(fetched.parent, Some("parent-id".to_string()));
+}
+
+#[test]
+fn update_kb_with_missing_parent_fails() {
+    let child = make_kb("child-id", "child-key");
+    let store = MockKbStore::with(vec![child]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "child-id".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: Some("nonexistent-parent-id".to_string()),
+    };
+    assert!(matches!(
+        svc.update_kb(update),
+        Err(Error::ParentKBNotFound)
+    ));
+}
+
+#[test]
+fn delete_kb_with_children_fails_and_lists_them() {
+    let parent = make_kb("parent-id", "parent-key");
+    let mut child = make_kb("child-id", "child-key");
+    child.parent = Some("parent-id".to_string());
+    let store = MockKbStore::with(vec![parent, child]);
+    let svc = make_svc_with_store(store);
+    let result = svc.delete_kb("parent-id");
+    assert!(matches!(result, Err(Error::KBHasChildrenError(_))));
+    if let Err(Error::KBHasChildrenError(ids)) = result {
+        assert!(ids.contains("child-id"));
+    }
+}
+
+#[test]
+fn delete_kb_without_children_succeeds() {
+    let parent = make_kb("parent-id", "parent-key");
+    let mut child = make_kb("child-id", "child-key");
+    child.parent = Some("parent-id".to_string());
+    let store = MockKbStore::with(vec![parent, child]);
+    let svc = make_svc_with_store(store);
+    // delete child first, then parent
+    assert!(svc.delete_kb("child-id").is_ok());
+    assert!(svc.delete_kb("parent-id").is_ok());
+}
+
+#[test]
+fn import_kb_with_valid_parent_key_resolves_id() {
+    let parent = make_kb("parent-id", "parent-key");
+    let store = MockKbStore::with(vec![parent]);
+    let svc = make_svc_with_store(store);
+    let mut item = make_import_item("child-key", "child value");
+    item.parent_key = Some("parent-key".to_string());
+    let result = svc.import_kbs(vec![item]);
+    assert_eq!(result.saved.len(), 1);
+    assert_eq!(result.failed.len(), 0);
+    assert_eq!(result.saved[0].parent, Some("parent-id".to_string()));
+}
+
+#[test]
+fn import_kb_with_missing_parent_key_reports_failure() {
+    let svc = make_svc();
+    let mut item = make_import_item("child-key", "child value");
+    item.parent_key = Some("nonexistent-key".to_string());
+    let result = svc.import_kbs(vec![item]);
+    assert_eq!(result.saved.len(), 0);
+    assert_eq!(result.failed.len(), 1);
+    assert!(result.failed[0].reason.contains("nonexistent-key"));
 }

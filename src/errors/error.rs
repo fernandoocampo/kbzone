@@ -45,6 +45,10 @@ pub enum Error {
     MissingRequiredField(String),
     #[error("interactive input error: {0}")]
     InteractiveInputError(String),
+    #[error("parent KB not found")]
+    ParentKBNotFound,
+    #[error("KB has children, delete them first: {0}")]
+    KBHasChildrenError(String),
 }
 
 /// Application-level startup / configuration errors.

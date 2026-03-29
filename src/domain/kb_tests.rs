@@ -11,6 +11,7 @@ fn make_kb(value: &str) -> Kb {
         namespace: "k8s".to_string(),
         tags: vec!["kubernetes".to_string(), "pods".to_string()],
         created_on: "2026-01-01T00:00:00+0000".to_string(),
+        parent: None,
     }
 }
 
@@ -56,6 +57,7 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
         reference: String::new(),
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
+        parent_key: None,
     }
 }
 

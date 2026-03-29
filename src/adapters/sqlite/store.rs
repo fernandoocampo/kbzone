@@ -52,27 +52,29 @@ END";
 // ---------------------------------------------------------------------------
 
 const GET_KB_BY_ID: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                             REFERENCE, TAG_VALUES, CREATED_ON \
+                             REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID \
                              FROM kbs WHERE KB_ID = ?1";
 
 const GET_KB_BY_KEY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                              REFERENCE, TAG_VALUES, CREATED_ON \
+                              REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID \
                               FROM kbs WHERE KB_KEY = ?1";
 
 const INSERT_KB: &str = "INSERT INTO kbs \
-                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON) \
-                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
+                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID) \
+                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
 
 const UPDATE_KB: &str = "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGORY=?4, \
-                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7 \
-                          WHERE KB_ID=?8";
+                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, PARENT_KB_ID=?8 \
+                          WHERE KB_ID=?9";
 
 const DELETE_KB: &str = "DELETE FROM kbs WHERE KB_ID=?1";
 
 const GET_RANDOM_QUOTE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                 REFERENCE, TAG_VALUES, CREATED_ON \
+                                 REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID \
                                  FROM kbs WHERE LOWER(CATEGORY) = 'quote' \
                                  ORDER BY RANDOM() LIMIT 1";
+
+const GET_CHILDREN_IDS: &str = "SELECT KB_ID FROM kbs WHERE PARENT_KB_ID = ?1";
 
 const SEARCH_FTS: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
                            FROM kbs k \
@@ -193,6 +195,14 @@ impl KbStore for SqliteStore {
             conn.execute_batch(ddl)
                 .map_err(|e| Error::StorageInitError(e.to_string()))?;
         }
+        // Idempotent migration: add PARENT_KB_ID column if it does not exist yet.
+        if let Err(e) =
+            conn.execute_batch("ALTER TABLE kbs ADD COLUMN PARENT_KB_ID TEXT DEFAULT NULL")
+        {
+            if !e.to_string().contains("duplicate column name") {
+                return Err(Error::StorageInitError(e.to_string()));
+            }
+        }
         Ok(())
     }
 
@@ -251,6 +261,7 @@ impl KbStore for SqliteStore {
                 kb.reference,
                 kb.tags_as_string(),
                 kb.created_on,
+                kb.parent,
             ],
         )
         .map_err(|e| Error::CreateKBError(e.to_string()))?;
@@ -270,6 +281,7 @@ impl KbStore for SqliteStore {
                     kb.namespace,
                     kb.reference,
                     kb.tags_as_string(),
+                    kb.parent,
                     kb.id,
                 ],
             )
@@ -297,6 +309,19 @@ impl KbStore for SqliteStore {
             Some(row) => row_to_kb(row),
             None => Err(Error::QuoteNotFound),
         }
+    }
+
+    fn get_children_ids(&self, parent_id: &str) -> Result<Vec<String>, Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut stmt = conn
+            .prepare(GET_CHILDREN_IDS)
+            .map_err(|e| Error::GetKBError(e.to_string()))?;
+        let ids = stmt
+            .query_map(params![parent_id], |row| row.get(0))
+            .map_err(|e| Error::GetKBError(e.to_string()))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|e| Error::GetKBError(e.to_string()))?;
+        Ok(ids)
     }
 }
 
@@ -408,6 +433,9 @@ fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
             tag_values.split_whitespace().map(str::to_string).collect()
         },
         created_on: row.get(8).map_err(|e| Error::GetKBError(e.to_string()))?,
+        parent: row
+            .get::<_, Option<String>>(9)
+            .map_err(|e| Error::GetKBError(e.to_string()))?,
     })
 }
 

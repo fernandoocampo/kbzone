@@ -60,6 +60,7 @@ impl App {
                 reference,
                 tags,
                 interactive,
+                parent,
             } => handlers::handle_add(
                 &self.svc,
                 AddParams {
@@ -71,6 +72,7 @@ impl App {
                     reference,
                     tags,
                     interactive,
+                    parent,
                 },
             )?,
 
@@ -85,6 +87,7 @@ impl App {
                 namespace,
                 reference,
                 tags,
+                parent,
             } => handlers::handle_update(
                 &self.svc,
                 KbUpdate {
@@ -96,6 +99,7 @@ impl App {
                     namespace,
                     reference,
                     tags,
+                    parent,
                 },
             )?,
 

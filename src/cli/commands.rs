@@ -40,6 +40,9 @@ pub enum Command {
 
         #[arg(long, help = "Prompt for missing required fields interactively")]
         interactive: bool,
+
+        #[arg(long, help = "UUID of the parent KB entry")]
+        parent: Option<String>,
     },
 
     /// Get a single entry by key or ID.
@@ -81,6 +84,9 @@ pub enum Command {
             help = "New tags (comma-separated); replaces existing"
         )]
         tags: Option<Vec<String>>,
+
+        #[arg(long, help = "UUID of the new parent KB entry")]
+        parent: Option<String>,
     },
 
     /// Delete an entry by ID.

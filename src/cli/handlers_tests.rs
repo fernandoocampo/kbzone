@@ -70,6 +70,10 @@ impl crate::ports::KbStore for MockKbStore {
             .cloned()
             .ok_or(Error::QuoteNotFound)
     }
+
+    fn get_children_ids(&self, _parent_id: &str) -> Result<Vec<String>, Error> {
+        Ok(vec![])
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -212,6 +216,7 @@ fn build_new_kb_non_interactive_all_fields_provided_no_prompt() {
         namespace: "rust".to_string(),
         tags: vec!["rust".to_string()],
         interactive: false,
+        parent: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -234,6 +239,7 @@ fn handle_add_non_interactive_fails_without_key() {
         namespace: String::new(),
         tags: Vec::new(),
         interactive: false,
+        parent: None,
     };
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::MissingRequiredField(_))));
@@ -251,6 +257,7 @@ fn handle_add_non_interactive_fails_without_value() {
         namespace: String::new(),
         tags: Vec::new(),
         interactive: false,
+        parent: None,
     };
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::MissingRequiredField(_))));
@@ -267,6 +274,7 @@ fn build_new_kb_non_interactive_builds_correctly() {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
         interactive: false,
+        parent: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -319,6 +327,7 @@ fn format_preview_includes_all_fields() {
         namespace: "rust".to_string(),
         reference: "the book".to_string(),
         tags: vec!["rust".to_string(), "memory".to_string()],
+        parent: None,
     };
     let preview = format_preview(&kb);
     assert!(preview.contains("rust-ownership"));
@@ -340,6 +349,7 @@ fn format_preview_shows_tags_joined_with_comma() {
         namespace: String::new(),
         reference: String::new(),
         tags: vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
+        parent: None,
     };
     let preview = format_preview(&kb);
     assert!(preview.contains("alpha, beta, gamma"));
@@ -360,6 +370,7 @@ fn build_new_kb_non_interactive_uses_provided_reference() {
         namespace: String::new(),
         tags: vec!["tag1".to_string()],
         interactive: false,
+        parent: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -378,6 +389,7 @@ fn build_new_kb_non_interactive_uses_provided_tags() {
         namespace: String::new(),
         tags: vec!["rust".to_string(), "memory".to_string()],
         interactive: false,
+        parent: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -396,6 +408,7 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
             reference: String::new(),
             namespace: String::new(),
             tags: Vec::new(),
+            parent_key: None,
         },
         ImportKbItem {
             key: "key-two".to_string(),
@@ -405,6 +418,7 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
             reference: String::new(),
             namespace: String::new(),
             tags: Vec::new(),
+            parent_key: None,
         },
     ];
     let result = serialize_failed_items(&items).unwrap();

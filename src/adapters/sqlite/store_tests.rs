@@ -21,6 +21,7 @@ fn make_kb(id: &str, key: &str) -> Kb {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string(), "memory".to_string()],
         created_on: "2026-01-01T00:00:00+0000".to_string(),
+        parent: None,
     }
 }
 
@@ -304,6 +305,47 @@ fn search_similar_returns_closest_entry() {
     let results = store.search_similar(&query, &query_embedding).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].item.key, "rust-ownership");
+}
+
+#[test]
+fn get_children_ids_returns_correct_children() {
+    let store = initialized_store();
+    let parent = make_kb("parent-id", "parent-key");
+    let mut child1 = make_kb("child-id-1", "child-key-1");
+    child1.parent = Some("parent-id".to_string());
+    let mut child2 = make_kb("child-id-2", "child-key-2");
+    child2.parent = Some("parent-id".to_string());
+    let unrelated = make_kb("other-id", "other-key");
+    store.save_kb(&parent).unwrap();
+    store.save_kb(&child1).unwrap();
+    store.save_kb(&child2).unwrap();
+    store.save_kb(&unrelated).unwrap();
+
+    let children = store.get_children_ids("parent-id").unwrap();
+    assert_eq!(children.len(), 2);
+    assert!(children.contains(&"child-id-1".to_string()));
+    assert!(children.contains(&"child-id-2".to_string()));
+}
+
+#[test]
+fn get_children_ids_returns_empty_for_childless_entry() {
+    let store = initialized_store();
+    store.save_kb(&make_kb("id-1", "key-1")).unwrap();
+    let children = store.get_children_ids("id-1").unwrap();
+    assert!(children.is_empty());
+}
+
+#[test]
+fn save_and_retrieve_kb_with_parent() {
+    let store = initialized_store();
+    let parent = make_kb("parent-id", "parent-key");
+    let mut child = make_kb("child-id", "child-key");
+    child.parent = Some("parent-id".to_string());
+    store.save_kb(&parent).unwrap();
+    store.save_kb(&child).unwrap();
+
+    let fetched = store.get_kb_by_id("child-id").unwrap().unwrap();
+    assert_eq!(fetched.parent, Some("parent-id".to_string()));
 }
 
 #[test]

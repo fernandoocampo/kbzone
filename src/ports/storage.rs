@@ -28,4 +28,7 @@ pub trait KbStore: Debug + Clone {
 
     /// Returns a random KB entry whose category is `"quote"`.
     fn random_quote(&self) -> Result<Kb, Error>;
+
+    /// Returns the IDs of all KB items whose parent is `parent_id`.
+    fn get_children_ids(&self, parent_id: &str) -> Result<Vec<String>, Error>;
 }

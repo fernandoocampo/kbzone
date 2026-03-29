@@ -5,6 +5,42 @@
 `kbzone` is a synchronous Rust CLI for managing a personal knowledge base stored in a
 local SQLite file. The binary is named `kb`.
 
+### CLI Commands
+
+- `kb add`                     — Add a new entry (also indexes embedding)
+- `kb get`                     — Fetch a single entry by key or ID
+- `kb update`                  — Update an entry (also re-indexes embedding)
+- `kb delete`                  — Delete an entry (also removes embedding)
+- `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`; uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
+- `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded)
+- `kb reindex`                 — Rebuild embeddings for all entries
+- `kb import`                  — Import KB entries from a multi-document YAML file
+- `kb quote`                   — Print a random quote-category entry
+
+### Configuration
+
+Config file: `~/kbzona/config.yaml` (or `$KBZONA_HOME/config.yaml`).
+The config file is **auto-created with defaults on first run** if it does not exist.
+
+```yaml
+db_path: ~/.kbzona/kbzona.db
+embedding:
+  provider: fastembed   # default; only supported value for now
+```
+
+- `$KBZONA_HOME` overrides the base directory (default: `~/.kbzona/`).
+- Embedding model cache: `{db_path_parent}/fastembed_cache/`.
+
+#### Embedding text construction
+
+When indexing an entry (on `add`, `update`, or `reindex`), the text fed to the embedding model is:
+
+```
+"{key} {category} {namespace} {tags_as_string} {value[0..200]}"
+```
+
+This is constructed by `Kb::embedding_text()` in `domain/kb.rs`.
+
 ## Make Targets
 
 - `make build`     — `cargo build --release && cp …` — Compile release binary → `bin/kb`
@@ -114,6 +150,9 @@ Always use `make` targets — never invoke `cargo` directly. The Makefile is the
   - Helpers used with `query_map` or `conn.query_row` **must** return `rusqlite::Result<T>` (e.g. `row_to_kb_item`). These can be passed directly as the row closure.
   - Helpers that map column errors to domain `Error` (e.g. `row_to_kb`) return `Result<T, Error>` and **cannot** be passed to `query_row`/`query_map`. Use `prepare()` + `stmt.query([])` + `rows.next()` instead, then call the helper on the `&Row` manually.
   - Never pass individual column values as separate arguments — always take `&rusqlite::Row`.
+- **Flatten nested conditions** — prefer method chaining over nested `if` blocks. Instead of `if let Some(x) { if foo(x).is_none() { return Err(...) } }`, write `if let Some(x) { foo(x).ok_or(Error::...)?; }`. Reduce nesting by returning or propagating early.
+- **Don't encode structured data into strings** — avoid join→split round-trips (e.g. joining a `Vec<String>` into a comma-separated `String` in the service only to split it again in the handler). Either carry the structured data through the error payload or use the `Display` impl directly for output.
+- **Extract private helpers for repeated logic** — if the same block of 3+ lines appears in two or more methods, extract a private helper. Duplication in the service layer is especially likely when the same validation runs on both `add` and `update` paths.
 - **Module visibility** — internal-only modules (`adapters`, `cli`, `service`) use `pub(crate) mod`. Public-API modules (`domain`, `errors`, `ports`) and the binary entry-point module (`application`) use `pub mod`.
 - **Test-only constructors** — functions only needed in tests (e.g. `in_memory()`) must carry `#[cfg(test)]`.
 
@@ -134,38 +173,5 @@ These are structural violations that agents commonly introduce. Check before sub
   `map_err(|e| Error::Foo(e.to_string()))`.
 - **Making `#[cfg(test)]` constructors public in production** — test-only helpers must carry
   `#[cfg(test)]`.
-
-## CLI Commands
-
-- `kb add`                     — Add a new entry (also indexes embedding)
-- `kb get`                     — Fetch a single entry by key or ID
-- `kb update`                  — Update an entry (also re-indexes embedding)
-- `kb delete`                  — Delete an entry (also removes embedding)
-- `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`; uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
-- `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded)
-- `kb reindex`                 — Rebuild embeddings for all entries
-- `kb quote`                   — Print a random quote-category entry
-
-## Configuration
-
-Config file: `~/kbzona/config.yaml` (or `$KBZONA_HOME/config.yaml`).
-The config file is **auto-created with defaults on first run** if it does not exist.
-
-```yaml
-db_path: ~/.kbzona/kbzona.db
-embedding:
-  provider: fastembed   # default; only supported value for now
-```
-
-- `$KBZONA_HOME` overrides the base directory (default: `~/.kbzona/`).
-- Embedding model cache: `{db_path_parent}/fastembed_cache/`.
-
-### Embedding text construction
-
-When indexing an entry (on `add`, `update`, or `reindex`), the text fed to the embedding model is:
-
-```
-"{key} {category} {namespace} {tags_as_string} {value[0..200]}"
-```
-
-This is constructed by `Kb::embedding_text()` in `domain/kb.rs`.
+- **Duplicating validation logic across methods** — if `add` and `update` share the same guard (e.g. parent existence check), that guard belongs in a single private helper called by both. Copy-pasted validation blocks drift out of sync.
+- **Encoding structured data as a delimited string** — joining a `Vec` into a string just so the caller can split it is a design smell. Pass structured data (vec, iterator) through the type, or format it only at the output boundary.
