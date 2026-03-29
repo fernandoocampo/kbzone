@@ -148,6 +148,20 @@ pub enum Command {
     /// Print version information (git hash, build date).
     Version,
 
+    /// Export KB entries to a multi-document YAML file.
+    Export {
+        #[arg(long, required = true, help = "Output path for the YAML export file")]
+        file: String,
+        #[arg(long, help = "Export only entries with this category")]
+        category: Option<String>,
+        #[arg(long, help = "Export only entries with this namespace")]
+        namespace: Option<String>,
+        #[arg(long, help = "Maximum number of entries to export")]
+        limit: Option<i64>,
+        #[arg(long, help = "Row offset for pagination")]
+        offset: Option<i64>,
+    },
+
     /// Import KB entries from a multi-document YAML file.
     Import {
         #[arg(long, required = true, help = "Path to the YAML file to import")]

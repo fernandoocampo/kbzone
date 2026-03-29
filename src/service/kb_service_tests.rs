@@ -139,6 +139,27 @@ impl KbStore for MockKbStore {
             .map(|kb| kb.id.clone())
             .collect())
     }
+
+    fn get_kbs_full(&self, filter: &KbFilter) -> Result<Vec<Kb>, Error> {
+        Ok(self
+            .data
+            .borrow()
+            .values()
+            .filter(|kb| {
+                filter
+                    .category
+                    .as_deref()
+                    .map_or(true, |c| kb.category == c)
+            })
+            .filter(|kb| {
+                filter
+                    .namespace
+                    .as_deref()
+                    .map_or(true, |n| kb.namespace == n)
+            })
+            .cloned()
+            .collect())
+    }
 }
 
 // ---- GhostItemKbStore: list_kbs returns items but get_kb_by_id returns None ----
@@ -192,6 +213,10 @@ impl KbStore for GhostItemKbStore {
     }
 
     fn get_children_ids(&self, _parent_id: &str) -> Result<Vec<String>, Error> {
+        Ok(vec![])
+    }
+
+    fn get_kbs_full(&self, _filter: &KbFilter) -> Result<Vec<Kb>, Error> {
         Ok(vec![])
     }
 }
@@ -354,6 +379,13 @@ fn make_new_kb(key: &str) -> NewKb {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
         parent: None,
+    }
+}
+
+fn make_kb_with_parent(id: &str, key: &str, parent_id: &str) -> Kb {
+    Kb {
+        parent: Some(parent_id.to_string()),
+        ..make_kb(id, key)
     }
 }
 
@@ -1135,4 +1167,81 @@ fn import_kb_with_missing_parent_key_reports_failure() {
     assert_eq!(result.saved.len(), 0);
     assert_eq!(result.failed.len(), 1);
     assert!(result.failed[0].reason.contains("nonexistent-key"));
+}
+
+// ---- export_kbs tests ----
+
+#[test]
+fn export_kbs_returns_empty_when_no_items() {
+    let result = make_svc().export_kbs(KbFilter::default());
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
+}
+
+#[test]
+fn export_kbs_returns_item_without_parent_field() {
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
+    let svc = make_svc_with_store(store);
+    let items = svc.export_kbs(KbFilter::default()).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "rust-ownership");
+    assert!(items[0].parent_key.is_none());
+}
+
+#[test]
+fn export_kbs_sets_parent_key_when_parent_in_set() {
+    let parent = make_kb("parent-id", "parent-key");
+    let child = make_kb_with_parent("child-id", "child-key", "parent-id");
+    let store = MockKbStore::with(vec![parent, child]);
+    let svc = make_svc_with_store(store);
+
+    let items = svc.export_kbs(KbFilter::default()).unwrap();
+    assert_eq!(items.len(), 2);
+
+    let parent_pos = items.iter().position(|i| i.key == "parent-key").unwrap();
+    let child_pos = items.iter().position(|i| i.key == "child-key").unwrap();
+    assert!(parent_pos < child_pos, "parent must appear before child");
+
+    assert_eq!(items[child_pos].parent_key, Some("parent-key".to_string()));
+}
+
+#[test]
+fn export_kbs_omits_parent_field_when_parent_not_in_set() {
+    let mut parent = make_kb("parent-id", "parent-key");
+    parent.category = "excluded".to_string();
+    let child = make_kb_with_parent("child-id", "child-key", "parent-id");
+    // child category is "concept" (default from make_kb)
+
+    let store = MockKbStore::with(vec![parent, child]);
+    let svc = make_svc_with_store(store);
+
+    let filter = KbFilter {
+        category: Some("concept".to_string()),
+        ..Default::default()
+    };
+    let items = svc.export_kbs(filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "child-key");
+    assert!(
+        items[0].parent_key.is_none(),
+        "parent is excluded from set, so Parent field must be omitted"
+    );
+}
+
+#[test]
+fn export_kbs_orders_multi_level_hierarchy() {
+    let grandparent = make_kb("gp-id", "gp-key");
+    let parent = make_kb_with_parent("p-id", "p-key", "gp-id");
+    let child = make_kb_with_parent("c-id", "c-key", "p-id");
+    let store = MockKbStore::with(vec![child.clone(), parent.clone(), grandparent.clone()]);
+    let svc = make_svc_with_store(store);
+
+    let items = svc.export_kbs(KbFilter::default()).unwrap();
+    assert_eq!(items.len(), 3);
+
+    let gp_pos = items.iter().position(|i| i.key == "gp-key").unwrap();
+    let p_pos = items.iter().position(|i| i.key == "p-key").unwrap();
+    let c_pos = items.iter().position(|i| i.key == "c-key").unwrap();
+    assert!(gp_pos < p_pos, "grandparent must be before parent");
+    assert!(p_pos < c_pos, "parent must be before child");
 }

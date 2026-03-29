@@ -160,6 +160,28 @@ pub struct EmbeddingInput {
     pub text: String,
 }
 
+/// YAML-serialisable representation of a KB entry produced by `kb export`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExportKbItem {
+    #[serde(rename = "Key")]
+    pub key: String,
+    #[serde(rename = "Value")]
+    pub value: String,
+    #[serde(rename = "Notes")]
+    pub notes: String,
+    #[serde(rename = "Category")]
+    pub category: String,
+    #[serde(rename = "Reference")]
+    pub reference: String,
+    #[serde(rename = "Namespace")]
+    pub namespace: String,
+    #[serde(rename = "Tags")]
+    pub tags: Vec<String>,
+    /// Only present when the parent is also in the exported set.
+    #[serde(rename = "Parent", skip_serializing_if = "Option::is_none")]
+    pub parent_key: Option<String>,
+}
+
 /// YAML-serialisable representation of a single KB entry used by `kb import`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ImportKbItem {

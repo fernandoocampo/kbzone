@@ -76,6 +76,9 @@ const GET_RANDOM_QUOTE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY,
 
 const GET_CHILDREN_IDS: &str = "SELECT KB_ID FROM kbs WHERE PARENT_KB_ID = ?1";
 
+const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+                                   REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID FROM kbs";
+
 const SEARCH_FTS: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
                            FROM kbs k \
                            JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
@@ -323,6 +326,37 @@ impl KbStore for SqliteStore {
             .map_err(|e| Error::GetKBError(e.to_string()))?;
         Ok(ids)
     }
+
+    fn get_kbs_full(&self, filter: &KbFilter) -> Result<Vec<Kb>, Error> {
+        let (where_clause, limit_clause, offset_clause, bound_params) =
+            build_filter_clauses(filter);
+
+        let sql = format!(
+            "{}{} ORDER BY CREATED_ON ASC{}{}",
+            LIST_KBS_FULL_BASE, where_clause, limit_clause, offset_clause
+        );
+
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| Error::ListError(e.to_string()))?;
+
+        let sql_params: Vec<&dyn rusqlite::types::ToSql> = bound_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let mut rows = stmt
+            .query(sql_params.as_slice())
+            .map_err(|e| Error::ListError(e.to_string()))?;
+
+        let mut items = Vec::new();
+        while let Some(row) = rows.next().map_err(|e| Error::ListError(e.to_string()))? {
+            items.push(row_to_kb(row)?);
+        }
+
+        Ok(items)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -370,22 +404,8 @@ impl SqliteStore {
     }
 
     fn get_kbs_list(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
-        let (conditions, bound_params) = build_list_filters(filter);
-
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", conditions.join(" AND "))
-        };
-
-        let limit_clause = filter
-            .limit
-            .map(|l| format!(" LIMIT {}", l))
-            .unwrap_or_default();
-        let offset_clause = filter
-            .offset
-            .map(|o| format!(" OFFSET {}", o))
-            .unwrap_or_default();
+        let (where_clause, limit_clause, offset_clause, bound_params) =
+            build_filter_clauses(filter);
 
         let sql = format!(
             "SELECT KB_ID, KB_KEY, CATEGORY, NAMESPACE, TAG_VALUES \
@@ -437,6 +457,26 @@ fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
             .get::<_, Option<String>>(9)
             .map_err(|e| Error::GetKBError(e.to_string()))?,
     })
+}
+
+/// Builds the WHERE clause string, LIMIT clause, OFFSET clause, and bound parameters
+/// for a filtered list query. Returns `(where_clause, limit_clause, offset_clause, params)`.
+fn build_filter_clauses(filter: &KbFilter) -> (String, String, String, Vec<String>) {
+    let (conditions, bound_params) = build_list_filters(filter);
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", conditions.join(" AND "))
+    };
+    let limit_clause = filter
+        .limit
+        .map(|l| format!(" LIMIT {}", l))
+        .unwrap_or_default();
+    let offset_clause = filter
+        .offset
+        .map(|o| format!(" OFFSET {}", o))
+        .unwrap_or_default();
+    (where_clause, limit_clause, offset_clause, bound_params)
 }
 
 /// Builds the WHERE conditions and bound parameter list for `list_kbs`.

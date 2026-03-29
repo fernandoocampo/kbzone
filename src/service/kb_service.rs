@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use crate::domain::{
-    EmbeddingInput, FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem,
-    KbUpdate, NewKb, ReindexResult, ScoredKbItem, SemanticQuery,
+    EmbeddingInput, ExportKbItem, FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter,
+    KbItem, KbUpdate, NewKb, ReindexResult, ScoredKbItem, SemanticQuery,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
@@ -178,6 +180,73 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
             }
         }
         result
+    }
+
+    /// Exports entries matching `filter` as a list of [`ExportKbItem`], ordered so
+    /// parents always appear before their children. If a parent is not in the filtered
+    /// set, the child's `parent_key` field is omitted so the file can be re-imported
+    /// cleanly.
+    pub fn export_kbs(&self, filter: KbFilter) -> Result<Vec<ExportKbItem>, Error> {
+        let kbs = self.store.get_kbs_full(&filter)?;
+        if kbs.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let id_to_key: std::collections::HashMap<&str, &str> = kbs
+            .iter()
+            .map(|kb| (kb.id.as_str(), kb.key.as_str()))
+            .collect();
+
+        let mut emitted: HashSet<&str> = HashSet::new();
+        let mut ordered: Vec<&Kb> = Vec::with_capacity(kbs.len());
+        let mut remaining: Vec<&Kb> = kbs.iter().collect();
+
+        while !remaining.is_empty() {
+            let before = remaining.len();
+            remaining.retain(|kb| {
+                let parent_in_set = kb
+                    .parent
+                    .as_ref()
+                    .is_some_and(|pid| id_to_key.contains_key(pid.as_str()));
+                let parent_emitted = kb
+                    .parent
+                    .as_ref()
+                    .is_none_or(|pid| emitted.contains(pid.as_str()));
+
+                if !parent_in_set || parent_emitted {
+                    emitted.insert(kb.id.as_str());
+                    ordered.push(kb);
+                    false
+                } else {
+                    true
+                }
+            });
+            if remaining.len() == before {
+                for kb in remaining.drain(..) {
+                    ordered.push(kb);
+                }
+            }
+        }
+
+        let items = ordered
+            .into_iter()
+            .map(|kb| ExportKbItem {
+                key: kb.key.clone(),
+                value: kb.value.clone(),
+                notes: kb.notes.clone(),
+                category: kb.category.clone(),
+                reference: kb.reference.clone(),
+                namespace: kb.namespace.clone(),
+                tags: kb.tags.clone(),
+                parent_key: kb
+                    .parent
+                    .as_ref()
+                    .and_then(|pid| id_to_key.get(pid.as_str()))
+                    .map(|s| s.to_string()),
+            })
+            .collect();
+
+        Ok(items)
     }
 
     // ---------------------------------------------------------------------------

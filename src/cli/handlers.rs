@@ -1,8 +1,8 @@
 use serde::Deserialize;
 
 use crate::domain::{
-    suggest_tags, ImportKbItem, KbFilter, KbUpdate, NewKb, ScoredKbItem, SemanticQuery,
-    TagSuggestionInput,
+    suggest_tags, ExportKbItem, ImportKbItem, KbFilter, KbUpdate, NewKb, ScoredKbItem,
+    SemanticQuery, TagSuggestionInput,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
@@ -42,6 +42,14 @@ pub struct AddParams {
     pub tags: Vec<String>,
     pub interactive: bool,
     pub parent: Option<String>,
+}
+
+pub struct ExportParams {
+    pub file: String,
+    pub category: Option<String>,
+    pub namespace: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -540,6 +548,31 @@ pub fn handle_import<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
+pub fn handle_export<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
+    svc: &KBService<S, V, E>,
+    params: ExportParams,
+) -> Result<(), Error> {
+    let filter = KbFilter {
+        category: params.category,
+        namespace: params.namespace,
+        limit: params.limit,
+        offset: params.offset,
+        ..KbFilter::default()
+    };
+
+    let items = svc.export_kbs(filter)?;
+    if items.is_empty() {
+        println!("No entries to export.");
+        return Ok(());
+    }
+
+    let content = serialize_export_items(&items)?;
+    std::fs::write(&params.file, &content).map_err(|e| Error::ExportError(e.to_string()))?;
+
+    println!("Exported {} entries to {}", items.len(), params.file);
+    Ok(())
+}
+
 pub fn handle_version() -> Result<(), Error> {
     println!("version:    {}", KB_VERSION);
     println!("git hash:   {}", KB_GIT_HASH);
@@ -547,18 +580,27 @@ pub fn handle_version() -> Result<(), Error> {
     Ok(())
 }
 
-fn serialize_failed_items(items: &[ImportKbItem]) -> Result<String, Error> {
+fn serialize_yaml_docs<T: serde::Serialize>(
+    items: &[T],
+    map_err: impl Fn(String) -> Error,
+) -> Result<String, Error> {
     items
         .iter()
-        .map(|item| {
-            serde_yaml::to_string(item).map_err(|e| Error::WriteFailedItemsError(e.to_string()))
-        })
+        .map(|item| serde_yaml::to_string(item).map_err(|e| map_err(e.to_string())))
         .collect::<Result<Vec<String>, _>>()
         .map(|docs| docs.join("---\n"))
 }
 
+fn serialize_failed_items(items: &[ImportKbItem]) -> Result<String, Error> {
+    serialize_yaml_docs(items, Error::WriteFailedItemsError)
+}
+
 fn write_failed_items(path: &str, content: &str) -> Result<(), Error> {
     std::fs::write(path, content).map_err(|e| Error::WriteFailedItemsError(e.to_string()))
+}
+
+fn serialize_export_items(items: &[ExportKbItem]) -> Result<String, Error> {
+    serialize_yaml_docs(items, Error::ExportError)
 }
 
 // ---------------------------------------------------------------------------

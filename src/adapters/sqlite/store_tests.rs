@@ -388,3 +388,53 @@ fn search_similar_threshold_excludes_distant_entries() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].item.key, "rust-ownership");
 }
+
+#[test]
+fn get_kbs_full_returns_all_fields() {
+    let store = initialized_store();
+    let mut kb = make_kb("id-1", "rust-ownership");
+    kb.notes = "some notes".to_string();
+    kb.reference = "The Rust Book".to_string();
+    store.save_kb(&kb).unwrap();
+
+    let results = store.get_kbs_full(&KbFilter::default()).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "rust-ownership");
+    assert_eq!(results[0].value, "test value");
+    assert_eq!(results[0].notes, "some notes");
+    assert_eq!(results[0].reference, "The Rust Book");
+    assert_eq!(results[0].category, "concept");
+    assert_eq!(results[0].namespace, "default");
+}
+
+#[test]
+fn get_kbs_full_filters_by_category() {
+    let store = initialized_store();
+    store.save_kb(&make_kb("id-1", "key-a")).unwrap(); // category = "concept"
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.category = "quote".to_string();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        category: Some("quote".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs_full(&filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "key-b");
+}
+
+#[test]
+fn get_kbs_full_respects_limit() {
+    let store = initialized_store();
+    store.save_kb(&make_kb("id-1", "key-a")).unwrap();
+    store.save_kb(&make_kb("id-2", "key-b")).unwrap();
+    store.save_kb(&make_kb("id-3", "key-c")).unwrap();
+
+    let filter = KbFilter {
+        limit: Some(2),
+        ..Default::default()
+    };
+    let results = store.get_kbs_full(&filter).unwrap();
+    assert_eq!(results.len(), 2);
+}

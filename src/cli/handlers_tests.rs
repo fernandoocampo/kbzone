@@ -74,6 +74,13 @@ impl crate::ports::KbStore for MockKbStore {
     fn get_children_ids(&self, _parent_id: &str) -> Result<Vec<String>, Error> {
         Ok(vec![])
     }
+
+    fn get_kbs_full(
+        &self,
+        _filter: &crate::domain::KbFilter,
+    ) -> Result<Vec<crate::domain::Kb>, Error> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Debug, Clone)]

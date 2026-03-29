@@ -31,4 +31,8 @@ pub trait KbStore: Debug + Clone {
 
     /// Returns the IDs of all KB items whose parent is `parent_id`.
     fn get_children_ids(&self, parent_id: &str) -> Result<Vec<String>, Error>;
+
+    /// Returns full [`Kb`] objects (all fields) matching `filter`, with LIMIT/OFFSET support.
+    /// Used by the export path where every field is needed without N+1 queries.
+    fn get_kbs_full(&self, filter: &KbFilter) -> Result<Vec<Kb>, Error>;
 }

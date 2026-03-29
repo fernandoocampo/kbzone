@@ -4,7 +4,7 @@ use crate::adapters::fastembed::FastEmbedProvider;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
-use crate::cli::handlers::{self, AddParams, GetParams, ImportParams, SearchParams};
+use crate::cli::handlers::{self, AddParams, ExportParams, GetParams, ImportParams, SearchParams};
 use crate::domain::{KbUpdate, SemanticQuery};
 use crate::errors::AppError;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
@@ -142,6 +142,23 @@ impl App {
             Command::Quote => handlers::handle_quote(&self.svc)?,
 
             Command::Reindex => handlers::handle_reindex(&self.svc)?,
+
+            Command::Export {
+                file,
+                category,
+                namespace,
+                limit,
+                offset,
+            } => handlers::handle_export(
+                &self.svc,
+                ExportParams {
+                    file,
+                    category,
+                    namespace,
+                    limit,
+                    offset,
+                },
+            )?,
 
             Command::Import {
                 file,

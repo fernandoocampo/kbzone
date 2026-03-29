@@ -10,6 +10,7 @@ A personal knowledge base CLI tool with semantic search, built in Rust. Store no
 - **Search** entries by tag keywords (full-text search via SQLite FTS5)
 - **Ask** questions in natural language — finds semantically similar entries using local vector embeddings (no external API calls)
 - **List, get, update, delete** entries with flexible filters
+- **Export** entries to a YAML file, with optional category/namespace filters and pagination
 - **Import** entries in bulk from a YAML file
 - **Reindex** — rebuild embeddings for all entries at any time
 - **Quote** — print a random entry from the `quote` category
@@ -184,6 +185,36 @@ ParentKey: rust-ownership   # optional: kb key of the parent entry
 ```
 
 `ParentKey` is resolved to an internal UUID at import time. If the referenced key does not exist, that item is recorded as a failure and the rest of the batch continues. Items that fail validation or import are written to the failed items file for inspection.
+
+### Export entries
+
+```sh
+kb export --file my-entries.yaml
+kb export --file my-entries.yaml --category concept
+kb export --file my-entries.yaml --namespace rust
+kb export --file my-entries.yaml --category concept --namespace rust
+kb export --file my-entries.yaml --limit 100 --offset 0
+```
+
+Exports matching entries to a multi-document YAML file in the same format accepted by `kb import`. Filters are cumulative — `--category` and `--namespace` are combined with AND. Use `--limit` and `--offset` for pagination.
+
+Parent–child relationships are preserved: an entry's `Parent` field is only written when its parent is also included in the export set. Parents always appear before their children in the output file so the file can be re-imported directly with `kb import`.
+
+```yaml
+Key: motogp-twitter
+Value: https://x.com/MotoGP
+Notes: First on the throttle, last on the brakes
+Category: bookmark
+Reference: motogp twitter
+Namespace: default
+Parent: any-parent-key
+Tags:
+    - account
+    - bookmark
+    - motogp
+    - motorcycles
+    - twitter
+```
 
 ### Rebuild embeddings
 

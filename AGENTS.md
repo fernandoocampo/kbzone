@@ -14,6 +14,7 @@ local SQLite file. The binary is named `kb`.
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`; uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
 - `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded)
 - `kb reindex`                 — Rebuild embeddings for all entries
+- `kb export`                  — Export KB entries to a multi-document YAML file; flags: `--file` (required), `--category`, `--namespace`, `--limit`, `--offset`; parents always appear before children; `Parent` field omitted when parent is not in the filtered set
 - `kb import`                  — Import KB entries from a multi-document YAML file
 - `kb quote`                   — Print a random quote-category entry
 
