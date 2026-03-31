@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
 use crate::domain::{
-    EmbeddingInput, ExportKbItem, FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter,
-    KbItem, KbUpdate, NewKb, ReindexResult, ScoredKbItem, SemanticQuery,
+    normalize_path, EmbeddingInput, ExportKbItem, FailedImportItem, ImportBatchResult,
+    ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, NewKb, ReindexResult, ScoredKbItem,
+    SemanticQuery,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
@@ -74,6 +75,12 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
 
         let old_embed_text = existing.embedding_text();
 
+        let path = match update.path {
+            Some(ref p) if !p.is_empty() => Some(normalize_path(p)?),
+            Some(_) => None,
+            None => existing.path.clone(),
+        };
+
         let updated = Kb {
             id: existing.id,
             key: update.key.map(|v| v.to_lowercase()).unwrap_or(existing.key),
@@ -91,6 +98,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
             tags: update.tags.unwrap_or(existing.tags),
             created_on: existing.created_on,
             parent: update.parent.or(existing.parent),
+            path,
         };
 
         let new_embed_text = updated.embedding_text();
@@ -243,6 +251,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
                     .as_ref()
                     .and_then(|pid| id_to_key.get(pid.as_str()))
                     .map(|s| s.to_string()),
+                path: kb.path.clone(),
             })
             .collect();
 
@@ -254,12 +263,16 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
     // ---------------------------------------------------------------------------
 
     /// Low-level CRUD add: duplicate-key check, parent existence check, convert to `Kb`, persist.
-    fn add_kb_crud(&self, new_kb: NewKb) -> Result<Kb, Error> {
+    fn add_kb_crud(&self, mut new_kb: NewKb) -> Result<Kb, Error> {
         let key = new_kb.key.to_lowercase();
         if self.store.get_kb_by_key(&key)?.is_some() {
             return Err(Error::DuplicateKBError);
         }
         self.validate_parent_exists(&new_kb.parent)?;
+        new_kb.path = match new_kb.path.take() {
+            Some(p) if !p.is_empty() => Some(normalize_path(&p)?),
+            _ => None,
+        };
         let kb = Kb::from(new_kb);
         self.store.save_kb(&kb)?;
         Ok(kb)

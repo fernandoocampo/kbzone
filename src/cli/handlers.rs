@@ -42,6 +42,7 @@ pub struct AddParams {
     pub tags: Vec<String>,
     pub interactive: bool,
     pub parent: Option<String>,
+    pub path: Option<String>,
 }
 
 pub struct ExportParams {
@@ -119,7 +120,7 @@ pub fn handle_add<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
             println!("Cancelled.");
             return Ok(());
         }
-        AddDecision::Save(kb) => kb,
+        AddDecision::Save(kb) => *kb,
     };
     let kb = svc.add_kb(new_kb)?;
     println!("--- Created successfully ---");
@@ -160,6 +161,7 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
     } else {
         params.tags
     };
+    let path = params.path.filter(|p| !p.is_empty());
     Ok(NewKb {
         key,
         value,
@@ -169,6 +171,7 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
         namespace: params.namespace,
         tags,
         parent: params.parent,
+        path,
     })
 }
 
@@ -207,6 +210,17 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
     } else {
         params.tags
     };
+    let path = match params.path.filter(|p| !p.is_empty()) {
+        Some(p) => Some(p),
+        None => {
+            let input = prompt_for("Path (optional, e.g. /personal/rust)", false)?;
+            if input.is_empty() {
+                None
+            } else {
+                Some(input)
+            }
+        }
+    };
     Ok(NewKb {
         key,
         value,
@@ -216,6 +230,7 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         namespace,
         tags,
         parent: params.parent,
+        path,
     })
 }
 
@@ -224,7 +239,7 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
 // ---------------------------------------------------------------------------
 
 enum AddDecision {
-    Save(NewKb),
+    Save(Box<NewKb>),
     Cancel,
 }
 
@@ -238,7 +253,7 @@ fn parse_tags(input: &str) -> Vec<String> {
 
 fn format_preview(kb: &NewKb) -> String {
     format!(
-        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  parent    : {}",
+        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  path      : {}\n  parent    : {}",
         kb.key,
         kb.value,
         kb.notes,
@@ -246,6 +261,7 @@ fn format_preview(kb: &NewKb) -> String {
         kb.namespace,
         kb.reference,
         kb.tags.join(", "),
+        kb.path.as_deref().unwrap_or("-"),
         kb.parent.as_deref().unwrap_or("(none)"),
     )
 }
@@ -257,7 +273,7 @@ fn confirm_or_adjust(mut new_kb: NewKb) -> Result<AddDecision, Error> {
         println!();
         let choice = prompt_for("Save (s), Cancel (c), or Adjust (a)?", true)?;
         match choice.to_lowercase().as_str() {
-            "s" => return Ok(AddDecision::Save(new_kb)),
+            "s" => return Ok(AddDecision::Save(Box::new(new_kb))),
             "c" => return Ok(AddDecision::Cancel),
             "a" => {
                 new_kb = adjust_fields(new_kb)?;
@@ -281,6 +297,13 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
     } else {
         parse_tags(&tags_input)
     };
+    let path_current = kb.path.as_deref().unwrap_or("");
+    let path_input = prompt_adjust("path (optional, e.g. /personal/rust)", path_current)?;
+    let path = if path_input.is_empty() {
+        None
+    } else {
+        Some(path_input)
+    };
     let parent_current = kb.parent.as_deref().unwrap_or("");
     let parent_input = prompt_adjust("parent UUID (optional)", parent_current)?;
     let parent = if parent_input.is_empty() {
@@ -296,6 +319,7 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
         namespace,
         reference,
         tags,
+        path,
         parent,
     })
 }

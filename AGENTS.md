@@ -7,15 +7,15 @@ local SQLite file. The binary is named `kb`.
 
 ### CLI Commands
 
-- `kb add`                     — Add a new entry (also indexes embedding)
-- `kb get`                     — Fetch a single entry by key or ID
-- `kb update`                  — Update an entry (also re-indexes embedding)
+- `kb add`                     — Add a new entry (also indexes embedding); flags include `--path` (optional Unix-style path, leading `/` auto-added)
+- `kb get`                     — Fetch a single entry by key or ID; displays `path` if set
+- `kb update`                  — Update an entry (also re-indexes embedding); flags include `--path` (empty string clears the path)
 - `kb delete`                  — Delete an entry (also removes embedding)
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`; uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
 - `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded)
 - `kb reindex`                 — Rebuild embeddings for all entries
-- `kb export`                  — Export KB entries to a multi-document YAML file; flags: `--file` (required), `--category`, `--namespace`, `--limit`, `--offset`; parents always appear before children; `Parent` field omitted when parent is not in the filtered set
-- `kb import`                  — Import KB entries from a multi-document YAML file
+- `kb export`                  — Export KB entries to a multi-document YAML file; flags: `--file` (required), `--category`, `--namespace`, `--limit`, `--offset`; parents always appear before children; `Parent` field omitted when parent is not in the filtered set; `Path` field included when set
+- `kb import`                  — Import KB entries from a multi-document YAML file; `Path` field is validated and normalised on import
 - `kb quote`                   — Print a random quote-category entry
 
 ### Configuration
@@ -41,6 +41,36 @@ When indexing an entry (on `add`, `update`, or `reindex`), the text fed to the e
 ```
 
 This is constructed by `Kb::embedding_text()` in `domain/kb.rs`.
+
+## KB Entity Fields
+
+The `Kb` struct in `domain/kb.rs` is the canonical entity:
+
+```
+// Auto-generated UUID — primary key
+id: String
+// User-defined identifier — normalized to lowercase on save
+key: String
+// Main content / answer
+value: String
+// Extended notes or elaboration
+notes: String
+// Entry type: quote, bookmark, concept, command, etc.
+category: String
+// Grouping scope: rust, k8s, personal, etc.
+namespace: String
+// Source: author, book title, URL, or person's name; included in embedding
+reference: String
+// Searchable keywords — power FTS5 and are included in embedding
+tags: Vec<String>
+// Optional Unix-style path (e.g. /personal/cars/engines).
+// Leading `/` is auto-added if omitted. Validated on add/update/import.
+path: Option<String>
+// UUID of parent Kb entry — enables hierarchical relationships
+parent: Option<String>
+// ISO-8601 creation timestamp — set once on save
+created_on: String
+```
 
 ## Make Targets
 

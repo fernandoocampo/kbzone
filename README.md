@@ -64,8 +64,11 @@ kb add --key rust-ownership \
        --category concept \
        --namespace rust \
        --tags rust,memory,ownership \
-       --reference "The Rust Programming Language"
+       --reference "The Rust Programming Language" \
+       --path /learning/rust
 ```
+
+The `--path` flag is optional. It accepts Unix-style hierarchical paths like `/personal/rust` or `/work/projects`. The leading `/` is added automatically if omitted — `personal/rust` becomes `/personal/rust`. Invalid paths (e.g. containing `..` or `//`) are rejected with an error message.
 
 To attach an entry to a parent, pass its UUID with `--parent`:
 
@@ -152,9 +155,11 @@ To get the best recall:
 ```sh
 kb update --id <uuid> --value "Updated value" --tags rust,ownership,borrow
 kb update --id <uuid> --parent <parent-uuid>
+kb update --id <uuid> --path /learning/rust
+kb update --id <uuid> --path ""   # clears the path
 ```
 
-Only the fields you pass are changed. Pass `--parent` to set or change the parent; the parent must already exist.
+Only the fields you pass are changed. Pass `--parent` to set or change the parent; the parent must already exist. Pass `--path` to set or change the path; pass an empty string to clear it.
 
 ### Delete an entry
 
@@ -182,6 +187,7 @@ Namespace: rust
 Tags: [rust, memory, ownership]
 Reference: "The Rust Programming Language"
 ParentKey: rust-ownership   # optional: kb key of the parent entry
+Path: /learning/rust        # optional: Unix-style path; leading / auto-added if omitted
 ```
 
 `ParentKey` is resolved to an internal UUID at import time. If the referenced key does not exist, that item is recorded as a failure and the rest of the batch continues. Items that fail validation or import are written to the failed items file for inspection.
@@ -208,6 +214,7 @@ Category: bookmark
 Reference: motogp twitter
 Namespace: default
 Parent: any-parent-key
+Path: /sports/motorsport
 Tags:
     - account
     - bookmark

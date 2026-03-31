@@ -43,6 +43,13 @@ pub enum Command {
 
         #[arg(long, help = "UUID of the parent KB entry")]
         parent: Option<String>,
+
+        #[arg(
+            long,
+            default_value = "",
+            help = "Optional hierarchical path (e.g. /personal/rust). Leading / is added automatically."
+        )]
+        path: String,
     },
 
     /// Get a single entry by key or ID.
@@ -87,6 +94,12 @@ pub enum Command {
 
         #[arg(long, help = "UUID of the new parent KB entry")]
         parent: Option<String>,
+
+        #[arg(
+            long,
+            help = "New path (optional). Leading / is added automatically. Pass empty string to clear."
+        )]
+        path: Option<String>,
     },
 
     /// Delete an entry by ID.

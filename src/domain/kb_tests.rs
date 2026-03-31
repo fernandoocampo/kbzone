@@ -12,6 +12,7 @@ fn make_kb(value: &str) -> Kb {
         tags: vec!["kubernetes".to_string(), "pods".to_string()],
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         parent: None,
+        path: None,
     }
 }
 
@@ -58,6 +59,7 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
         parent_key: None,
+        path: None,
     }
 }
 
@@ -149,4 +151,93 @@ fn import_kb_item_optional_fields_default_when_absent() {
     assert!(item.category.is_empty());
     assert!(item.namespace.is_empty());
     assert!(item.tags.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// normalize_path tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn normalize_path_simple_path_is_valid() {
+    let result = normalize_path("/personal");
+    assert_eq!(result.unwrap(), "/personal");
+}
+
+#[test]
+fn normalize_path_auto_prepends_slash() {
+    let result = normalize_path("personal");
+    assert_eq!(result.unwrap(), "/personal");
+}
+
+#[test]
+fn normalize_path_nested_path_is_valid() {
+    let result = normalize_path("/personal/cars/engines");
+    assert_eq!(result.unwrap(), "/personal/cars/engines");
+}
+
+#[test]
+fn normalize_path_auto_prepends_slash_for_nested() {
+    let result = normalize_path("personal/rust");
+    assert_eq!(result.unwrap(), "/personal/rust");
+}
+
+#[test]
+fn normalize_path_rejects_dotdot() {
+    let result = normalize_path("/a/../b");
+    assert!(matches!(
+        result,
+        Err(crate::errors::Error::InvalidPathError(_))
+    ));
+}
+
+#[test]
+fn normalize_path_rejects_dot_component() {
+    let result = normalize_path("/a/./b");
+    assert!(matches!(
+        result,
+        Err(crate::errors::Error::InvalidPathError(_))
+    ));
+}
+
+#[test]
+fn normalize_path_rejects_double_slash() {
+    let result = normalize_path("/personal//cars");
+    assert!(matches!(
+        result,
+        Err(crate::errors::Error::InvalidPathError(_))
+    ));
+}
+
+#[test]
+fn normalize_path_rejects_null_byte() {
+    let result = normalize_path("/personal/\0cars");
+    assert!(matches!(
+        result,
+        Err(crate::errors::Error::InvalidPathError(_))
+    ));
+}
+
+#[test]
+fn import_kb_item_with_invalid_path_fails_validation() {
+    let mut item = make_import_item("rust-ownership", "memory management");
+    item.path = Some("/a/../b".to_string());
+    let result = item.validate();
+    assert!(result.is_some());
+    assert!(result.unwrap().contains("invalid path"));
+}
+
+#[test]
+fn import_kb_item_with_valid_path_passes_validation() {
+    let mut item = make_import_item("rust-ownership", "memory management");
+    item.path = Some("/personal/rust".to_string());
+    let result = item.validate();
+    assert!(result.is_none());
+}
+
+#[test]
+fn import_kb_item_with_path_without_slash_passes_validation() {
+    let mut item = make_import_item("rust-ownership", "memory management");
+    item.path = Some("personal/rust".to_string());
+    let result = item.validate();
+    assert!(result.is_none());
 }

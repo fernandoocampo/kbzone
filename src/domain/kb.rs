@@ -1,6 +1,8 @@
 use chrono::Local;
 use uuid::Uuid;
 
+use crate::errors::Error;
+
 /// Full KB entity as stored in the database.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Kb {
@@ -24,6 +26,8 @@ pub struct Kb {
     pub created_on: String,
     /// Internal UUID of the parent KB item, if any.
     pub parent: Option<String>,
+    /// Optional Unix-style hierarchical path (e.g. `/personal/cars/engines`).
+    pub path: Option<String>,
 }
 
 impl Kb {
@@ -57,6 +61,9 @@ impl std::fmt::Display for Kb {
         writeln!(f, "Reference : {}", self.reference)?;
         writeln!(f, "Tags      : {}", self.tags.join(", "))?;
         writeln!(f, "Created   : {}", self.created_on)?;
+        if let Some(ref p) = self.path {
+            writeln!(f, "Path      : {}", p)?;
+        }
         if let Some(ref p) = self.parent {
             writeln!(f, "Parent    : {}", p)?;
         }
@@ -79,6 +86,8 @@ pub struct NewKb {
     pub tags: Vec<String>,
     /// Internal UUID of the parent KB item, if any.
     pub parent: Option<String>,
+    /// Optional Unix-style hierarchical path (e.g. `/personal/rust`).
+    pub path: Option<String>,
 }
 
 impl From<NewKb> for Kb {
@@ -96,6 +105,7 @@ impl From<NewKb> for Kb {
             tags: new.tags,
             created_on: Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string(),
             parent: new.parent,
+            path: new.path,
         }
     }
 }
@@ -113,6 +123,8 @@ pub struct KbUpdate {
     pub tags: Option<Vec<String>>,
     /// Set a new parent (by internal UUID). `None` = keep existing.
     pub parent: Option<String>,
+    /// Set a new path. `None` = keep existing. Empty string = clear path.
+    pub path: Option<String>,
 }
 
 /// Parameters for list / search operations.
@@ -180,6 +192,8 @@ pub struct ExportKbItem {
     /// Only present when the parent is also in the exported set.
     #[serde(rename = "Parent", skip_serializing_if = "Option::is_none")]
     pub parent_key: Option<String>,
+    #[serde(rename = "Path", skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 /// YAML-serialisable representation of a single KB entry used by `kb import`.
@@ -202,6 +216,8 @@ pub struct ImportKbItem {
     /// Key of the parent KB item. Resolved to internal UUID at import time.
     #[serde(rename = "ParentKey", default)]
     pub parent_key: Option<String>,
+    #[serde(rename = "Path", default)]
+    pub path: Option<String>,
 }
 
 impl ImportKbItem {
@@ -212,6 +228,13 @@ impl ImportKbItem {
         }
         if self.value.trim().is_empty() {
             return Some("Value is empty".to_string());
+        }
+        if let Some(ref p) = self.path {
+            if !p.is_empty() {
+                if let Err(e) = normalize_path(p) {
+                    return Some(e.to_string());
+                }
+            }
         }
         None
     }
@@ -228,8 +251,46 @@ impl From<ImportKbItem> for NewKb {
             namespace: item.namespace,
             tags: item.tags,
             parent: None, // parent_key is resolved to UUID in the service layer
+            path: item.path,
         }
     }
+}
+
+/// Normalises a raw path string into a valid Unix-style path.
+///
+/// - Prepends `/` if the string does not already start with one.
+/// - Rejects empty components (double slashes), `.`, `..`, and null bytes.
+/// - Returns the normalised path on success or [`Error::InvalidPathError`] on failure.
+pub fn normalize_path(raw: &str) -> Result<String, Error> {
+    let with_slash = if raw.starts_with('/') {
+        raw.to_string()
+    } else {
+        format!("/{}", raw)
+    };
+
+    for component in with_slash.trim_start_matches('/').split('/') {
+        if component.is_empty() {
+            return Err(Error::InvalidPathError(
+                "path must not contain empty components (e.g. double slashes); \
+                 use a format like /personal or /personal/cars/engines"
+                    .to_string(),
+            ));
+        }
+        if component == "." || component == ".." {
+            return Err(Error::InvalidPathError(format!(
+                "path component '{}' is not allowed; \
+                 use a format like /personal or /personal/cars/engines",
+                component
+            )));
+        }
+        if component.contains('\0') {
+            return Err(Error::InvalidPathError(
+                "path must not contain null bytes".to_string(),
+            ));
+        }
+    }
+
+    Ok(with_slash)
 }
 
 /// Result of a reindex operation.

@@ -51,6 +51,8 @@ pub enum Error {
     ParentKBNotFound,
     #[error("KB has children, delete them first: {0}")]
     KBHasChildrenError(String),
+    #[error("invalid path: {0}")]
+    InvalidPathError(String),
 }
 
 /// Application-level startup / configuration errors.

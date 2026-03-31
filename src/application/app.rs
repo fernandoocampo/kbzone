@@ -61,6 +61,7 @@ impl App {
                 tags,
                 interactive,
                 parent,
+                path,
             } => handlers::handle_add(
                 &self.svc,
                 AddParams {
@@ -73,6 +74,7 @@ impl App {
                     tags,
                     interactive,
                     parent,
+                    path: if path.is_empty() { None } else { Some(path) },
                 },
             )?,
 
@@ -88,6 +90,7 @@ impl App {
                 reference,
                 tags,
                 parent,
+                path,
             } => handlers::handle_update(
                 &self.svc,
                 KbUpdate {
@@ -100,6 +103,7 @@ impl App {
                     reference,
                     tags,
                     parent,
+                    path,
                 },
             )?,
 

@@ -366,6 +366,7 @@ fn make_kb(id: &str, key: &str) -> Kb {
         tags: vec!["rust".to_string()],
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         parent: None,
+        path: None,
     }
 }
 
@@ -379,6 +380,7 @@ fn make_new_kb(key: &str) -> NewKb {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
         parent: None,
+        path: None,
     }
 }
 
@@ -399,6 +401,7 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
         parent_key: None,
+        path: None,
     }
 }
 
@@ -502,6 +505,7 @@ fn update_kb_merges_partial_fields_correctly() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -531,6 +535,7 @@ fn update_kb_reindexes_when_embedding_text_changes() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(svc.update_kb(update).is_ok());
     assert_eq!(vector.indexed.borrow().len(), 1);
@@ -558,6 +563,7 @@ fn update_kb_skips_reindex_when_only_notes_changes() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(svc.update_kb(update).is_ok());
     assert!(vector.indexed.borrow().is_empty());
@@ -575,6 +581,7 @@ fn update_kb_returns_not_found_for_unknown_id() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(matches!(
         make_svc().update_kb(update),
@@ -603,6 +610,7 @@ fn update_kb_returns_ok_when_embedding_update_fails() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }
@@ -624,6 +632,7 @@ fn update_kb_rejects_stolen_key() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(matches!(
         svc.update_kb(update),
@@ -645,6 +654,7 @@ fn update_kb_same_key_same_entry_is_ok() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }
@@ -666,6 +676,7 @@ fn update_kb_lowercases_key() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -687,6 +698,7 @@ fn update_kb_lowercases_category() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -708,6 +720,7 @@ fn update_kb_lowercases_namespace() {
         reference: None,
         tags: None,
         parent: None,
+        path: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -1091,6 +1104,7 @@ fn update_kb_with_valid_parent_succeeds() {
         reference: None,
         tags: None,
         parent: Some("parent-id".to_string()),
+        path: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("child-id").unwrap().unwrap();
@@ -1112,6 +1126,7 @@ fn update_kb_with_missing_parent_fails() {
         reference: None,
         tags: None,
         parent: Some("nonexistent-parent-id".to_string()),
+        path: None,
     };
     assert!(matches!(
         svc.update_kb(update),
