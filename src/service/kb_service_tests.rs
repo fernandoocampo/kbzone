@@ -1,4 +1,5 @@
 use super::*;
+use crate::ports::{MediaFetcher, MediaStore};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -319,6 +320,56 @@ impl EmbeddingProvider for FailingEmbeddingProvider {
     }
 }
 
+// ---- MockMediaStore ----
+
+#[derive(Debug, Clone, Default)]
+struct MockMediaStore {
+    stored: Arc<RefCell<Vec<String>>>,
+    deleted: Arc<RefCell<Vec<String>>>,
+}
+
+impl MediaStore for MockMediaStore {
+    fn store_media(&self, params: &StoreMediaParams) -> Result<String, Error> {
+        self.stored.borrow_mut().push(params.destination.clone());
+        Ok(params.destination.clone())
+    }
+
+    fn delete_media(&self, path: &str) -> Result<(), Error> {
+        self.deleted.borrow_mut().push(path.to_string());
+        Ok(())
+    }
+}
+
+// ---- FailingMediaStore ----
+
+#[derive(Debug, Clone)]
+struct FailingMediaStore;
+
+impl MediaStore for FailingMediaStore {
+    fn store_media(&self, _params: &StoreMediaParams) -> Result<String, Error> {
+        Err(Error::MediaCopyError("forced copy failure".to_string()))
+    }
+
+    fn delete_media(&self, _path: &str) -> Result<(), Error> {
+        Err(Error::MediaDeleteError("forced delete failure".to_string()))
+    }
+}
+
+// ---- MockMediaFetcher ----
+
+#[derive(Debug, Clone)]
+struct MockMediaFetcher;
+
+impl MediaFetcher for MockMediaFetcher {
+    fn fetch(&self, url: &str) -> Result<String, Error> {
+        // Return a fake temp path derived from the URL for testing.
+        Ok(format!(
+            "/tmp/mock-{}",
+            url.replace("://", "-").replace('/', "-")
+        ))
+    }
+}
+
 // ---- CountingEmbeddingProvider: fails on and after the Nth call ----
 
 #[derive(Debug, Clone)]
@@ -367,6 +418,7 @@ fn make_kb(id: &str, key: &str) -> Kb {
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         parent: None,
         path: None,
+        media_extension: None,
     }
 }
 
@@ -381,6 +433,8 @@ fn make_new_kb(key: &str) -> NewKb {
         tags: vec!["rust".to_string()],
         parent: None,
         path: None,
+        media_url: None,
+        media_extension: None,
     }
 }
 
@@ -402,27 +456,37 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
         tags: vec!["rust".to_string()],
         parent_key: None,
         path: None,
+        media_extension: None,
     }
 }
 
-fn make_svc() -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider> {
+fn make_svc(
+) -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
+{
     KBService::new(
         MockKbStore::new(),
-        SemanticDeps {
+        ServiceDeps {
             vector_store: MockVectorStore::default(),
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     )
 }
 
 fn make_svc_with_store(
     store: MockKbStore,
-) -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider> {
+) -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
+{
     KBService::new(
         store,
-        SemanticDeps {
+        ServiceDeps {
             vector_store: MockVectorStore::default(),
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     )
 }
@@ -434,9 +498,12 @@ fn add_kb_saves_entry_and_indexes_embedding() {
     let vector = MockVectorStore::default();
     let svc = KBService::new(
         MockKbStore::new(),
-        SemanticDeps {
+        ServiceDeps {
             vector_store: vector.clone(),
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let result = svc.add_kb(make_new_kb("rust-ownership"));
@@ -449,9 +516,12 @@ fn add_kb_saves_entry_and_indexes_embedding() {
 fn add_kb_returns_ok_when_embedding_fails() {
     let svc = KBService::new(
         MockKbStore::new(),
-        SemanticDeps {
+        ServiceDeps {
             vector_store: FailingVectorStore,
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     assert!(svc.add_kb(make_new_kb("rust-ownership")).is_ok());
@@ -520,9 +590,12 @@ fn update_kb_reindexes_when_embedding_text_changes() {
     let vector = MockVectorStore::default();
     let svc = KBService::new(
         store,
-        SemanticDeps {
+        ServiceDeps {
             vector_store: vector.clone(),
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let update = KbUpdate {
@@ -548,9 +621,12 @@ fn update_kb_skips_reindex_when_only_notes_changes() {
     let vector = MockVectorStore::default();
     let svc = KBService::new(
         store,
-        SemanticDeps {
+        ServiceDeps {
             vector_store: vector.clone(),
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let update = KbUpdate {
@@ -595,9 +671,12 @@ fn update_kb_returns_ok_when_embedding_update_fails() {
     let store = MockKbStore::with(vec![original]);
     let svc = KBService::new(
         store,
-        SemanticDeps {
+        ServiceDeps {
             vector_store: FailingVectorStore,
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let update = KbUpdate {
@@ -735,9 +814,12 @@ fn delete_kb_removes_entry_and_embedding() {
     let vector = MockVectorStore::default();
     let svc = KBService::new(
         store,
-        SemanticDeps {
+        ServiceDeps {
             vector_store: vector.clone(),
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     assert!(svc.delete_kb("id-1").is_ok());
@@ -750,9 +832,12 @@ fn delete_kb_returns_ok_when_embedding_removal_fails() {
     let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
     let svc = KBService::new(
         store,
-        SemanticDeps {
+        ServiceDeps {
             vector_store: FailingVectorStore,
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     assert!(svc.delete_kb("id-1").is_ok());
@@ -868,9 +953,12 @@ fn reindex_partial_failures_reported_in_result() {
     ]);
     let svc = KBService::new(
         store,
-        SemanticDeps {
+        ServiceDeps {
             vector_store: MockVectorStore::default(),
             embedder: CountingEmbeddingProvider::new(1),
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let result = svc.reindex().unwrap();
@@ -887,9 +975,12 @@ fn reindex_ghost_entry_appears_in_failed() {
     };
     let svc = KBService::new(
         ghost_store,
-        SemanticDeps {
+        ServiceDeps {
             vector_store: MockVectorStore::default(),
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let result = svc.reindex().unwrap();
@@ -912,9 +1003,12 @@ fn import_kbs_indexes_all_saved_entries() {
     let vector = MockVectorStore::default();
     let svc = KBService::new(
         MockKbStore::new(),
-        SemanticDeps {
+        ServiceDeps {
             vector_store: vector.clone(),
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let items = vec![
@@ -931,9 +1025,12 @@ fn import_kbs_skips_indexing_for_failed_items() {
     let vector = MockVectorStore::default();
     let svc = KBService::new(
         MockKbStore::new(),
-        SemanticDeps {
+        ServiceDeps {
             vector_store: vector.clone(),
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let items = vec![
@@ -950,9 +1047,12 @@ fn import_kbs_skips_indexing_for_failed_items() {
 fn import_kbs_continues_on_embedding_failure() {
     let svc = KBService::new(
         MockKbStore::new(),
-        SemanticDeps {
+        ServiceDeps {
             vector_store: FailingVectorStore,
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let items = vec![
@@ -1053,9 +1153,12 @@ fn ask_returns_results_without_error() {
 fn ask_fails_when_embedding_provider_fails() {
     let svc = KBService::new(
         MockKbStore::new(),
-        SemanticDeps {
+        ServiceDeps {
             vector_store: MockVectorStore::default(),
             embedder: FailingEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     );
     let query = SemanticQuery {
@@ -1259,4 +1362,214 @@ fn export_kbs_orders_multi_level_hierarchy() {
     let c_pos = items.iter().position(|i| i.key == "c-key").unwrap();
     assert!(gp_pos < p_pos, "grandparent must be before parent");
     assert!(p_pos < c_pos, "parent must be before child");
+}
+
+// ---- media category tests ----
+
+fn make_media_kb(id: &str, key: &str) -> Kb {
+    Kb {
+        id: id.to_string(),
+        key: key.to_string(),
+        value: "a media file".to_string(),
+        notes: String::new(),
+        category: "media".to_string(),
+        reference: String::new(),
+        namespace: "test".to_string(),
+        tags: vec![],
+        created_on: "2026-01-01T00:00:00+0000".to_string(),
+        parent: None,
+        path: None,
+        media_extension: Some("jpg".to_string()),
+    }
+}
+
+fn make_media_new_kb(key: &str, media_url: Option<&str>) -> NewKb {
+    NewKb {
+        key: key.to_string(),
+        value: "a media file".to_string(),
+        notes: String::new(),
+        category: "media".to_string(),
+        reference: String::new(),
+        namespace: "test".to_string(),
+        tags: vec![],
+        parent: None,
+        path: None,
+        media_url: media_url.map(str::to_string),
+        media_extension: None,
+    }
+}
+
+#[test]
+fn add_kb_media_copies_local_file_before_save() {
+    let media_store = MockMediaStore::default();
+    let svc = KBService::new(
+        MockKbStore::new(),
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: media_store.clone(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: "/base".to_string(),
+        },
+    );
+    let result = svc.add_kb(make_media_new_kb("photo", Some("/tmp/photo.jpg")));
+    assert!(result.is_ok());
+    assert_eq!(media_store.stored.borrow().len(), 1);
+    assert!(media_store.stored.borrow()[0].contains("photo.jpg"));
+}
+
+#[test]
+fn add_kb_media_requires_media_url() {
+    let svc = KBService::new(
+        MockKbStore::new(),
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: "/base".to_string(),
+        },
+    );
+    assert!(matches!(
+        svc.add_kb(make_media_new_kb("photo", None)),
+        Err(Error::MediaUrlRequired(_))
+    ));
+}
+
+#[test]
+fn add_kb_media_fails_when_store_media_fails() {
+    let svc = KBService::new(
+        MockKbStore::new(),
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: FailingMediaStore,
+            media_fetcher: MockMediaFetcher,
+            base_dir: "/base".to_string(),
+        },
+    );
+    assert!(matches!(
+        svc.add_kb(make_media_new_kb("photo", Some("/tmp/photo.jpg"))),
+        Err(Error::MediaCopyError(_))
+    ));
+}
+
+#[test]
+fn add_kb_media_uses_fetcher_for_http_urls() {
+    let media_store = MockMediaStore::default();
+    let svc = KBService::new(
+        MockKbStore::new(),
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: media_store.clone(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: "/base".to_string(),
+        },
+    );
+    let result = svc.add_kb(make_media_new_kb(
+        "remote-photo",
+        Some("https://example.com/image.jpg"),
+    ));
+    assert!(result.is_ok());
+    assert_eq!(media_store.stored.borrow().len(), 1);
+}
+
+#[test]
+fn delete_kb_media_deletes_file_first() {
+    let media_store = MockMediaStore::default();
+    let store = MockKbStore::with(vec![make_media_kb("id-1", "photo")]);
+    let svc = KBService::new(
+        store,
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: media_store.clone(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: "/base".to_string(),
+        },
+    );
+    assert!(svc.delete_kb("id-1").is_ok());
+    assert_eq!(media_store.deleted.borrow().len(), 1);
+    assert!(media_store.deleted.borrow()[0].contains("photo.jpg"));
+}
+
+#[test]
+fn delete_kb_media_aborts_when_file_delete_fails() {
+    let store = MockKbStore::with(vec![make_media_kb("id-1", "photo")]);
+    let svc = KBService::new(
+        store,
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: FailingMediaStore,
+            media_fetcher: MockMediaFetcher,
+            base_dir: "/base".to_string(),
+        },
+    );
+    assert!(matches!(
+        svc.delete_kb("id-1"),
+        Err(Error::MediaDeleteError(_))
+    ));
+    // Entry must still exist in the store (rollback).
+    // The mock store's delete_kb was never called.
+}
+
+#[test]
+fn delete_kb_non_media_skips_file_delete() {
+    let media_store = MockMediaStore::default();
+    let store = MockKbStore::with(vec![make_kb("id-1", "regular-entry")]);
+    let svc = KBService::new(
+        store,
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: media_store.clone(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: "/base".to_string(),
+        },
+    );
+    assert!(svc.delete_kb("id-1").is_ok());
+    assert!(media_store.deleted.borrow().is_empty());
+}
+
+#[test]
+fn update_kb_media_blocks_path_change() {
+    let store = MockKbStore::with(vec![make_media_kb("id-1", "photo")]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: Some("/new/path".to_string()),
+    };
+    assert!(matches!(
+        svc.update_kb(update),
+        Err(Error::MediaPathUpdateNotAllowed(_))
+    ));
+}
+
+#[test]
+fn update_kb_media_allows_non_path_changes() {
+    let store = MockKbStore::with(vec![make_media_kb("id-1", "photo")]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: Some("updated description".to_string()),
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+    };
+    assert!(svc.update_kb(update).is_ok());
 }

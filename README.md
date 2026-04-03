@@ -82,6 +82,47 @@ kb add --key rust-borrowing \
 
 The parent must already exist; the command fails with an error if the ID is not found.
 
+### Media entries
+
+When `--category media` is used, you must also supply `--media-url` pointing to the file to associate with the entry. The value can be a **URL** (`http://` or `https://`) or a **local file path**.
+
+```sh
+# From a local file
+kb add --key my-photo \
+       --value "A photo from the trip" \
+       --category media \
+       --namespace personal \
+       --media-url /path/to/photo.jpg
+
+# From a URL
+kb add --key remote-image \
+       --value "Logo downloaded from the web" \
+       --category media \
+       --namespace assets \
+       --media-url https://example.com/logo.png
+```
+
+The file is **copied** (not moved) to:
+
+```
+{KBZONA_HOME}/media/{namespace}/{key}.{ext}
+```
+
+or, if `--path` is also set:
+
+```
+{KBZONA_HOME}/media/{namespace}/{path}/{key}.{ext}
+```
+
+The original extension is preserved. If the source is a URL, the file is first downloaded to a temporary location and then copied to the final destination.
+
+**Limitations and workflow:**
+
+- `kb update` does **not** support changing `--path` for media entries. If you need to move the file, delete the entry (`kb delete`) and re-create it with the new path.
+- `kb delete` on a media entry deletes the media file **first**, then removes the DB record. If the file cannot be deleted, the operation is aborted and the DB record is preserved.
+- `kb get` on a media entry shows the computed path to the media file.
+
+
 ### Get an entry
 
 ```sh
@@ -161,6 +202,8 @@ kb update --id <uuid> --path ""   # clears the path
 
 Only the fields you pass are changed. Pass `--parent` to set or change the parent; the parent must already exist. Pass `--path` to set or change the path; pass an empty string to clear it.
 
+> **Note:** `--path` cannot be changed for entries with `category = media`. Delete and re-create the entry to change the storage path.
+
 ### Delete an entry
 
 ```sh
@@ -168,6 +211,8 @@ kb delete --id <uuid>
 ```
 
 If the entry has children, the delete is rejected and the child IDs are printed. Delete the children first, then retry.
+
+For `media` category entries, the associated media file is deleted **before** the DB record is removed. If the file cannot be deleted, the operation is aborted so the record is not left without its file.
 
 ### Import from YAML
 
@@ -188,6 +233,7 @@ Tags: [rust, memory, ownership]
 Reference: "The Rust Programming Language"
 ParentKey: rust-ownership   # optional: kb key of the parent entry
 Path: /learning/rust        # optional: Unix-style path; leading / auto-added if omitted
+MediaExtension: jpg         # optional: file extension for media entries (e.g. jpg, png, pdf)
 ```
 
 `ParentKey` is resolved to an internal UUID at import time. If the referenced key does not exist, that item is recorded as a failure and the rest of the batch continues. Items that fail validation or import are written to the failed items file for inspection.

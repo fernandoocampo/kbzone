@@ -53,32 +53,32 @@ END";
 // ---------------------------------------------------------------------------
 
 const GET_KB_BY_ID: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                             REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH \
+                             REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION \
                              FROM kbs WHERE KB_ID = ?1";
 
 const GET_KB_BY_KEY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                              REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH \
+                              REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION \
                               FROM kbs WHERE KB_KEY = ?1";
 
 const INSERT_KB: &str = "INSERT INTO kbs \
-                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH) \
-                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
+                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION) \
+                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 
 const UPDATE_KB: &str = "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGORY=?4, \
-                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, PARENT_KB_ID=?8, KB_PATH=?9 \
-                          WHERE KB_ID=?10";
+                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, PARENT_KB_ID=?8, KB_PATH=?9, MEDIA_EXTENSION=?10 \
+                          WHERE KB_ID=?11";
 
 const DELETE_KB: &str = "DELETE FROM kbs WHERE KB_ID=?1";
 
 const GET_RANDOM_QUOTE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                 REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH \
+                                 REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION \
                                  FROM kbs WHERE LOWER(CATEGORY) = 'quote' \
                                  ORDER BY RANDOM() LIMIT 1";
 
 const GET_CHILDREN_IDS: &str = "SELECT KB_ID FROM kbs WHERE PARENT_KB_ID = ?1";
 
 const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                   REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH FROM kbs";
+                                   REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION FROM kbs";
 
 const SEARCH_FTS: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
                            FROM kbs k \
@@ -213,6 +213,14 @@ impl KbStore for SqliteStore {
                 return Err(Error::StorageInitError(e.to_string()));
             }
         }
+        // Idempotent migration: add MEDIA_EXTENSION column if it does not exist yet.
+        if let Err(e) =
+            conn.execute_batch("ALTER TABLE kbs ADD COLUMN MEDIA_EXTENSION TEXT DEFAULT NULL")
+        {
+            if !e.to_string().contains("duplicate column name") {
+                return Err(Error::StorageInitError(e.to_string()));
+            }
+        }
         Ok(())
     }
 
@@ -273,6 +281,7 @@ impl KbStore for SqliteStore {
                 kb.created_on,
                 kb.parent,
                 kb.path,
+                kb.media_extension,
             ],
         )
         .map_err(|e| Error::CreateKBError(e.to_string()))?;
@@ -294,6 +303,7 @@ impl KbStore for SqliteStore {
                     kb.tags_as_string(),
                     kb.parent,
                     kb.path,
+                    kb.media_extension,
                     kb.id,
                 ],
             )
@@ -467,6 +477,9 @@ fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
             .map_err(|e| Error::GetKBError(e.to_string()))?,
         path: row
             .get::<_, Option<String>>(10)
+            .map_err(|e| Error::GetKBError(e.to_string()))?,
+        media_extension: row
+            .get::<_, Option<String>>(11)
             .map_err(|e| Error::GetKBError(e.to_string()))?,
     })
 }

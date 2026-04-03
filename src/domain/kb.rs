@@ -3,6 +3,23 @@ use uuid::Uuid;
 
 use crate::errors::Error;
 
+/// Category value for media entries. Compared case-insensitively via [`is_media_category`].
+pub const MEDIA_CATEGORY: &str = "media";
+
+/// Returns `true` if the given category string (case-insensitive) identifies a media entry.
+pub fn is_media_category(category: &str) -> bool {
+    category.eq_ignore_ascii_case(MEDIA_CATEGORY)
+}
+
+/// Extracts the file extension from a path or URL string.
+/// Returns `None` if no extension is present.
+pub fn file_extension(path: &str) -> Option<String> {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_string)
+}
+
 /// Full KB entity as stored in the database.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Kb {
@@ -28,6 +45,8 @@ pub struct Kb {
     pub parent: Option<String>,
     /// Optional Unix-style hierarchical path (e.g. `/personal/cars/engines`).
     pub path: Option<String>,
+    /// File extension of the stored media file (e.g. `"jpg"`, `"pdf"`). Only set for category `media`.
+    pub media_extension: Option<String>,
 }
 
 impl Kb {
@@ -88,12 +107,21 @@ pub struct NewKb {
     pub parent: Option<String>,
     /// Optional Unix-style hierarchical path (e.g. `/personal/rust`).
     pub path: Option<String>,
+    /// Original media source (URL or local file path). Required when category is `media`.
+    /// This field is transient — used during `add` to download/copy the file. Not persisted.
+    pub media_url: Option<String>,
+    /// File extension override. Takes precedence over the extension derived from `media_url`.
+    /// Used by import, where the file extension is already known and no URL is present.
+    pub media_extension: Option<String>,
 }
 
 impl From<NewKb> for Kb {
     /// Converts into a full `Kb`, generating UUID and timestamp, normalising
     /// key / category / namespace to lowercase.
     fn from(new: NewKb) -> Self {
+        let media_extension = new
+            .media_extension
+            .or_else(|| new.media_url.as_deref().and_then(file_extension));
         Kb {
             id: Uuid::new_v4().to_string(),
             key: new.key.to_lowercase(),
@@ -106,6 +134,7 @@ impl From<NewKb> for Kb {
             created_on: Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string(),
             parent: new.parent,
             path: new.path,
+            media_extension,
         }
     }
 }
@@ -194,6 +223,8 @@ pub struct ExportKbItem {
     pub parent_key: Option<String>,
     #[serde(rename = "Path", skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(rename = "MediaExtension", skip_serializing_if = "Option::is_none")]
+    pub media_extension: Option<String>,
 }
 
 /// YAML-serialisable representation of a single KB entry used by `kb import`.
@@ -218,6 +249,8 @@ pub struct ImportKbItem {
     pub parent_key: Option<String>,
     #[serde(rename = "Path", default)]
     pub path: Option<String>,
+    #[serde(rename = "MediaExtension", default)]
+    pub media_extension: Option<String>,
 }
 
 impl ImportKbItem {
@@ -252,8 +285,46 @@ impl From<ImportKbItem> for NewKb {
             tags: item.tags,
             parent: None, // parent_key is resolved to UUID in the service layer
             path: item.path,
+            media_url: None,
+            media_extension: item.media_extension,
         }
     }
+}
+
+/// Parameters for computing the media file storage path.
+pub struct MediaPathParams<'a> {
+    pub base_dir: &'a str,
+    pub namespace: &'a str,
+    pub path: Option<&'a str>,
+    pub key: &'a str,
+    /// File extension without the leading dot (e.g. `"jpg"`, `"pdf"`). `None` = no extension.
+    pub extension: Option<&'a str>,
+}
+
+/// Computes the full filesystem path where a media file should be stored.
+///
+/// Path: `{base_dir}/media/{namespace}/{path}/{key}.{ext}`
+/// Without path: `{base_dir}/media/{namespace}/{key}.{ext}`
+pub fn media_file_path(params: &MediaPathParams<'_>) -> String {
+    let file_name = match params.extension {
+        Some(ext) if !ext.is_empty() => format!("{}.{}", params.key, ext),
+        _ => params.key.to_string(),
+    };
+
+    let mut result = format!("{}/media/{}", params.base_dir, params.namespace);
+    if let Some(p) = params.path {
+        let trimmed = p.trim_start_matches('/');
+        if !trimmed.is_empty() {
+            result = format!("{}/{}", result, trimmed);
+        }
+    }
+    format!("{}/{}", result, file_name)
+}
+
+/// Parameters for storing a media file (source → destination copy).
+pub struct StoreMediaParams {
+    pub source: String,
+    pub destination: String,
 }
 
 /// Normalises a raw path string into a valid Unix-style path.

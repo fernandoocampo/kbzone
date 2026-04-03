@@ -1,5 +1,5 @@
 use super::*;
-use crate::service::SemanticDeps;
+use crate::service::ServiceDeps;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -125,12 +125,39 @@ impl crate::ports::EmbeddingProvider for MockEmbeddingProvider {
     }
 }
 
-fn make_svc() -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider> {
+#[derive(Debug, Clone)]
+struct MockMediaStore;
+
+impl crate::ports::MediaStore for MockMediaStore {
+    fn store_media(&self, params: &crate::domain::StoreMediaParams) -> Result<String, Error> {
+        Ok(params.destination.clone())
+    }
+
+    fn delete_media(&self, _path: &str) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MockMediaFetcher;
+
+impl crate::ports::MediaFetcher for MockMediaFetcher {
+    fn fetch(&self, url: &str) -> Result<String, Error> {
+        Ok(format!("/tmp/mock-{}", url))
+    }
+}
+
+fn make_svc(
+) -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
+{
     KBService::new(
         MockKbStore::new(),
-        SemanticDeps {
+        ServiceDeps {
             vector_store: MockVectorStore,
             embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore,
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
         },
     )
 }
@@ -225,6 +252,7 @@ fn build_new_kb_non_interactive_all_fields_provided_no_prompt() {
         interactive: false,
         parent: None,
         path: None,
+        media_url: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -249,6 +277,7 @@ fn handle_add_non_interactive_fails_without_key() {
         interactive: false,
         parent: None,
         path: None,
+        media_url: None,
     };
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::MissingRequiredField(_))));
@@ -268,6 +297,7 @@ fn handle_add_non_interactive_fails_without_value() {
         interactive: false,
         parent: None,
         path: None,
+        media_url: None,
     };
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::MissingRequiredField(_))));
@@ -286,6 +316,7 @@ fn build_new_kb_non_interactive_builds_correctly() {
         interactive: false,
         parent: None,
         path: None,
+        media_url: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -340,6 +371,8 @@ fn format_preview_includes_all_fields() {
         tags: vec!["rust".to_string(), "memory".to_string()],
         parent: None,
         path: None,
+        media_url: None,
+        media_extension: None,
     };
     let preview = format_preview(&kb);
     assert!(preview.contains("rust-ownership"));
@@ -363,6 +396,8 @@ fn format_preview_shows_tags_joined_with_comma() {
         tags: vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
         parent: None,
         path: None,
+        media_url: None,
+        media_extension: None,
     };
     let preview = format_preview(&kb);
     assert!(preview.contains("alpha, beta, gamma"));
@@ -385,6 +420,7 @@ fn build_new_kb_non_interactive_uses_provided_reference() {
         interactive: false,
         parent: None,
         path: None,
+        media_url: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -405,6 +441,7 @@ fn build_new_kb_non_interactive_uses_provided_tags() {
         interactive: false,
         parent: None,
         path: None,
+        media_url: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -425,6 +462,7 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
             tags: Vec::new(),
             parent_key: None,
             path: None,
+            media_extension: None,
         },
         ImportKbItem {
             key: "key-two".to_string(),
@@ -436,6 +474,7 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
             tags: Vec::new(),
             parent_key: None,
             path: None,
+            media_extension: None,
         },
     ];
     let result = serialize_failed_items(&items).unwrap();

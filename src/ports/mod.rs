@@ -10,9 +10,13 @@
 //! | [`VectorStore`]        | Store and query embeddings via KNN search        |
 
 pub mod embedding;
+pub mod media_fetcher;
+pub mod media_store;
 pub mod storage;
 pub mod vector_store;
 
 pub use embedding::EmbeddingProvider;
+pub use media_fetcher::MediaFetcher;
+pub use media_store::MediaStore;
 pub use storage::KbStore;
 pub use vector_store::VectorStore;

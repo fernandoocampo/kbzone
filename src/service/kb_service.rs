@@ -1,35 +1,53 @@
 use std::collections::HashSet;
 
 use crate::domain::{
-    normalize_path, EmbeddingInput, ExportKbItem, FailedImportItem, ImportBatchResult,
-    ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, NewKb, ReindexResult, ScoredKbItem,
-    SemanticQuery,
+    file_extension, is_media_category, media_file_path, normalize_path, EmbeddingInput,
+    ExportKbItem, FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem,
+    KbUpdate, MediaPathParams, NewKb, ReindexResult, ScoredKbItem, SemanticQuery, StoreMediaParams,
 };
 use crate::errors::Error;
-use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
+use crate::ports::{EmbeddingProvider, KbStore, MediaFetcher, MediaStore, VectorStore};
 
-/// Constructor parameter struct that groups the two semantic dependencies,
-/// satisfying the 2-param rule for [`KBService::new`].
-pub(crate) struct SemanticDeps<V: VectorStore, E: EmbeddingProvider> {
+/// Constructor parameter struct that groups all outbound dependencies
+/// beyond the primary store, satisfying the 2-param rule for [`KBService::new`].
+pub(crate) struct ServiceDeps<V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFetcher>
+{
     pub vector_store: V,
     pub embedder: E,
+    pub media_store: M,
+    pub media_fetcher: F,
+    pub base_dir: String,
 }
 
-/// Unified application service — owns all three outbound ports directly and
-/// orchestrates both CRUD and semantic (embedding) operations.
+/// Unified application service — owns all outbound ports and orchestrates
+/// CRUD, semantic (embedding), and media file operations.
 #[derive(Debug, Clone)]
-pub(crate) struct KBService<S: KbStore, V: VectorStore, E: EmbeddingProvider> {
+pub(crate) struct KBService<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+> {
     store: S,
     vector_store: V,
     embedder: E,
+    media_store: M,
+    media_fetcher: F,
+    base_dir: String,
 }
 
-impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
-    pub fn new(store: S, deps: SemanticDeps<V, E>) -> Self {
+impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFetcher>
+    KBService<S, V, E, M, F>
+{
+    pub fn new(store: S, deps: ServiceDeps<V, E, M, F>) -> Self {
         Self {
             store,
             vector_store: deps.vector_store,
             embedder: deps.embedder,
+            media_store: deps.media_store,
+            media_fetcher: deps.media_fetcher,
+            base_dir: deps.base_dir,
         }
     }
 
@@ -38,8 +56,13 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
     // ---------------------------------------------------------------------------
 
     /// Creates a new KB entry and indexes it for semantic search.
+    /// For `media` category entries, the media file is fetched/copied BEFORE the DB row
+    /// is saved — a media failure returns an error without creating a dangling DB record.
     /// Embedding failures are non-fatal: a warning is printed and `Ok(kb)` is returned.
     pub fn add_kb(&self, new_kb: NewKb) -> Result<Kb, Error> {
+        if is_media_category(&new_kb.category) {
+            self.store_media_for_new_kb(&new_kb)?;
+        }
         let kb = self.add_kb_crud(new_kb)?;
         let input = EmbeddingInput {
             kb_id: kb.id.clone(),
@@ -65,11 +88,16 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
 
     /// Merges `update` into the existing entry, persists, and re-indexes only if the
     /// embedding text changed. Embedding failures are non-fatal.
+    /// Returns `MediaPathUpdateNotAllowed` if the entry is a media item and `path` is set.
     pub fn update_kb(&self, update: KbUpdate) -> Result<(), Error> {
         let existing = self
             .store
             .get_kb_by_id(&update.id)?
             .ok_or(Error::KBNotFound)?;
+
+        if is_media_category(&existing.category) && update.path.is_some() {
+            return Err(Error::MediaPathUpdateNotAllowed(existing.key.clone()));
+        }
 
         self.validate_parent_exists(&update.parent)?;
 
@@ -99,6 +127,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
             created_on: existing.created_on,
             parent: update.parent.or(existing.parent),
             path,
+            media_extension: existing.media_extension,
         };
 
         let new_embed_text = updated.embedding_text();
@@ -120,11 +149,26 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
     }
 
     /// Deletes an entry and removes its embedding. Embedding removal failure is non-fatal.
+    /// For `media` category entries the media file is deleted FIRST; failure aborts the
+    /// operation so the DB row is not left without its file.
     /// Returns `KBHasChildrenError` if the entry has children — delete them first.
     pub fn delete_kb(&self, id: &str) -> Result<(), Error> {
         let children = self.store.get_children_ids(id)?;
         if !children.is_empty() {
             return Err(Error::KBHasChildrenError(children.join(", ")));
+        }
+        let existing = self.store.get_kb_by_id(id)?.ok_or(Error::KBNotFound)?;
+        if is_media_category(&existing.category) {
+            if let Some(ref ext) = existing.media_extension {
+                let path = media_file_path(&MediaPathParams {
+                    base_dir: &self.base_dir,
+                    namespace: &existing.namespace,
+                    path: existing.path.as_deref(),
+                    key: &existing.key,
+                    extension: Some(ext),
+                });
+                self.media_store.delete_media(&path)?;
+            }
         }
         let deleted = self.store.delete_kb(id)?;
         if !deleted {
@@ -252,6 +296,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
                     .and_then(|pid| id_to_key.get(pid.as_str()))
                     .map(|s| s.to_string()),
                 path: kb.path.clone(),
+                media_extension: kb.media_extension.clone(),
             })
             .collect();
 
@@ -336,6 +381,44 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider> KBService<S, V, E> {
         }
 
         ImportBatchResult { saved, failed }
+    }
+
+    /// Fetches (if URL) or uses directly (if local path) the media file described by
+    /// `new_kb.media_url` and copies it to its final destination under `base_dir`.
+    /// Returns `MediaUrlRequired` when `media_url` is absent or empty.
+    fn store_media_for_new_kb(&self, new_kb: &NewKb) -> Result<(), Error> {
+        let url = new_kb
+            .media_url
+            .as_deref()
+            .filter(|u| !u.is_empty())
+            .ok_or_else(|| Error::MediaUrlRequired(new_kb.key.clone()))?;
+
+        let is_remote = url.starts_with("http://") || url.starts_with("https://");
+        let source = if is_remote {
+            self.media_fetcher.fetch(url)?
+        } else {
+            url.to_string()
+        };
+
+        let destination = media_file_path(&MediaPathParams {
+            base_dir: &self.base_dir,
+            namespace: &new_kb.namespace,
+            path: new_kb.path.as_deref(),
+            key: &new_kb.key,
+            extension: file_extension(url).as_deref(),
+        });
+
+        let result = self.media_store.store_media(&StoreMediaParams {
+            source: source.clone(),
+            destination,
+        });
+
+        // Clean up the temp file created by the fetcher; ignore cleanup errors.
+        if is_remote {
+            let _ = std::fs::remove_file(&source);
+        }
+
+        result.map(|_| ())
     }
 
     fn validate_parent_exists(&self, parent: &Option<String>) -> Result<(), Error> {

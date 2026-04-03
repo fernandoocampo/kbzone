@@ -18,3 +18,7 @@ serde_yaml = "0.9"
 sqlite-vec = "0.1"
 fastembed  = "4"
 stop-words = "0.8"
+ureq       = "2"
+
+[dev-dependencies]
+tempfile = "3"

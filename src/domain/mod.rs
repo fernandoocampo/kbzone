@@ -17,8 +17,8 @@ pub mod kb;
 pub mod tag_suggestion;
 
 pub use kb::{
-    normalize_path, EmbeddingInput, ExportKbItem, FailedImportItem, ImportBatchResult,
-    ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, NewKb, ReindexResult, ScoredKbItem,
-    SemanticQuery,
+    file_extension, is_media_category, media_file_path, normalize_path, EmbeddingInput,
+    ExportKbItem, FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem,
+    KbUpdate, MediaPathParams, NewKb, ReindexResult, ScoredKbItem, SemanticQuery, StoreMediaParams,
 };
 pub use tag_suggestion::{suggest_tags, TagSuggestionInput};

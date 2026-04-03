@@ -1,6 +1,8 @@
 use clap::Parser;
 
 use crate::adapters::fastembed::FastEmbedProvider;
+use crate::adapters::filesystem::FileSystemMediaStore;
+use crate::adapters::http::HttpMediaFetcher;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
@@ -8,11 +10,18 @@ use crate::cli::handlers::{self, AddParams, ExportParams, GetParams, ImportParam
 use crate::domain::{KbUpdate, SemanticQuery};
 use crate::errors::AppError;
 use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
-use crate::service::{KBService, SemanticDeps};
+use crate::service::{KBService, ServiceDeps};
 
 /// Top-level application object. Owns the unified service and drives the CLI.
 pub struct App {
-    svc: KBService<SqliteStore, SqliteStore, FastEmbedProvider>,
+    svc: KBService<
+        SqliteStore,
+        SqliteStore,
+        FastEmbedProvider,
+        FileSystemMediaStore,
+        HttpMediaFetcher,
+    >,
+    base_dir: String,
 }
 
 impl App {
@@ -35,15 +44,23 @@ impl App {
             .initialize_vectors(embedder.dimensions())
             .map_err(|e| AppError::StorageError(e.to_string()))?;
 
+        let base_dir = std::path::Path::new(&db_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
         let svc = KBService::new(
             store.clone(),
-            SemanticDeps {
+            ServiceDeps {
                 vector_store: store,
                 embedder,
+                media_store: FileSystemMediaStore,
+                media_fetcher: HttpMediaFetcher,
+                base_dir: base_dir.clone(),
             },
         );
 
-        Ok(App { svc })
+        Ok(App { svc, base_dir })
     }
 
     /// Parses the CLI arguments and dispatches to the appropriate handler.
@@ -62,6 +79,7 @@ impl App {
                 interactive,
                 parent,
                 path,
+                media_url,
             } => handlers::handle_add(
                 &self.svc,
                 AddParams {
@@ -74,11 +92,19 @@ impl App {
                     tags,
                     interactive,
                     parent,
-                    path: if path.is_empty() { None } else { Some(path) },
+                    path: (!path.is_empty()).then_some(path),
+                    media_url: (!media_url.is_empty()).then_some(media_url),
                 },
             )?,
 
-            Command::Get { key, id } => handlers::handle_get(&self.svc, GetParams { key, id })?,
+            Command::Get { key, id } => handlers::handle_get(
+                &self.svc,
+                GetParams {
+                    key,
+                    id,
+                    base_dir: self.base_dir.clone(),
+                },
+            )?,
 
             Command::Update {
                 id,

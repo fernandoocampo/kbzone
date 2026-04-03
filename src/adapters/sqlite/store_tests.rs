@@ -23,6 +23,7 @@ fn make_kb(id: &str, key: &str) -> Kb {
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         parent: None,
         path: None,
+        media_extension: None,
     }
 }
 

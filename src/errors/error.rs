@@ -53,6 +53,18 @@ pub enum Error {
     KBHasChildrenError(String),
     #[error("invalid path: {0}")]
     InvalidPathError(String),
+    #[error("media download failed: {0}")]
+    MediaDownloadError(String),
+    #[error("media file not found: {0}")]
+    MediaFileNotFoundError(String),
+    #[error("media copy failed: {0}")]
+    MediaCopyError(String),
+    #[error("media delete failed: {0}")]
+    MediaDeleteError(String),
+    #[error("media URL is required: {0}")]
+    MediaUrlRequired(String),
+    #[error("path update not allowed for media entries: {0}")]
+    MediaPathUpdateNotAllowed(String),
 }
 
 /// Application-level startup / configuration errors.

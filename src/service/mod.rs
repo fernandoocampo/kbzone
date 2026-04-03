@@ -8,4 +8,4 @@
 pub(crate) mod kb_service;
 
 pub(crate) use kb_service::KBService;
-pub(crate) use kb_service::SemanticDeps;
+pub(crate) use kb_service::ServiceDeps;

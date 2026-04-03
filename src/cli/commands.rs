@@ -50,6 +50,13 @@ pub enum Command {
             help = "Optional hierarchical path (e.g. /personal/rust). Leading / is added automatically."
         )]
         path: String,
+
+        #[arg(
+            long,
+            default_value = "",
+            help = "URL or local file path for media category entries (e.g. https://… or /path/to/file.jpg)"
+        )]
+        media_url: String,
     },
 
     /// Get a single entry by key or ID.

@@ -7,4 +7,6 @@
 //!   using the BAAI/bge-small-en-v1.5 model (384-dimensional vectors).
 
 pub mod fastembed;
+pub mod filesystem;
+pub mod http;
 pub mod sqlite;

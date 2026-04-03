@@ -1420,7 +1420,9 @@ dependencies = [
  "serde_yaml",
  "sqlite-vec",
  "stop-words",
+ "tempfile",
  "thiserror",
+ "ureq",
  "uuid",
 ]
 

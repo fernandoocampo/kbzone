@@ -13,6 +13,7 @@ fn make_kb(value: &str) -> Kb {
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         parent: None,
         path: None,
+        media_extension: None,
     }
 }
 
@@ -60,6 +61,7 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
         tags: vec!["rust".to_string()],
         parent_key: None,
         path: None,
+        media_extension: None,
     }
 }
 
@@ -240,4 +242,92 @@ fn import_kb_item_with_path_without_slash_passes_validation() {
     item.path = Some("personal/rust".to_string());
     let result = item.validate();
     assert!(result.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// media_file_path tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn media_file_path_with_namespace_and_path() {
+    let params = MediaPathParams {
+        base_dir: "/home/user/kbzona",
+        namespace: "english",
+        path: Some("/idioms/funny"),
+        key: "lol-cat",
+        extension: Some("jpg"),
+    };
+    let result = media_file_path(&params);
+    assert_eq!(
+        result,
+        "/home/user/kbzona/media/english/idioms/funny/lol-cat.jpg"
+    );
+}
+
+#[test]
+fn media_file_path_without_path() {
+    let params = MediaPathParams {
+        base_dir: "/home/user/kbzona",
+        namespace: "test",
+        path: None,
+        key: "my-image",
+        extension: Some("png"),
+    };
+    let result = media_file_path(&params);
+    assert_eq!(result, "/home/user/kbzona/media/test/my-image.png");
+}
+
+#[test]
+fn media_file_path_with_url_source() {
+    let params = MediaPathParams {
+        base_dir: "/home/user/kbzona",
+        namespace: "docs",
+        path: Some("/tutorials"),
+        key: "rust-book",
+        extension: Some("pdf"),
+    };
+    let result = media_file_path(&params);
+    assert_eq!(
+        result,
+        "/home/user/kbzona/media/docs/tutorials/rust-book.pdf"
+    );
+}
+
+#[test]
+fn media_file_path_with_no_extension() {
+    let params = MediaPathParams {
+        base_dir: "/home/user/kbzona",
+        namespace: "misc",
+        path: None,
+        key: "readme",
+        extension: None,
+    };
+    let result = media_file_path(&params);
+    assert_eq!(result, "/home/user/kbzona/media/misc/readme");
+}
+
+#[test]
+fn media_file_path_strips_leading_slash_from_path() {
+    let params = MediaPathParams {
+        base_dir: "/home/user/kbzona",
+        namespace: "english",
+        path: Some("/idioms"),
+        key: "hello",
+        extension: Some("mp3"),
+    };
+    let result = media_file_path(&params);
+    assert_eq!(result, "/home/user/kbzona/media/english/idioms/hello.mp3");
+}
+
+#[test]
+fn media_file_path_with_empty_path() {
+    let params = MediaPathParams {
+        base_dir: "/home/user/kbzona",
+        namespace: "test",
+        path: Some(""),
+        key: "file",
+        extension: Some("txt"),
+    };
+    let result = media_file_path(&params);
+    assert_eq!(result, "/home/user/kbzona/media/test/file.txt");
 }

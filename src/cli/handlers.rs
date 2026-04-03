@@ -1,11 +1,11 @@
 use serde::Deserialize;
 
 use crate::domain::{
-    suggest_tags, ExportKbItem, ImportKbItem, KbFilter, KbUpdate, NewKb, ScoredKbItem,
-    SemanticQuery, TagSuggestionInput,
+    is_media_category, media_file_path, suggest_tags, ExportKbItem, ImportKbItem, KbFilter,
+    KbUpdate, MediaPathParams, NewKb, ScoredKbItem, SemanticQuery, TagSuggestionInput,
 };
 use crate::errors::Error;
-use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
+use crate::ports::{EmbeddingProvider, KbStore, MediaFetcher, MediaStore, VectorStore};
 use crate::service::KBService;
 
 // ---------------------------------------------------------------------------
@@ -15,6 +15,7 @@ use crate::service::KBService;
 pub struct GetParams {
     pub key: Option<String>,
     pub id: Option<String>,
+    pub base_dir: String,
 }
 
 pub struct ImportParams {
@@ -43,6 +44,7 @@ pub struct AddParams {
     pub interactive: bool,
     pub parent: Option<String>,
     pub path: Option<String>,
+    pub media_url: Option<String>,
 }
 
 pub struct ExportParams {
@@ -105,8 +107,14 @@ fn print_table_header() {
 // Handlers
 // ---------------------------------------------------------------------------
 
-pub fn handle_add<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_add<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
     params: AddParams,
 ) -> Result<(), Error> {
     let new_kb = if params.interactive {
@@ -143,6 +151,20 @@ pub fn handle_add<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
+fn resolve_media_url(category: &str, provided: Option<String>) -> Result<Option<String>, Error> {
+    if is_media_category(category) {
+        match provided.filter(|u| !u.is_empty()) {
+            Some(u) => Ok(Some(u)),
+            None => {
+                let input = prompt_for("Media URL or file path (required for media)", true)?;
+                Ok(Some(input))
+            }
+        }
+    } else {
+        Ok(provided)
+    }
+}
+
 fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
     let key = params
         .key
@@ -162,6 +184,7 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
         params.tags
     };
     let path = params.path.filter(|p| !p.is_empty());
+    let media_url = resolve_media_url(&params.category, params.media_url)?;
     Ok(NewKb {
         key,
         value,
@@ -172,6 +195,8 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
         tags,
         parent: params.parent,
         path,
+        media_url,
+        media_extension: None,
     })
 }
 
@@ -221,6 +246,7 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
             }
         }
     };
+    let media_url = resolve_media_url(&category, params.media_url)?;
     Ok(NewKb {
         key,
         value,
@@ -231,6 +257,8 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         tags,
         parent: params.parent,
         path,
+        media_url,
+        media_extension: None,
     })
 }
 
@@ -252,7 +280,7 @@ fn parse_tags(input: &str) -> Vec<String> {
 }
 
 fn format_preview(kb: &NewKb) -> String {
-    format!(
+    let mut s = format!(
         "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  path      : {}\n  parent    : {}",
         kb.key,
         kb.value,
@@ -263,7 +291,11 @@ fn format_preview(kb: &NewKb) -> String {
         kb.tags.join(", "),
         kb.path.as_deref().unwrap_or("-"),
         kb.parent.as_deref().unwrap_or("(none)"),
-    )
+    );
+    if let Some(ref url) = kb.media_url {
+        s.push_str(&format!("\n  media_url : {}", url));
+    }
+    s
 }
 
 fn confirm_or_adjust(mut new_kb: NewKb) -> Result<AddDecision, Error> {
@@ -311,6 +343,17 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
     } else {
         Some(parent_input)
     };
+    let media_url = if is_media_category(&category) {
+        let current = kb.media_url.as_deref().unwrap_or("");
+        let input = prompt_adjust("media URL or file path", current)?;
+        if input.is_empty() {
+            None
+        } else {
+            Some(input)
+        }
+    } else {
+        kb.media_url
+    };
     Ok(NewKb {
         key,
         value,
@@ -321,6 +364,8 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
         tags,
         path,
         parent,
+        media_url,
+        media_extension: kb.media_extension,
     })
 }
 
@@ -351,8 +396,14 @@ fn prompt_for(label: &str, required: bool) -> Result<String, Error> {
     Ok(trimmed)
 }
 
-pub fn handle_get<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_get<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
     params: GetParams,
 ) -> Result<(), Error> {
     let kb = match (params.key, params.id) {
@@ -365,14 +416,32 @@ pub fn handle_get<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     };
 
     match kb {
-        Some(kb) => print!("{kb}"),
+        Some(kb) => {
+            print!("{kb}");
+            if is_media_category(&kb.category) {
+                let path = media_file_path(&MediaPathParams {
+                    base_dir: &params.base_dir,
+                    namespace: &kb.namespace,
+                    path: kb.path.as_deref(),
+                    key: &kb.key,
+                    extension: kb.media_extension.as_deref(),
+                });
+                println!("Media File : {}", path);
+            }
+        }
         None => println!("Not found."),
     }
     Ok(())
 }
 
-pub fn handle_update<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_update<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
     update: KbUpdate,
 ) -> Result<(), Error> {
     let id = update.id.clone();
@@ -381,8 +450,14 @@ pub fn handle_update<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
-pub fn handle_delete<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_delete<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
     id: String,
 ) -> Result<(), Error> {
     match svc.delete_kb(&id) {
@@ -396,8 +471,14 @@ pub fn handle_delete<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
-pub fn handle_search<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_search<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
     params: SearchParams,
 ) -> Result<(), Error> {
     let mut parts: Vec<String> = Vec::new();
@@ -468,8 +549,14 @@ pub fn handle_search<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
-pub fn handle_ask<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_ask<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
     query: SemanticQuery,
 ) -> Result<(), Error> {
     let limit_display = query
@@ -498,8 +585,14 @@ pub fn handle_ask<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
-pub fn handle_quote<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_quote<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
 ) -> Result<(), Error> {
     let kb = svc.quote()?;
     println!("\"{}\"", kb.value);
@@ -509,8 +602,14 @@ pub fn handle_quote<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
-pub fn handle_reindex<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_reindex<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
 ) -> Result<(), Error> {
     let result = svc.reindex()?;
     println!("Reindexing {} entries...", result.total());
@@ -528,8 +627,14 @@ pub fn handle_reindex<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
-pub fn handle_import<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_import<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
     params: ImportParams,
 ) -> Result<(), Error> {
     let start = std::time::Instant::now();
@@ -572,8 +677,14 @@ pub fn handle_import<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
     Ok(())
 }
 
-pub fn handle_export<S: KbStore, V: VectorStore, E: EmbeddingProvider>(
-    svc: &KBService<S, V, E>,
+pub fn handle_export<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
     params: ExportParams,
 ) -> Result<(), Error> {
     let filter = KbFilter {
