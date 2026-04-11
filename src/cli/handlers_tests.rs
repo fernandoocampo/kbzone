@@ -136,6 +136,10 @@ impl crate::ports::MediaStore for MockMediaStore {
     fn delete_media(&self, _path: &str) -> Result<(), Error> {
         Ok(())
     }
+
+    fn copy_dir(&self, _source: &str, _destination: &str) -> Result<u64, Error> {
+        Ok(0)
+    }
 }
 
 #[derive(Debug, Clone)]

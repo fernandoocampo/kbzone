@@ -326,6 +326,7 @@ impl EmbeddingProvider for FailingEmbeddingProvider {
 struct MockMediaStore {
     stored: Arc<RefCell<Vec<String>>>,
     deleted: Arc<RefCell<Vec<String>>>,
+    dirs_copied: Arc<RefCell<Vec<(String, String)>>>,
 }
 
 impl MediaStore for MockMediaStore {
@@ -337,6 +338,13 @@ impl MediaStore for MockMediaStore {
     fn delete_media(&self, path: &str) -> Result<(), Error> {
         self.deleted.borrow_mut().push(path.to_string());
         Ok(())
+    }
+
+    fn copy_dir(&self, source: &str, destination: &str) -> Result<u64, Error> {
+        self.dirs_copied
+            .borrow_mut()
+            .push((source.to_string(), destination.to_string()));
+        Ok(0)
     }
 }
 
@@ -352,6 +360,10 @@ impl MediaStore for FailingMediaStore {
 
     fn delete_media(&self, _path: &str) -> Result<(), Error> {
         Err(Error::MediaDeleteError("forced delete failure".to_string()))
+    }
+
+    fn copy_dir(&self, _source: &str, _destination: &str) -> Result<u64, Error> {
+        Err(Error::MediaCopyError("forced dir copy failure".to_string()))
     }
 }
 
@@ -1572,4 +1584,139 @@ fn update_kb_media_allows_non_path_changes() {
         path: None,
     };
     assert!(svc.update_kb(update).is_ok());
+}
+
+// ---- export_media tests ----
+
+fn make_svc_with_media_store(
+    media_store: MockMediaStore,
+) -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
+{
+    KBService::new(
+        MockKbStore::new(),
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store,
+            media_fetcher: MockMediaFetcher,
+            base_dir: "/base".to_string(),
+        },
+    )
+}
+
+fn make_export_media_item(key: &str, namespace: &str, ext: &str) -> ExportKbItem {
+    ExportKbItem {
+        key: key.to_string(),
+        value: String::new(),
+        notes: String::new(),
+        category: "media".to_string(),
+        reference: String::new(),
+        namespace: namespace.to_string(),
+        tags: vec![],
+        parent_key: None,
+        path: None,
+        media_extension: Some(ext.to_string()),
+    }
+}
+
+#[test]
+fn export_media_bulk_copies_all_when_no_filter() {
+    let media_store = MockMediaStore::default();
+    let svc = make_svc_with_media_store(media_store.clone());
+    let params = ExportMediaParams {
+        target_dir: "/target".to_string(),
+        category: None,
+        namespace: None,
+        items: vec![],
+    };
+    let result = svc.export_media(params);
+    assert!(result.is_ok());
+    let dirs = media_store.dirs_copied.borrow();
+    assert_eq!(dirs.len(), 1);
+    assert_eq!(dirs[0].0, "/base/media");
+    assert_eq!(dirs[0].1, "/target/media");
+}
+
+#[test]
+fn export_media_bulk_copies_all_when_media_category_only() {
+    let media_store = MockMediaStore::default();
+    let svc = make_svc_with_media_store(media_store.clone());
+    let params = ExportMediaParams {
+        target_dir: "/target".to_string(),
+        category: Some("media".to_string()),
+        namespace: None,
+        items: vec![],
+    };
+    let result = svc.export_media(params);
+    assert!(result.is_ok());
+    let dirs = media_store.dirs_copied.borrow();
+    assert_eq!(dirs.len(), 1);
+    assert_eq!(dirs[0].0, "/base/media");
+    assert_eq!(dirs[0].1, "/target/media");
+}
+
+#[test]
+fn export_media_bulk_copies_namespace_when_media_and_namespace() {
+    let media_store = MockMediaStore::default();
+    let svc = make_svc_with_media_store(media_store.clone());
+    let params = ExportMediaParams {
+        target_dir: "/target".to_string(),
+        category: Some("media".to_string()),
+        namespace: Some("swe".to_string()),
+        items: vec![],
+    };
+    let result = svc.export_media(params);
+    assert!(result.is_ok());
+    let dirs = media_store.dirs_copied.borrow();
+    assert_eq!(dirs.len(), 1);
+    assert_eq!(dirs[0].0, "/base/media/swe");
+    assert_eq!(dirs[0].1, "/target/media/swe");
+}
+
+#[test]
+fn export_media_copies_item_by_item_for_other_filter() {
+    let media_store = MockMediaStore::default();
+    let svc = make_svc_with_media_store(media_store.clone());
+    let item = make_export_media_item("photo", "swe", "jpg");
+    let params = ExportMediaParams {
+        target_dir: "/target".to_string(),
+        category: Some("concept".to_string()),
+        namespace: None,
+        items: vec![item],
+    };
+    let result = svc.export_media(params);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 1);
+    assert!(media_store.dirs_copied.borrow().is_empty());
+    let stored = media_store.stored.borrow();
+    assert_eq!(stored.len(), 1);
+    assert!(stored[0].contains("/target/media/swe/photo.jpg"));
+}
+
+#[test]
+fn export_media_skips_non_media_items_in_item_by_item() {
+    let media_store = MockMediaStore::default();
+    let svc = make_svc_with_media_store(media_store.clone());
+    let non_media = ExportKbItem {
+        key: "concept-key".to_string(),
+        value: String::new(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        reference: String::new(),
+        namespace: "swe".to_string(),
+        tags: vec![],
+        parent_key: None,
+        path: None,
+        media_extension: None,
+    };
+    let params = ExportMediaParams {
+        target_dir: "/target".to_string(),
+        category: Some("concept".to_string()),
+        namespace: None,
+        items: vec![non_media],
+    };
+    let result = svc.export_media(params);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 0);
+    assert!(media_store.stored.borrow().is_empty());
 }

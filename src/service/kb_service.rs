@@ -2,8 +2,9 @@ use std::collections::HashSet;
 
 use crate::domain::{
     file_extension, is_media_category, media_file_path, normalize_path, EmbeddingInput,
-    ExportKbItem, FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem,
-    KbUpdate, MediaPathParams, NewKb, ReindexResult, ScoredKbItem, SemanticQuery, StoreMediaParams,
+    ExportKbItem, ExportMediaParams, FailedImportItem, ImportBatchResult, ImportKbItem, Kb,
+    KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb, ReindexResult, ScoredKbItem, SemanticQuery,
+    StoreMediaParams,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -301,6 +302,64 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             .collect();
 
         Ok(items)
+    }
+
+    /// Copies media files to `params.target_dir`, applying the smart copy strategy:
+    ///
+    /// - No category/namespace filter, or category=media without namespace → bulk-copy
+    ///   the entire `<base_dir>/media/` directory.
+    /// - category=media + namespace → bulk-copy `<base_dir>/media/<namespace>/`.
+    /// - Any other filter → iterate over `params.items` and copy each media entry individually.
+    ///
+    /// Returns the number of files copied.
+    pub fn export_media(&self, params: ExportMediaParams) -> Result<u64, Error> {
+        let is_media_cat = params
+            .category
+            .as_deref()
+            .map(is_media_category)
+            .unwrap_or(false);
+        let bulk_all = params.namespace.is_none() && (params.category.is_none() || is_media_cat);
+
+        if bulk_all {
+            let source = format!("{}/media", self.base_dir);
+            let dest = format!("{}/media", params.target_dir);
+            return self.media_store.copy_dir(&source, &dest);
+        }
+
+        if let Some(ns) = params.namespace.as_deref().filter(|_| is_media_cat) {
+            let source = format!("{}/media/{}", self.base_dir, ns);
+            let dest = format!("{}/media/{}", params.target_dir, ns);
+            return self.media_store.copy_dir(&source, &dest);
+        }
+
+        let mut count = 0u64;
+        for item in &params.items {
+            if !is_media_category(&item.category) {
+                continue;
+            }
+            if let Some(ext) = &item.media_extension {
+                let source = media_file_path(&MediaPathParams {
+                    base_dir: &self.base_dir,
+                    namespace: &item.namespace,
+                    path: item.path.as_deref(),
+                    key: &item.key,
+                    extension: Some(ext),
+                });
+                let dest = media_file_path(&MediaPathParams {
+                    base_dir: &params.target_dir,
+                    namespace: &item.namespace,
+                    path: item.path.as_deref(),
+                    key: &item.key,
+                    extension: Some(ext),
+                });
+                self.media_store.store_media(&StoreMediaParams {
+                    source,
+                    destination: dest,
+                })?;
+                count += 1;
+            }
+        }
+        Ok(count)
     }
 
     // ---------------------------------------------------------------------------

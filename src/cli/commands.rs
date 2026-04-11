@@ -170,8 +170,17 @@ pub enum Command {
 
     /// Export KB entries to a multi-document YAML file.
     Export {
-        #[arg(long, required = true, help = "Output path for the YAML export file")]
-        file: String,
+        #[arg(
+            long,
+            help = "Name for the exported YAML file (default: exported-kb-<yyyy-mm-dd-hh-mi-ss>.yaml)"
+        )]
+        file_name: Option<String>,
+        #[arg(
+            long,
+            required = true,
+            help = "Directory where the YAML file (and any media files) will be written"
+        )]
+        folder_output: String,
         #[arg(long, help = "Export only entries with this category")]
         category: Option<String>,
         #[arg(long, help = "Export only entries with this namespace")]

@@ -1,8 +1,9 @@
 use serde::Deserialize;
 
 use crate::domain::{
-    is_media_category, media_file_path, suggest_tags, ExportKbItem, ImportKbItem, KbFilter,
-    KbUpdate, MediaPathParams, NewKb, ScoredKbItem, SemanticQuery, TagSuggestionInput,
+    is_media_category, media_file_path, suggest_tags, ExportKbItem, ExportMediaParams,
+    ImportKbItem, KbFilter, KbUpdate, MediaPathParams, NewKb, ScoredKbItem, SemanticQuery,
+    TagSuggestionInput,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -48,7 +49,8 @@ pub struct AddParams {
 }
 
 pub struct ExportParams {
-    pub file: String,
+    pub file_name: Option<String>,
+    pub folder_output: String,
     pub category: Option<String>,
     pub namespace: Option<String>,
     pub limit: Option<i64>,
@@ -687,9 +689,15 @@ pub fn handle_export<
     svc: &KBService<S, V, E, M, F>,
     params: ExportParams,
 ) -> Result<(), Error> {
+    std::fs::create_dir_all(&params.folder_output)
+        .map_err(|e| Error::ExportError(e.to_string()))?;
+
+    let file_name = params.file_name.unwrap_or_else(default_export_filename);
+    let output_path = format!("{}/{}", params.folder_output, file_name);
+
     let filter = KbFilter {
-        category: params.category,
-        namespace: params.namespace,
+        category: params.category.clone(),
+        namespace: params.namespace.clone(),
         limit: params.limit,
         offset: params.offset,
         ..KbFilter::default()
@@ -702,10 +710,26 @@ pub fn handle_export<
     }
 
     let content = serialize_export_items(&items)?;
-    std::fs::write(&params.file, &content).map_err(|e| Error::ExportError(e.to_string()))?;
+    std::fs::write(&output_path, &content).map_err(|e| Error::ExportError(e.to_string()))?;
 
-    println!("Exported {} entries to {}", items.len(), params.file);
+    let entry_count = items.len();
+    let media_count = svc.export_media(ExportMediaParams {
+        target_dir: params.folder_output,
+        category: params.category,
+        namespace: params.namespace,
+        items,
+    })?;
+
+    println!("Exported {} entries to {}", entry_count, output_path);
+    if media_count > 0 {
+        println!("Copied {} media file(s).", media_count);
+    }
     Ok(())
+}
+
+fn default_export_filename() -> String {
+    let now = chrono::Local::now();
+    format!("exported-kb-{}.yaml", now.format("%Y-%m-%d-%H-%M-%S"))
 }
 
 pub fn handle_version() -> Result<(), Error> {

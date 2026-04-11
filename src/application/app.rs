@@ -174,7 +174,8 @@ impl App {
             Command::Reindex => handlers::handle_reindex(&self.svc)?,
 
             Command::Export {
-                file,
+                file_name,
+                folder_output,
                 category,
                 namespace,
                 limit,
@@ -182,7 +183,8 @@ impl App {
             } => handlers::handle_export(
                 &self.svc,
                 ExportParams {
-                    file,
+                    file_name,
+                    folder_output,
                     category,
                     namespace,
                     limit,

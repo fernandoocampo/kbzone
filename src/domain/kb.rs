@@ -227,6 +227,14 @@ pub struct ExportKbItem {
     pub media_extension: Option<String>,
 }
 
+/// Parameters for the media file export operation.
+pub struct ExportMediaParams {
+    pub target_dir: String,
+    pub category: Option<String>,
+    pub namespace: Option<String>,
+    pub items: Vec<ExportKbItem>,
+}
+
 /// YAML-serialisable representation of a single KB entry used by `kb import`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ImportKbItem {

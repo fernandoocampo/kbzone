@@ -12,4 +12,9 @@ pub trait MediaStore: Debug + Clone {
 
     /// Deletes the media file at the given path.
     fn delete_media(&self, path: &str) -> Result<(), Error>;
+
+    /// Recursively copies all files from `source` directory to `destination` directory.
+    /// Creates the destination structure as needed.
+    /// Returns the number of files copied. Returns `Ok(0)` if source does not exist.
+    fn copy_dir(&self, source: &str, destination: &str) -> Result<u64, Error>;
 }
