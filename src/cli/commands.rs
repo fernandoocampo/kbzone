@@ -165,6 +165,12 @@ pub enum Command {
     /// Print a random quote from the knowledge base.
     Quote,
 
+    /// List all distinct category values in the knowledge base.
+    Categories {
+        #[arg(long, help = "Only list categories used within this namespace")]
+        namespace: Option<String>,
+    },
+
     /// Print version information (git hash, build date).
     Version,
 

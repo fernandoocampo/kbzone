@@ -185,6 +185,12 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         self.store.random_quote()
     }
 
+    /// Returns all distinct, non-empty category values, optionally scoped to a
+    /// namespace, sorted alphabetically.
+    pub fn categories(&self, namespace: Option<&str>) -> Result<Vec<String>, Error> {
+        self.store.get_categories(namespace)
+    }
+
     pub fn ask(&self, query: &SemanticQuery) -> Result<Vec<ScoredKbItem>, Error> {
         let embedding = self.embedder.embed(&query.text)?;
         self.vector_store.search_similar(query, &embedding)

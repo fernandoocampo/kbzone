@@ -171,6 +171,10 @@ impl App {
 
             Command::Quote => handlers::handle_quote(&self.svc)?,
 
+            Command::Categories { namespace } => {
+                handlers::handle_categories(&self.svc, namespace.as_deref())?
+            }
+
             Command::Reindex => handlers::handle_reindex(&self.svc)?,
 
             Command::Export {

@@ -35,4 +35,8 @@ pub trait KbStore: Debug + Clone {
     /// Returns full [`Kb`] objects (all fields) matching `filter`, with LIMIT/OFFSET support.
     /// Used by the export path where every field is needed without N+1 queries.
     fn get_kbs_full(&self, filter: &KbFilter) -> Result<Vec<Kb>, Error>;
+
+    /// Returns all distinct, non-empty category values, optionally scoped to a
+    /// namespace, sorted alphabetically.
+    fn get_categories(&self, namespace: Option<&str>) -> Result<Vec<String>, Error>;
 }

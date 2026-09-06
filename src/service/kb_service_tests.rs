@@ -161,6 +161,19 @@ impl KbStore for MockKbStore {
             .cloned()
             .collect())
     }
+
+    fn get_categories(&self, namespace: Option<&str>) -> Result<Vec<String>, Error> {
+        Ok(self
+            .data
+            .borrow()
+            .values()
+            .filter(|kb| namespace.map_or(true, |ns| kb.namespace == ns))
+            .map(|kb| kb.category.clone())
+            .filter(|c| !c.is_empty())
+            .collect::<std::collections::BTreeSet<String>>()
+            .into_iter()
+            .collect())
+    }
 }
 
 // ---- GhostItemKbStore: list_kbs returns items but get_kb_by_id returns None ----
@@ -218,6 +231,10 @@ impl KbStore for GhostItemKbStore {
     }
 
     fn get_kbs_full(&self, _filter: &KbFilter) -> Result<Vec<Kb>, Error> {
+        Ok(vec![])
+    }
+
+    fn get_categories(&self, _namespace: Option<&str>) -> Result<Vec<String>, Error> {
         Ok(vec![])
     }
 }
@@ -1147,6 +1164,54 @@ fn quote_returns_quote_category_entry() {
 fn quote_propagates_not_found_when_no_quotes_exist() {
     let svc = make_svc();
     assert!(matches!(svc.quote(), Err(Error::QuoteNotFound)));
+}
+
+// ---- categories tests ----
+
+#[test]
+fn categories_returns_distinct_sorted_categories() {
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.category = "zebra".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.category = "apple".to_string();
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.category = "apple".to_string(); // duplicate
+    let store = MockKbStore::with(vec![kb1, kb2, kb3]);
+    let svc = make_svc_with_store(store);
+
+    let result = svc.categories(None).unwrap();
+    assert_eq!(result, vec!["apple".to_string(), "zebra".to_string()]);
+}
+
+#[test]
+fn categories_excludes_empty_category() {
+    let mut kb = make_kb("id-1", "key-a");
+    kb.category = String::new();
+    let store = MockKbStore::with(vec![kb]);
+    let svc = make_svc_with_store(store);
+
+    assert!(svc.categories(None).unwrap().is_empty());
+}
+
+#[test]
+fn categories_filters_by_namespace_when_given() {
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.category = "concept".to_string();
+    kb1.namespace = "rust".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.category = "quote".to_string();
+    kb2.namespace = "personal".to_string();
+    let store = MockKbStore::with(vec![kb1, kb2]);
+    let svc = make_svc_with_store(store);
+
+    let result = svc.categories(Some("rust")).unwrap();
+    assert_eq!(result, vec!["concept".to_string()]);
+}
+
+#[test]
+fn categories_returns_empty_vec_when_no_entries() {
+    let svc = make_svc();
+    assert!(svc.categories(None).unwrap().is_empty());
 }
 
 // ---- ask / get delegation smoke tests ----

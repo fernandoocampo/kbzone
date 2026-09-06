@@ -77,6 +77,13 @@ const GET_RANDOM_QUOTE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY,
 
 const GET_CHILDREN_IDS: &str = "SELECT KB_ID FROM kbs WHERE PARENT_KB_ID = ?1";
 
+const GET_DISTINCT_CATEGORIES: &str =
+    "SELECT DISTINCT CATEGORY FROM kbs WHERE CATEGORY != '' ORDER BY CATEGORY ASC";
+
+const GET_DISTINCT_CATEGORIES_BY_NAMESPACE: &str =
+    "SELECT DISTINCT CATEGORY FROM kbs WHERE CATEGORY != '' AND NAMESPACE = ?1 \
+     ORDER BY CATEGORY ASC";
+
 const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
                                    REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION FROM kbs";
 
@@ -344,6 +351,35 @@ impl KbStore for SqliteStore {
             .collect::<Result<Vec<String>, _>>()
             .map_err(|e| Error::GetKBError(e.to_string()))?;
         Ok(ids)
+    }
+
+    fn get_categories(&self, namespace: Option<&str>) -> Result<Vec<String>, Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let categories = match namespace {
+            Some(ns) => {
+                let mut stmt = conn
+                    .prepare(GET_DISTINCT_CATEGORIES_BY_NAMESPACE)
+                    .map_err(|e| Error::ListError(e.to_string()))?;
+                let rows = stmt
+                    .query_map(params![ns], |row| row.get(0))
+                    .map_err(|e| Error::ListError(e.to_string()))?
+                    .collect::<Result<Vec<String>, _>>()
+                    .map_err(|e| Error::ListError(e.to_string()))?;
+                rows
+            }
+            None => {
+                let mut stmt = conn
+                    .prepare(GET_DISTINCT_CATEGORIES)
+                    .map_err(|e| Error::ListError(e.to_string()))?;
+                let rows = stmt
+                    .query_map([], |row| row.get(0))
+                    .map_err(|e| Error::ListError(e.to_string()))?
+                    .collect::<Result<Vec<String>, _>>()
+                    .map_err(|e| Error::ListError(e.to_string()))?;
+                rows
+            }
+        };
+        Ok(categories)
     }
 
     fn get_kbs_full(&self, filter: &KbFilter) -> Result<Vec<Kb>, Error> {

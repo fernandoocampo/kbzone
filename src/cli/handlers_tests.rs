@@ -81,6 +81,10 @@ impl crate::ports::KbStore for MockKbStore {
     ) -> Result<Vec<crate::domain::Kb>, Error> {
         Ok(Vec::new())
     }
+
+    fn get_categories(&self, _namespace: Option<&str>) -> Result<Vec<String>, Error> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Debug, Clone)]

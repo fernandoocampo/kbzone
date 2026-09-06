@@ -440,3 +440,54 @@ fn get_kbs_full_respects_limit() {
     let results = store.get_kbs_full(&filter).unwrap();
     assert_eq!(results.len(), 2);
 }
+
+#[test]
+fn get_categories_returns_distinct_sorted_categories() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.category = "zebra".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.category = "apple".to_string();
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.category = "apple".to_string(); // duplicate
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let categories = store.get_categories(None).unwrap();
+    assert_eq!(categories, vec!["apple".to_string(), "zebra".to_string()]);
+}
+
+#[test]
+fn get_categories_excludes_empty_category() {
+    let store = initialized_store();
+    let mut kb = make_kb("id-1", "key-a");
+    kb.category = String::new();
+    store.save_kb(&kb).unwrap();
+
+    let categories = store.get_categories(None).unwrap();
+    assert!(categories.is_empty());
+}
+
+#[test]
+fn get_categories_filters_by_namespace_when_given() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.category = "concept".to_string();
+    kb1.namespace = "rust".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.category = "quote".to_string();
+    kb2.namespace = "personal".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let categories = store.get_categories(Some("rust")).unwrap();
+    assert_eq!(categories, vec!["concept".to_string()]);
+}
+
+#[test]
+fn get_categories_returns_empty_vec_when_no_entries() {
+    let store = initialized_store();
+    let categories = store.get_categories(None).unwrap();
+    assert!(categories.is_empty());
+}

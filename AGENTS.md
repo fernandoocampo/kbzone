@@ -17,6 +17,7 @@ local SQLite file. The binary is named `kb`.
 - `kb export`                  — Export KB entries to a multi-document YAML file; flags: `--file` (required), `--category`, `--namespace`, `--limit`, `--offset`; parents always appear before children; `Parent` field omitted when parent is not in the filtered set; `Path` field included when set
 - `kb import`                  — Import KB entries from a multi-document YAML file; `Path` field is validated and normalised on import
 - `kb quote`                   — Print a random quote-category entry
+- `kb categories`              — List all distinct, non-empty category values; flags: `--namespace` (optional)
 
 ### Configuration
 

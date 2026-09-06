@@ -604,6 +604,23 @@ pub fn handle_quote<
     Ok(())
 }
 
+pub fn handle_categories<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
+    namespace: Option<&str>,
+) -> Result<(), Error> {
+    let categories = svc.categories(namespace)?;
+    for category in &categories {
+        println!("{}", category);
+    }
+    Ok(())
+}
+
 pub fn handle_reindex<
     S: KbStore,
     V: VectorStore,
