@@ -1,9 +1,9 @@
 use serde::Deserialize;
 
 use crate::domain::{
-    is_media_category, media_file_path, suggest_tags, ExportKbItem, ExportMediaParams,
-    ImportKbItem, KbFilter, KbUpdate, MediaPathParams, NewKb, ScoredKbItem, SemanticQuery,
-    TagSuggestionInput,
+    ExportKbItem, ExportMediaParams, ImportKbItem, KbFilter, KbUpdate, MediaPathParams, NewKb,
+    ScoredKbItem, SemanticQuery, TagSuggestionInput, is_media_category, media_file_path,
+    suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -241,11 +241,7 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         Some(p) => Some(p),
         None => {
             let input = prompt_for("Path (optional, e.g. /personal/rust)", false)?;
-            if input.is_empty() {
-                None
-            } else {
-                Some(input)
-            }
+            if input.is_empty() { None } else { Some(input) }
         }
     };
     let media_url = resolve_media_url(&category, params.media_url)?;
@@ -348,11 +344,7 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
     let media_url = if is_media_category(&category) {
         let current = kb.media_url.as_deref().unwrap_or("");
         let input = prompt_adjust("media URL or file path", current)?;
-        if input.is_empty() {
-            None
-        } else {
-            Some(input)
-        }
+        if input.is_empty() { None } else { Some(input) }
     } else {
         kb.media_url
     };

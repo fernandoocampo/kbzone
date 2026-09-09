@@ -1,4 +1,4 @@
-use super::{suggest_tags, TagSuggestionInput};
+use super::{TagSuggestionInput, suggest_tags};
 
 fn make_input(texts: Vec<&str>, existing: Vec<&str>) -> TagSuggestionInput {
     TagSuggestionInput {

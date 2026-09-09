@@ -19,7 +19,7 @@ impl fmt::Debug for HttpMediaFetcher {
 
 impl MediaFetcher for HttpMediaFetcher {
     fn fetch(&self, url: &str) -> Result<String, Error> {
-        let response = ureq::get(url)
+        let mut response = ureq::get(url)
             .call()
             .map_err(|e| Error::MediaDownloadError(e.to_string()))?;
 
@@ -29,7 +29,7 @@ impl MediaFetcher for HttpMediaFetcher {
         let mut file = std::fs::File::create(&tmp_path)
             .map_err(|e| Error::MediaDownloadError(e.to_string()))?;
 
-        let mut reader = response.into_reader();
+        let mut reader = response.body_mut().as_reader();
         std::io::copy(&mut reader, &mut file)
             .map_err(|e| Error::MediaDownloadError(e.to_string()))?;
 

@@ -20,10 +20,10 @@ fn expand_tilde(path: &str) -> String {
     if path == "~" {
         return std::env::var("HOME").unwrap_or_else(|_| path.to_string());
     }
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return format!("{}/{}", home, rest);
-        }
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return format!("{}/{}", home, rest);
     }
     path.to_string()
 }
@@ -219,12 +219,14 @@ mod tests {
                 &dst_dir.path().to_string_lossy(),
             )
             .expect("copy_dir");
-        assert!(dst_dir
-            .path()
-            .join("a")
-            .join("b")
-            .join("c")
-            .join("deep.txt")
-            .exists());
+        assert!(
+            dst_dir
+                .path()
+                .join("a")
+                .join("b")
+                .join("c")
+                .join("deep.txt")
+                .exists()
+        );
     }
 }

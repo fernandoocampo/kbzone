@@ -155,8 +155,8 @@ impl crate::ports::MediaFetcher for MockMediaFetcher {
     }
 }
 
-fn make_svc(
-) -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
+fn make_svc()
+-> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
 {
     KBService::new(
         MockKbStore::new(),

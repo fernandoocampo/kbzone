@@ -2,7 +2,7 @@ use super::*;
 use crate::ports::{MediaFetcher, MediaStore};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 
 // ---- MockKbStore ----
 
@@ -53,17 +53,12 @@ impl KbStore for MockKbStore {
                 .data
                 .borrow()
                 .values()
-                .filter(|kb| {
-                    filter
-                        .category
-                        .as_deref()
-                        .map_or(true, |c| kb.category == c)
-                })
+                .filter(|kb| filter.category.as_deref().is_none_or(|c| kb.category == c))
                 .filter(|kb| {
                     filter
                         .namespace
                         .as_deref()
-                        .map_or(true, |n| kb.namespace == n)
+                        .is_none_or(|n| kb.namespace == n)
                 })
                 .filter(|kb| {
                     ref_filter.is_empty()
@@ -146,17 +141,12 @@ impl KbStore for MockKbStore {
             .data
             .borrow()
             .values()
-            .filter(|kb| {
-                filter
-                    .category
-                    .as_deref()
-                    .map_or(true, |c| kb.category == c)
-            })
+            .filter(|kb| filter.category.as_deref().is_none_or(|c| kb.category == c))
             .filter(|kb| {
                 filter
                     .namespace
                     .as_deref()
-                    .map_or(true, |n| kb.namespace == n)
+                    .is_none_or(|n| kb.namespace == n)
             })
             .cloned()
             .collect())
@@ -167,7 +157,7 @@ impl KbStore for MockKbStore {
             .data
             .borrow()
             .values()
-            .filter(|kb| namespace.map_or(true, |ns| kb.namespace == ns))
+            .filter(|kb| namespace.is_none_or(|ns| kb.namespace == ns))
             .map(|kb| kb.category.clone())
             .filter(|c| !c.is_empty())
             .collect::<std::collections::BTreeSet<String>>()
@@ -198,7 +188,7 @@ impl KbStore for GhostItemKbStore {
     }
 
     fn get_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
-        if filter.keyword.as_deref().map_or(true, |k| k.is_empty()) {
+        if filter.keyword.as_deref().is_none_or(|k| k.is_empty()) {
             return Ok(vec![KbItem {
                 id: self.ghost_id.clone(),
                 key: self.ghost_key.clone(),
@@ -239,19 +229,19 @@ impl KbStore for GhostItemKbStore {
     }
 }
 
-// ---- MockVectorStore (Arc-backed so clones share state) ----
+// ---- MockVectorStore (Rc-backed so clones share state) ----
 
 #[derive(Debug, Clone)]
 struct MockVectorStore {
-    indexed: Arc<RefCell<Vec<String>>>,
-    deleted: Arc<RefCell<Vec<String>>>,
+    indexed: Rc<RefCell<Vec<String>>>,
+    deleted: Rc<RefCell<Vec<String>>>,
 }
 
 impl Default for MockVectorStore {
     fn default() -> Self {
         Self {
-            indexed: Arc::new(RefCell::new(Vec::new())),
-            deleted: Arc::new(RefCell::new(Vec::new())),
+            indexed: Rc::new(RefCell::new(Vec::new())),
+            deleted: Rc::new(RefCell::new(Vec::new())),
         }
     }
 }
@@ -341,9 +331,9 @@ impl EmbeddingProvider for FailingEmbeddingProvider {
 
 #[derive(Debug, Clone, Default)]
 struct MockMediaStore {
-    stored: Arc<RefCell<Vec<String>>>,
-    deleted: Arc<RefCell<Vec<String>>>,
-    dirs_copied: Arc<RefCell<Vec<(String, String)>>>,
+    stored: Rc<RefCell<Vec<String>>>,
+    deleted: Rc<RefCell<Vec<String>>>,
+    dirs_copied: Rc<RefCell<Vec<(String, String)>>>,
 }
 
 impl MediaStore for MockMediaStore {
@@ -404,14 +394,14 @@ impl MediaFetcher for MockMediaFetcher {
 #[derive(Debug, Clone)]
 struct CountingEmbeddingProvider {
     fail_after: usize,
-    count: Arc<RefCell<usize>>,
+    count: Rc<RefCell<usize>>,
 }
 
 impl CountingEmbeddingProvider {
     fn new(fail_after: usize) -> Self {
         Self {
             fail_after,
-            count: Arc::new(RefCell::new(0)),
+            count: Rc::new(RefCell::new(0)),
         }
     }
 }
@@ -489,8 +479,8 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
     }
 }
 
-fn make_svc(
-) -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
+fn make_svc()
+-> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
 {
     KBService::new(
         MockKbStore::new(),

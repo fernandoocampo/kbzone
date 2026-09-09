@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
 use crate::domain::{
-    file_extension, is_media_category, media_file_path, normalize_path, EmbeddingInput,
-    ExportKbItem, ExportMediaParams, FailedImportItem, ImportBatchResult, ImportKbItem, Kb,
-    KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb, ReindexResult, ScoredKbItem, SemanticQuery,
-    StoreMediaParams,
+    EmbeddingInput, ExportKbItem, ExportMediaParams, FailedImportItem, ImportBatchResult,
+    ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb, ReindexResult,
+    ScoredKbItem, SemanticQuery, StoreMediaParams, file_extension, is_media_category,
+    media_file_path, normalize_path,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -159,17 +159,17 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             return Err(Error::KBHasChildrenError(children.join(", ")));
         }
         let existing = self.store.get_kb_by_id(id)?.ok_or(Error::KBNotFound)?;
-        if is_media_category(&existing.category) {
-            if let Some(ref ext) = existing.media_extension {
-                let path = media_file_path(&MediaPathParams {
-                    base_dir: &self.base_dir,
-                    namespace: &existing.namespace,
-                    path: existing.path.as_deref(),
-                    key: &existing.key,
-                    extension: Some(ext),
-                });
-                self.media_store.delete_media(&path)?;
-            }
+        if is_media_category(&existing.category)
+            && let Some(ref ext) = existing.media_extension
+        {
+            let path = media_file_path(&MediaPathParams {
+                base_dir: &self.base_dir,
+                namespace: &existing.namespace,
+                path: existing.path.as_deref(),
+                key: &existing.key,
+                extension: Some(ext),
+            });
+            self.media_store.delete_media(&path)?;
         }
         let deleted = self.store.delete_kb(id)?;
         if !deleted {
@@ -390,10 +390,10 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
 
     /// Low-level CRUD update: duplicate-key guard, persist.
     fn update_kb_crud(&self, kb: Kb) -> Result<(), Error> {
-        if let Some(existing) = self.store.get_kb_by_key(&kb.key)? {
-            if existing.id != kb.id {
-                return Err(Error::DuplicateKBError);
-            }
+        if let Some(existing) = self.store.get_kb_by_key(&kb.key)?
+            && existing.id != kb.id
+        {
+            return Err(Error::DuplicateKBError);
         }
         let updated = self.store.update_kb(&kb)?;
         if !updated {
@@ -487,7 +487,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
     }
 
     fn validate_parent_exists(&self, parent: &Option<String>) -> Result<(), Error> {
-        if let Some(ref pid) = parent {
+        if let Some(pid) = parent {
             self.store
                 .get_kb_by_id(pid)?
                 .ok_or(Error::ParentKBNotFound)?;

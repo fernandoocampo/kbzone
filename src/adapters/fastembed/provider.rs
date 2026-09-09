@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 
@@ -7,9 +7,12 @@ use crate::ports::EmbeddingProvider;
 
 /// `EmbeddingProvider` backed by a local fastembed model.
 /// Uses BAAI/bge-small-en-v1.5 (384 dimensions, ~50 MB, downloaded on first use).
+/// `TextEmbedding::embed` takes `&mut self` (fastembed 6.x); the `Mutex` provides
+/// the interior mutability needed to keep `EmbeddingProvider::embed` at `&self`,
+/// mirroring the `Arc<Mutex<Connection>>` pattern used by `SqliteStore`.
 #[derive(Clone)]
 pub struct FastEmbedProvider {
-    model: Arc<TextEmbedding>,
+    model: Arc<Mutex<TextEmbedding>>,
     dims: usize,
 }
 
@@ -21,7 +24,7 @@ impl FastEmbedProvider {
         let model =
             TextEmbedding::try_new(opts).map_err(|e| Error::EmbeddingError(e.to_string()))?;
         Ok(Self {
-            model: Arc::new(model),
+            model: Arc::new(Mutex::new(model)),
             dims: 384,
         })
     }
@@ -41,8 +44,8 @@ impl EmbeddingProvider for FastEmbedProvider {
     }
 
     fn embed(&self, text: &str) -> Result<Vec<f32>, Error> {
-        let mut embeddings = self
-            .model
+        let mut model = self.model.lock().expect("mutex poisoned");
+        let mut embeddings = model
             .embed(vec![text.to_string()], None)
             .map_err(|e| Error::EmbeddingError(e.to_string()))?;
         embeddings

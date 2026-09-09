@@ -43,6 +43,11 @@ impl Config {
     }
 
     /// Loads config from disk, creating a default file if absent.
+    // Tech debt: serde_yaml is archived/deprecated upstream (frozen at 0.9.34
+    // since March 2024) but kept intentionally — its output format underpins
+    // both this config file and the documented `kb export`/`kb import` CLI
+    // contract, so swapping the YAML engine risks a subtle format drift.
+    // Revisit only if a maintained fork proves format-compatible.
     pub fn load() -> Result<Self, String> {
         let path = Self::config_file_path();
 

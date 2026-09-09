@@ -67,7 +67,8 @@ fn tokenize(text: &str) -> Vec<String> {
 /// Returns a set of common English stop words.
 fn build_stop_words() -> std::collections::HashSet<String> {
     stop_words::get(stop_words::LANGUAGE::English)
-        .into_iter()
+        .iter()
+        .map(|s| s.to_string())
         .collect()
 }
 

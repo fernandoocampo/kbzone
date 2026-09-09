@@ -270,12 +270,11 @@ impl ImportKbItem {
         if self.value.trim().is_empty() {
             return Some("Value is empty".to_string());
         }
-        if let Some(ref p) = self.path {
-            if !p.is_empty() {
-                if let Err(e) = normalize_path(p) {
-                    return Some(e.to_string());
-                }
-            }
+        if let Some(ref p) = self.path
+            && !p.is_empty()
+            && let Err(e) = normalize_path(p)
+        {
+            return Some(e.to_string());
         }
         None
     }

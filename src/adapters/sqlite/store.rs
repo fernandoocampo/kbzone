@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, Once};
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::domain::{EmbeddingInput, Kb, KbFilter, KbItem, ScoredKbItem, SemanticQuery};
 use crate::errors::Error;
@@ -80,8 +80,7 @@ const GET_CHILDREN_IDS: &str = "SELECT KB_ID FROM kbs WHERE PARENT_KB_ID = ?1";
 const GET_DISTINCT_CATEGORIES: &str =
     "SELECT DISTINCT CATEGORY FROM kbs WHERE CATEGORY != '' ORDER BY CATEGORY ASC";
 
-const GET_DISTINCT_CATEGORIES_BY_NAMESPACE: &str =
-    "SELECT DISTINCT CATEGORY FROM kbs WHERE CATEGORY != '' AND NAMESPACE = ?1 \
+const GET_DISTINCT_CATEGORIES_BY_NAMESPACE: &str = "SELECT DISTINCT CATEGORY FROM kbs WHERE CATEGORY != '' AND NAMESPACE = ?1 \
      ORDER BY CATEGORY ASC";
 
 const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
@@ -93,8 +92,7 @@ const SEARCH_FTS: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.T
                            WHERE tags_idx MATCH ?1 \
                            ORDER BY k.CREATED_ON DESC";
 
-const SEARCH_FTS_WITH_REF: &str =
-    "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
+const SEARCH_FTS_WITH_REF: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
                                     FROM kbs k \
                                     JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
                                     WHERE tags_idx MATCH ?1 \
@@ -131,7 +129,7 @@ const GET_KB_ITEM_BY_ID: &str =
 fn register_vec_extension() {
     type SqliteInitFn = unsafe extern "C" fn(
         *mut rusqlite::ffi::sqlite3,
-        *mut *const i8,
+        *mut *mut i8,
         *const rusqlite::ffi::sqlite3_api_routines,
     ) -> i32;
 
@@ -209,24 +207,22 @@ impl KbStore for SqliteStore {
         // Idempotent migration: add PARENT_KB_ID column if it does not exist yet.
         if let Err(e) =
             conn.execute_batch("ALTER TABLE kbs ADD COLUMN PARENT_KB_ID TEXT DEFAULT NULL")
+            && !e.to_string().contains("duplicate column name")
         {
-            if !e.to_string().contains("duplicate column name") {
-                return Err(Error::StorageInitError(e.to_string()));
-            }
+            return Err(Error::StorageInitError(e.to_string()));
         }
         // Idempotent migration: add KB_PATH column if it does not exist yet.
-        if let Err(e) = conn.execute_batch("ALTER TABLE kbs ADD COLUMN KB_PATH TEXT DEFAULT NULL") {
-            if !e.to_string().contains("duplicate column name") {
-                return Err(Error::StorageInitError(e.to_string()));
-            }
+        if let Err(e) = conn.execute_batch("ALTER TABLE kbs ADD COLUMN KB_PATH TEXT DEFAULT NULL")
+            && !e.to_string().contains("duplicate column name")
+        {
+            return Err(Error::StorageInitError(e.to_string()));
         }
         // Idempotent migration: add MEDIA_EXTENSION column if it does not exist yet.
         if let Err(e) =
             conn.execute_batch("ALTER TABLE kbs ADD COLUMN MEDIA_EXTENSION TEXT DEFAULT NULL")
+            && !e.to_string().contains("duplicate column name")
         {
-            if !e.to_string().contains("duplicate column name") {
-                return Err(Error::StorageInitError(e.to_string()));
-            }
+            return Err(Error::StorageInitError(e.to_string()));
         }
         Ok(())
     }
@@ -360,23 +356,19 @@ impl KbStore for SqliteStore {
                 let mut stmt = conn
                     .prepare(GET_DISTINCT_CATEGORIES_BY_NAMESPACE)
                     .map_err(|e| Error::ListError(e.to_string()))?;
-                let rows = stmt
-                    .query_map(params![ns], |row| row.get(0))
+                stmt.query_map(params![ns], |row| row.get(0))
                     .map_err(|e| Error::ListError(e.to_string()))?
                     .collect::<Result<Vec<String>, _>>()
-                    .map_err(|e| Error::ListError(e.to_string()))?;
-                rows
+                    .map_err(|e| Error::ListError(e.to_string()))?
             }
             None => {
                 let mut stmt = conn
                     .prepare(GET_DISTINCT_CATEGORIES)
                     .map_err(|e| Error::ListError(e.to_string()))?;
-                let rows = stmt
-                    .query_map([], |row| row.get(0))
+                stmt.query_map([], |row| row.get(0))
                     .map_err(|e| Error::ListError(e.to_string()))?
                     .collect::<Result<Vec<String>, _>>()
-                    .map_err(|e| Error::ListError(e.to_string()))?;
-                rows
+                    .map_err(|e| Error::ListError(e.to_string()))?
             }
         };
         Ok(categories)
@@ -577,11 +569,11 @@ fn build_list_filters(filter: &KbFilter) -> (Vec<String>, Vec<String>) {
         }
     }
 
-    if let Some(r) = &filter.reference {
-        if !r.is_empty() {
-            conditions.push(format!("LOWER(REFERENCE) LIKE ?{}", idx));
-            params.push(format!("%{}%", r.to_lowercase()));
-        }
+    if let Some(r) = &filter.reference
+        && !r.is_empty()
+    {
+        conditions.push(format!("LOWER(REFERENCE) LIKE ?{}", idx));
+        params.push(format!("%{}%", r.to_lowercase()));
     }
 
     (conditions, params)
@@ -647,10 +639,10 @@ impl VectorStore for SqliteStore {
         // Step 2: Fetch KB item metadata for each matched id, applying threshold filter
         let mut results = Vec::with_capacity(knn_rows.len());
         for (kb_id, score) in knn_rows {
-            if let Some(threshold) = query.threshold {
-                if score > threshold {
-                    continue;
-                }
+            if let Some(threshold) = query.threshold
+                && score > threshold
+            {
+                continue;
             }
             let mut item_stmt = conn
                 .prepare(GET_KB_ITEM_BY_ID)
