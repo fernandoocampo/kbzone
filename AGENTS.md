@@ -200,6 +200,15 @@ Always use `make` targets — never invoke `cargo` directly. The Makefile is the
 - Always run `make check` (or at minimum `make test`) before closing a task.
 - A task is only done when tests pass and linter is clean.
 
+## Engineering Bar
+
+Implement every change as a senior Rust engineer would: idiomatic, minimal,
+and production-ready — not merely code that compiles and passes tests. Favor
+clarity and simplicity over cleverness. The sections below (Coding
+Constraints, Idiomatic Rust Rules, Common Mistakes to Avoid) are the
+concrete, checkable expression of this bar — follow them precisely rather
+than treating this statement as a substitute for them.
+
 ## Coding Constraints
 
 - **No async** — fully synchronous; tokio is not a dependency.
