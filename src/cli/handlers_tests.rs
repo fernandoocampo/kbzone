@@ -490,3 +490,148 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
     assert!(result.contains("key-two"));
     assert!(result.contains("---"));
 }
+
+// ---------------------------------------------------------------------------
+// Graph render helpers
+// ---------------------------------------------------------------------------
+
+use crate::domain::{GraphNode, IncomingEdge, OutgoingEdge, TreeRoot};
+
+fn make_graph_node(key: &str, category: &str) -> GraphNode {
+    GraphNode {
+        id: format!("{key}-id"),
+        key: key.to_string(),
+        category: category.to_string(),
+        namespace: "default".to_string(),
+    }
+}
+
+#[test]
+fn truncate_note_leaves_short_notes_unchanged() {
+    assert_eq!(truncate_note("short note"), "short note");
+}
+
+#[test]
+fn truncate_note_truncates_long_notes_to_40_chars_with_ellipsis() {
+    let long = "x".repeat(100);
+    let truncated = truncate_note(&long);
+    assert_eq!(truncated.chars().count(), 40);
+    assert!(truncated.ends_with('…'));
+}
+
+#[test]
+fn truncate_note_is_char_safe_with_multibyte_input() {
+    let multibyte = "é".repeat(100);
+    let truncated = truncate_note(&multibyte);
+    assert_eq!(truncated.chars().count(), 40);
+    assert!(truncated.ends_with('…'));
+}
+
+#[test]
+fn render_related_shows_both_sections_by_default() {
+    let result = RelatedResult {
+        node: make_graph_node("car", "concept"),
+        outgoing: vec![OutgoingEdge {
+            edge_id: "e1".to_string(),
+            note: "has an engine".to_string(),
+            created_on: "2026-01-01T00:00:00+0000".to_string(),
+            to: make_graph_node("engine", "concept"),
+        }],
+        incoming: vec![IncomingEdge {
+            edge_id: "e2".to_string(),
+            note: "compatible with car".to_string(),
+            created_on: "2026-01-01T00:00:00+0000".to_string(),
+            from: make_graph_node("spare-parts-kit", "bookmark"),
+        }],
+    };
+    let output = render_related(&result, EdgeDirection::Both);
+    assert!(output.contains("→ car points to (1)"));
+    assert!(output.contains("engine"));
+    assert!(output.contains("← pointed to by car (1)"));
+    assert!(output.contains("spare-parts-kit"));
+}
+
+#[test]
+fn render_related_direction_out_hides_incoming_section() {
+    let result = RelatedResult {
+        node: make_graph_node("car", "concept"),
+        outgoing: vec![],
+        incoming: vec![IncomingEdge {
+            edge_id: "e2".to_string(),
+            note: "n".to_string(),
+            created_on: "2026-01-01T00:00:00+0000".to_string(),
+            from: make_graph_node("spare-parts-kit", "bookmark"),
+        }],
+    };
+    let output = render_related(&result, EdgeDirection::Out);
+    assert!(output.contains("→ car points to (0)"));
+    assert!(!output.contains("pointed to by"));
+}
+
+#[test]
+fn render_related_direction_in_hides_outgoing_section() {
+    let result = RelatedResult {
+        node: make_graph_node("car", "concept"),
+        outgoing: vec![OutgoingEdge {
+            edge_id: "e1".to_string(),
+            note: "n".to_string(),
+            created_on: "2026-01-01T00:00:00+0000".to_string(),
+            to: make_graph_node("engine", "concept"),
+        }],
+        incoming: vec![],
+    };
+    let output = render_related(&result, EdgeDirection::In);
+    assert!(!output.contains("points to"));
+    assert!(output.contains("← pointed to by car (0)"));
+}
+
+#[test]
+fn render_tree_draws_branches_for_a_multi_level_hierarchy() {
+    let result = TreeResult {
+        root: TreeRoot {
+            id: "car-id".to_string(),
+            key: "car".to_string(),
+        },
+        direction: "out".to_string(),
+        nodes: vec![
+            TreeNode {
+                id: "engine-id".to_string(),
+                key: "engine".to_string(),
+                depth: 1,
+                parent_id: "car-id".to_string(),
+                note: "car has an engine".to_string(),
+            },
+            TreeNode {
+                id: "chassis-id".to_string(),
+                key: "chassis".to_string(),
+                depth: 1,
+                parent_id: "car-id".to_string(),
+                note: "car is built on a chassis".to_string(),
+            },
+            TreeNode {
+                id: "camshaft-id".to_string(),
+                key: "camshaft".to_string(),
+                depth: 2,
+                parent_id: "engine-id".to_string(),
+                note: "engine contains camshaft".to_string(),
+            },
+            TreeNode {
+                id: "piston-id".to_string(),
+                key: "piston".to_string(),
+                depth: 2,
+                parent_id: "engine-id".to_string(),
+                note: "engine contains piston".to_string(),
+            },
+        ],
+    };
+    let output = render_tree(&result);
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines[0], "car");
+    assert!(lines[1].starts_with("├── engine"));
+    assert!(lines[1].contains("car has an engine"));
+    assert!(lines[2].starts_with("│   ├── camshaft"));
+    assert!(lines[2].contains("engine contains camshaft"));
+    assert!(lines[3].starts_with("│   └── piston"));
+    assert!(lines[4].starts_with("└── chassis"));
+    assert!(lines[4].contains("car is built on a chassis"));
+}

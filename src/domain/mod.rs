@@ -13,9 +13,15 @@
 //! - [`SemanticQuery`] — input for a vector/semantic search
 //! - [`EmbeddingInput`] — text prepared for embedding generation
 
+pub mod graph;
 pub mod kb;
 pub mod tag_suggestion;
 
+pub use graph::{
+    EdgeDirection, GraphNode, IncomingEdge, KbEdge, LinkParams, NewKbEdge, OutgoingEdge,
+    RelatedEdges, RelatedQuery, RelatedResult, RemoveEdgeParams, TreeNode, TreeQuery, TreeResult,
+    TreeRoot, TreeWalkParams,
+};
 pub use kb::{
     EmbeddingInput, ExportKbItem, ExportMediaParams, FailedImportItem, ImportBatchResult,
     ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb, ReindexResult,

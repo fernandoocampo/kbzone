@@ -491,3 +491,258 @@ fn get_categories_returns_empty_vec_when_no_entries() {
     let categories = store.get_categories(None).unwrap();
     assert!(categories.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// KbGraph tests
+// ---------------------------------------------------------------------------
+
+fn initialized_graph_store() -> SqliteStore {
+    let store = initialized_store();
+    store.initialize_graph().expect("initialize_graph");
+    store
+}
+
+fn make_edge(id: &str, from_id: &str, to_id: &str, note: &str) -> KbEdge {
+    KbEdge {
+        id: id.to_string(),
+        from_id: from_id.to_string(),
+        to_id: to_id.to_string(),
+        note: note.to_string(),
+        created_on: "2026-01-01T00:00:00+0000".to_string(),
+    }
+}
+
+#[test]
+fn initialize_graph_is_idempotent() {
+    let store = initialized_store();
+    assert!(store.initialize_graph().is_ok());
+    assert!(store.initialize_graph().is_ok());
+}
+
+#[test]
+fn add_edge_then_get_related_out() {
+    let store = initialized_graph_store();
+    store.save_kb(&make_kb("car-id", "car")).unwrap();
+    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store
+        .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
+        .unwrap();
+
+    let related = store
+        .get_related(&RelatedQuery {
+            kb_id: "car-id".to_string(),
+            direction: EdgeDirection::Out,
+        })
+        .unwrap();
+    assert_eq!(related.outgoing.len(), 1);
+    assert_eq!(related.outgoing[0].to.key, "engine");
+    assert_eq!(related.outgoing[0].note, "has an engine");
+    assert!(related.incoming.is_empty());
+}
+
+#[test]
+fn add_edge_then_get_related_in() {
+    let store = initialized_graph_store();
+    store.save_kb(&make_kb("car-id", "car")).unwrap();
+    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store
+        .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
+        .unwrap();
+
+    let related = store
+        .get_related(&RelatedQuery {
+            kb_id: "engine-id".to_string(),
+            direction: EdgeDirection::In,
+        })
+        .unwrap();
+    assert_eq!(related.incoming.len(), 1);
+    assert_eq!(related.incoming[0].from.key, "car");
+    assert!(related.outgoing.is_empty());
+}
+
+#[test]
+fn add_edge_then_get_related_both() {
+    let store = initialized_graph_store();
+    store.save_kb(&make_kb("car-id", "car")).unwrap();
+    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store
+        .save_kb(&make_kb("kit-id", "spare-parts-kit"))
+        .unwrap();
+    store
+        .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
+        .unwrap();
+    store
+        .add_edge(&make_edge(
+            "edge-2",
+            "kit-id",
+            "car-id",
+            "compatible with car",
+        ))
+        .unwrap();
+
+    let related = store
+        .get_related(&RelatedQuery {
+            kb_id: "car-id".to_string(),
+            direction: EdgeDirection::Both,
+        })
+        .unwrap();
+    assert_eq!(related.outgoing.len(), 1);
+    assert_eq!(related.incoming.len(), 1);
+}
+
+#[test]
+fn add_edge_duplicate_returns_duplicate_edge_error() {
+    let store = initialized_graph_store();
+    store.save_kb(&make_kb("car-id", "car")).unwrap();
+    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store
+        .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
+        .unwrap();
+
+    let result = store.add_edge(&make_edge("edge-2", "car-id", "engine-id", "again"));
+    assert!(matches!(result, Err(Error::DuplicateEdgeError)));
+}
+
+#[test]
+fn remove_edge_returns_true_when_deleted() {
+    let store = initialized_graph_store();
+    store.save_kb(&make_kb("car-id", "car")).unwrap();
+    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store
+        .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
+        .unwrap();
+
+    let removed = store
+        .remove_edge(&RemoveEdgeParams {
+            from_id: "car-id".to_string(),
+            to_id: "engine-id".to_string(),
+        })
+        .unwrap();
+    assert!(removed);
+}
+
+#[test]
+fn remove_edge_returns_false_when_missing() {
+    let store = initialized_graph_store();
+    let removed = store
+        .remove_edge(&RemoveEdgeParams {
+            from_id: "no-such-1".to_string(),
+            to_id: "no-such-2".to_string(),
+        })
+        .unwrap();
+    assert!(!removed);
+}
+
+#[test]
+fn deleting_a_kb_cascades_edges_via_kbs_ad_edges_trigger() {
+    let store = initialized_graph_store();
+    store.save_kb(&make_kb("car-id", "car")).unwrap();
+    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store
+        .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
+        .unwrap();
+
+    store.delete_kb("engine-id").unwrap();
+
+    let related = store
+        .get_related(&RelatedQuery {
+            kb_id: "car-id".to_string(),
+            direction: EdgeDirection::Out,
+        })
+        .unwrap();
+    assert!(related.outgoing.is_empty());
+}
+
+#[test]
+fn get_tree_respects_depth_bound() {
+    let store = initialized_graph_store();
+    // car -> engine -> camshaft -> bolt -> thread (chain of 5 nodes, 4 edges)
+    for (id, key) in [
+        ("car-id", "car"),
+        ("engine-id", "engine"),
+        ("camshaft-id", "camshaft"),
+        ("bolt-id", "bolt"),
+        ("thread-id", "thread"),
+    ] {
+        store.save_kb(&make_kb(id, key)).unwrap();
+    }
+    store
+        .add_edge(&make_edge("e1", "car-id", "engine-id", "n"))
+        .unwrap();
+    store
+        .add_edge(&make_edge("e2", "engine-id", "camshaft-id", "n"))
+        .unwrap();
+    store
+        .add_edge(&make_edge("e3", "camshaft-id", "bolt-id", "n"))
+        .unwrap();
+    store
+        .add_edge(&make_edge("e4", "bolt-id", "thread-id", "n"))
+        .unwrap();
+
+    let nodes = store
+        .get_tree(&TreeQuery {
+            kb_id: "car-id".to_string(),
+            direction: EdgeDirection::Out,
+            depth: 2,
+        })
+        .unwrap();
+    assert_eq!(nodes.len(), 2);
+    assert!(nodes.iter().all(|n| n.depth <= 2));
+}
+
+#[test]
+fn get_tree_direction_in_walks_backwards() {
+    let store = initialized_graph_store();
+    store.save_kb(&make_kb("car-id", "car")).unwrap();
+    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store
+        .add_edge(&make_edge("e1", "car-id", "engine-id", "has an engine"))
+        .unwrap();
+
+    let nodes = store
+        .get_tree(&TreeQuery {
+            kb_id: "engine-id".to_string(),
+            direction: EdgeDirection::In,
+            depth: 10,
+        })
+        .unwrap();
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].key, "car");
+    assert_eq!(nodes[0].parent_id, "engine-id");
+}
+
+#[test]
+fn get_tree_terminates_on_cycle() {
+    let store = initialized_graph_store();
+    store.save_kb(&make_kb("a-id", "a")).unwrap();
+    store.save_kb(&make_kb("b-id", "b")).unwrap();
+    store
+        .add_edge(&make_edge("e1", "a-id", "b-id", "n"))
+        .unwrap();
+    store
+        .add_edge(&make_edge("e2", "b-id", "a-id", "n"))
+        .unwrap();
+
+    let nodes = store
+        .get_tree(&TreeQuery {
+            kb_id: "a-id".to_string(),
+            direction: EdgeDirection::Out,
+            depth: 5,
+        })
+        .unwrap();
+    // Bounded by depth, not hanging — exactly one row per depth level.
+    assert_eq!(nodes.len(), 5);
+    assert!(nodes.iter().all(|n| n.depth <= 5));
+}
+
+#[test]
+fn get_tree_rejects_both_direction() {
+    let store = initialized_graph_store();
+    store.save_kb(&make_kb("car-id", "car")).unwrap();
+    let result = store.get_tree(&TreeQuery {
+        kb_id: "car-id".to_string(),
+        direction: EdgeDirection::Both,
+        depth: 10,
+    });
+    assert!(matches!(result, Err(Error::GraphQueryError(_))));
+}

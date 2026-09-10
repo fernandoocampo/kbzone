@@ -6,11 +6,14 @@ use crate::adapters::http::HttpMediaFetcher;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
-use crate::cli::handlers::{self, AddParams, ExportParams, GetParams, ImportParams, SearchParams};
-use crate::domain::{KbUpdate, SemanticQuery};
+use crate::cli::handlers::{
+    self, AddParams, ExportParams, GetParams, ImportParams, RelatedParams, SearchParams,
+    TreeParams, UnlinkParams,
+};
+use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
 use crate::errors::AppError;
-use crate::ports::{EmbeddingProvider, KbStore, VectorStore};
-use crate::service::{KBService, ServiceDeps};
+use crate::ports::{EmbeddingProvider, KbGraph, KbStore, VectorStore};
+use crate::service::{GraphService, KBService, ServiceDeps};
 
 /// Top-level application object. Owns the unified service and drives the CLI.
 pub struct App {
@@ -21,6 +24,7 @@ pub struct App {
         FileSystemMediaStore,
         HttpMediaFetcher,
     >,
+    graph_svc: GraphService<SqliteStore, SqliteStore>,
     base_dir: String,
 }
 
@@ -44,6 +48,10 @@ impl App {
             .initialize_vectors(embedder.dimensions())
             .map_err(|e| AppError::StorageError(e.to_string()))?;
 
+        store
+            .initialize_graph()
+            .map_err(|e| AppError::StorageError(e.to_string()))?;
+
         let base_dir = std::path::Path::new(&db_path)
             .parent()
             .map(|p| p.to_string_lossy().to_string())
@@ -52,15 +60,20 @@ impl App {
         let svc = KBService::new(
             store.clone(),
             ServiceDeps {
-                vector_store: store,
+                vector_store: store.clone(),
                 embedder,
                 media_store: FileSystemMediaStore,
                 media_fetcher: HttpMediaFetcher,
                 base_dir: base_dir.clone(),
             },
         );
+        let graph_svc = GraphService::new(store.clone(), store);
 
-        Ok(App { svc, base_dir })
+        Ok(App {
+            svc,
+            graph_svc,
+            base_dir,
+        })
     }
 
     /// Parses the CLI arguments and dispatches to the appropriate handler.
@@ -208,6 +221,47 @@ impl App {
             )?,
 
             Command::Version => handlers::handle_version()?,
+
+            Command::Link { from, to, note } => handlers::handle_link(
+                &self.graph_svc,
+                LinkParams {
+                    from_key_or_id: from,
+                    to_key_or_id: to,
+                    note,
+                },
+            )?,
+
+            Command::Unlink { from, to } => {
+                handlers::handle_unlink(&self.graph_svc, UnlinkParams { from, to })?
+            }
+
+            Command::Related {
+                key_or_id,
+                direction,
+                json,
+            } => handlers::handle_related(
+                &self.graph_svc,
+                RelatedParams {
+                    key_or_id,
+                    direction,
+                    json,
+                },
+            )?,
+
+            Command::Tree {
+                key_or_id,
+                direction,
+                depth,
+                json,
+            } => handlers::handle_tree(
+                &self.graph_svc,
+                TreeParams {
+                    key_or_id,
+                    direction,
+                    depth,
+                    json,
+                },
+            )?,
         }
 
         Ok(())

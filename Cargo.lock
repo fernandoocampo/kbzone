@@ -1447,13 +1447,14 @@ dependencies = [
 
 [[package]]
 name = "kbzone"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "clap",
  "fastembed",
  "rusqlite",
  "serde",
+ "serde_json",
  "serde_yaml",
  "sqlite-vec",
  "stop-words",

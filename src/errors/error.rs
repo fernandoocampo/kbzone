@@ -65,6 +65,18 @@ pub enum Error {
     MediaUrlRequired(String),
     #[error("path update not allowed for media entries: {0}")]
     MediaPathUpdateNotAllowed(String),
+    #[error("edge already exists between these entries")]
+    DuplicateEdgeError,
+    #[error("edge not found")]
+    EdgeNotFound,
+    #[error("an entry cannot be linked to itself")]
+    SelfLoopNotAllowed,
+    #[error("unable to add edge: {0}")]
+    AddEdgeError(String),
+    #[error("unable to remove edge: {0}")]
+    RemoveEdgeError(String),
+    #[error("graph query failed: {0}")]
+    GraphQueryError(String),
 }
 
 /// Application-level startup / configuration errors.

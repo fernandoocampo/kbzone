@@ -18,6 +18,10 @@ local SQLite file. The binary is named `kb`.
 - `kb import`                  — Import KB entries from a multi-document YAML file; `Path` field is validated and normalised on import
 - `kb quote`                   — Print a random quote-category entry
 - `kb categories`              — List all distinct, non-empty category values; flags: `--namespace` (optional)
+- `kb link <from> <to>`        — Create a directed edge between two entries (each `from`/`to` accepts a key or an internal ID); flags: `--note`
+- `kb unlink <from> <to>`      — Remove the edge between two entries (key or ID); errors if no such edge exists
+- `kb related <key-or-id>`     — Show one-hop outgoing/incoming relationships; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--json` (full NOTE text; human output truncates NOTE to 40 chars)
+- `kb tree <key-or-id>`        — Transitive relationship traversal via a recursive CTE; flags: `--direction` (`out`\|`in`, default `out`), `--depth` (default `10`), `--json`
 
 ### Configuration
 
@@ -73,6 +77,32 @@ parent: Option<String>
 created_on: String
 ```
 
+## Graph Relationships
+
+`kb_edges` is a separate, additive table expressing a directed semantic
+relationship between two `kbs` records — distinct from the `parent`/`path`
+hierarchy (filing/organisation) and from each other (many-to-many, can be
+cyclic). The `KbEdge` struct in `domain/graph.rs` is the canonical entity:
+
+```
+// Auto-generated UUID
+id: String
+// Kb.id this edge points from
+from_id: String
+// Kb.id this edge points to
+to_id: String
+// Free text describing why these two entries are connected
+note: String
+// ISO-8601 creation timestamp
+created_on: String
+```
+
+`from`/`to` on the CLI accept either a `key` or an internal `id`; `GraphService`
+resolves them to `Kb.id` (tries `key` first, falls back to `id`) before
+touching storage. `(FROM_KB_ID, TO_KB_ID)` is unique — linking the same pair
+twice in the same direction is a `DuplicateEdgeError`; a `kbs_ad_edges` trigger
+deletes an entry's edges when it is deleted.
+
 ## Make Targets
 
 - `make build`     — `cargo build --release && cp …` — Compile release binary → `bin/kb`
@@ -93,18 +123,26 @@ src/
   errors/error.rs                Error + AppError (thiserror)
   domain/kb.rs                   Kb, NewKb, KbFilter, KbItem,
                                    ScoredKbItem, SemanticQuery, EmbeddingInput
+  domain/graph.rs                 KbEdge, NewKbEdge, EdgeDirection, and the
+                                   related/tree query + output DTOs
   ports/storage.rs               KbStore trait (outbound port)
   ports/embedding.rs             EmbeddingProvider trait (outbound port)
   ports/vector_store.rs          VectorStore trait (outbound port)
-  service/kb_service.rs          Service<T: KbStore> + unit tests (MockKbStore)
-  service/semantic_service.rs    SemanticService<V,E> + unit tests (mocks)
-  adapters/sqlite/store.rs       SqliteStore implements KbStore + VectorStore;
+  ports/graph.rs                  KbGraph trait (outbound port) — edge storage/traversal
+  service/kb_service.rs          KBService<S,V,E,M,F> — unified CRUD + semantic +
+                                   media service; unit tests (MockKbStore)
+  service/graph_service.rs        GraphService<S,G> — edge add/remove/traversal,
+                                   key-or-id resolution; unit tests (MockKbStore, MockKbGraph)
+  adapters/sqlite/store.rs       SqliteStore implements KbStore + VectorStore + KbGraph;
                                    integration tests (in-memory + sqlite-vec)
   adapters/fastembed/provider.rs FastEmbedProvider (bge-small-en-v1.5, 384 dims)
-  cli/commands.rs                Clap derive subcommands (incl. ask, reindex)
-  cli/handlers.rs                Handlers + Services<S,V,E> container struct
+  cli/commands.rs                Clap derive subcommands (incl. ask, reindex, link,
+                                   unlink, related, tree)
+  cli/handlers.rs                Free `handle_*` functions per command, each taking
+                                   the relevant service + a `*Params` struct (2-param rule)
   application/config.rs          Config (YAML) — db_path + embedding.provider
-  application/app.rs             App::build() wires deps; App::run() dispatches CLI
+  application/app.rs             App::build() wires deps (holds both KBService and
+                                   GraphService); App::run() dispatches CLI
 ```
 
 ## Hexagonal Architecture — Layer Communication Rules
@@ -124,12 +162,16 @@ src/
 CLI args
   → cli/commands.rs (parse)
   → cli/handlers.rs (orchestrate, I/O)
-    → service/kb_service.rs (business logic)
+    → service/kb_service.rs (CRUD + semantic + media business logic)
       → ports/storage.rs (trait)
         → adapters/sqlite/store.rs (implementation)
-    → service/semantic_service.rs (embedding coordination)
       → ports/embedding.rs + ports/vector_store.rs (traits)
         → adapters/fastembed/provider.rs (implementation)
+    → service/graph_service.rs (edge add/remove/traversal — a separate
+        service; edges have no coupling to the CRUD/embedding flow)
+      → ports/storage.rs (trait, for key-or-id resolution)
+      → ports/graph.rs (trait)
+        → adapters/sqlite/store.rs (implementation)
 ```
 
 **Key rules:**
@@ -165,7 +207,7 @@ Always use `make` targets — never invoke `cargo` directly. The Makefile is the
 - **SQL as const** — all SQL strings are `const &str` constants, never inline string literals. Dynamic DDL (e.g. the vec0 dimension) uses a `const` template with `.replace()` at runtime.
 - **Binary name is `kb`** — configured via `[[bin]]` in `Cargo.toml`.
 - **Error types** — domain errors go in `Error`; startup/config errors go in `AppError`.
-- **Storage init** — call `store.initialize()` then `store.initialize_vectors(dims)` once at startup; both are idempotent.
+- **Storage init** — call `store.initialize()`, `store.initialize_vectors(dims)`, then `store.initialize_graph()` once at startup; all three are idempotent.
 - **Function arguments** — functions and methods must have at most 2 parameters (excluding `self`/`&self`). If more data is needed, define a dedicated struct to carry the parameters; do not add a third bare argument under any circumstance.
 - **TDD** — always write unit tests before implementing the code logic. Define the test cases first, confirm they fail, then write the minimum code to make them pass.
 - **sqlite-vec** — extension is loaded via `sqlite3_auto_extension` (with `std::sync::Once`) before each `Connection` open; vec0 MATCH queries do not support JOINs — use two queries instead.

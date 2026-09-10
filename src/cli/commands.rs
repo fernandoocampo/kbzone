@@ -208,4 +208,56 @@ pub enum Command {
         )]
         failed_items_file: String,
     },
+
+    /// Link two existing KB entries (creates a directed edge).
+    Link {
+        #[arg(help = "Key or UUID of the source entry")]
+        from: String,
+
+        #[arg(help = "Key or UUID of the target entry")]
+        to: String,
+
+        #[arg(
+            long,
+            default_value = "",
+            help = "Free-text note describing the relationship"
+        )]
+        note: String,
+    },
+
+    /// Remove the link between two KB entries.
+    Unlink {
+        #[arg(help = "Key or UUID of the source entry")]
+        from: String,
+
+        #[arg(help = "Key or UUID of the target entry")]
+        to: String,
+    },
+
+    /// Show one-hop outgoing/incoming relationships for an entry.
+    Related {
+        #[arg(help = "Key or UUID of the entry")]
+        key_or_id: String,
+
+        #[arg(long, default_value = "both", help = "out | in | both")]
+        direction: String,
+
+        #[arg(long, help = "Output as JSON (full NOTE text, no truncation)")]
+        json: bool,
+    },
+
+    /// Show the transitive relationship tree for an entry.
+    Tree {
+        #[arg(help = "Key or UUID of the entry")]
+        key_or_id: String,
+
+        #[arg(long, default_value = "out", help = "out | in")]
+        direction: String,
+
+        #[arg(long, default_value = "10", help = "Maximum traversal depth")]
+        depth: i64,
+
+        #[arg(long, help = "Output as JSON (full NOTE text, no truncation)")]
+        json: bool,
+    },
 }

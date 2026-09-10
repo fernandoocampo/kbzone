@@ -2,9 +2,13 @@ use std::sync::{Arc, Mutex, Once};
 
 use rusqlite::{Connection, params};
 
-use crate::domain::{EmbeddingInput, Kb, KbFilter, KbItem, ScoredKbItem, SemanticQuery};
+use crate::domain::{
+    EdgeDirection, EmbeddingInput, GraphNode, IncomingEdge, Kb, KbEdge, KbFilter, KbItem,
+    OutgoingEdge, RelatedEdges, RelatedQuery, RemoveEdgeParams, ScoredKbItem, SemanticQuery,
+    TreeNode, TreeQuery,
+};
 use crate::errors::Error;
-use crate::ports::{KbStore, VectorStore};
+use crate::ports::{KbGraph, KbStore, VectorStore};
 
 // ---------------------------------------------------------------------------
 // DDL constants (translated from Go kbcli sqlite.go)
@@ -119,6 +123,76 @@ const SEARCH_KNN: &str =
 /// Step 2 of semantic search: fetch KB item metadata by ID.
 const GET_KB_ITEM_BY_ID: &str =
     "SELECT KB_ID, KB_KEY, CATEGORY, NAMESPACE, TAG_VALUES FROM kbs WHERE KB_ID = ?1";
+
+// ---------------------------------------------------------------------------
+// Graph DDL constants
+// ---------------------------------------------------------------------------
+
+const CREATE_KB_EDGES_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS kb_edges (
+    INTERNAL_ID   INTEGER PRIMARY KEY AUTOINCREMENT,
+    EDGE_ID       TEXT NOT NULL UNIQUE,
+    FROM_KB_ID    TEXT NOT NULL,
+    TO_KB_ID      TEXT NOT NULL,
+    NOTE          TEXT NOT NULL DEFAULT '',
+    CREATED_ON    TEXT NOT NULL,
+    UNIQUE(FROM_KB_ID, TO_KB_ID)
+)";
+
+const CREATE_INDEX_EDGES_FROM: &str =
+    "CREATE INDEX IF NOT EXISTS idx_edges_from ON kb_edges(FROM_KB_ID)";
+
+const CREATE_INDEX_EDGES_TO: &str = "CREATE INDEX IF NOT EXISTS idx_edges_to ON kb_edges(TO_KB_ID)";
+
+// No PRAGMA foreign_keys is enabled, so cascade cleanup is done via trigger,
+// mirroring the existing kbs_ad trigger (used for tags_idx cleanup). SQLite
+// allows multiple AFTER DELETE triggers on one table — this coexists with kbs_ad.
+const CREATE_TRIGGER_AD_EDGES: &str = "
+CREATE TRIGGER IF NOT EXISTS kbs_ad_edges
+AFTER DELETE ON kbs BEGIN
+    DELETE FROM kb_edges WHERE FROM_KB_ID = old.KB_ID OR TO_KB_ID = old.KB_ID;
+END";
+
+// ---------------------------------------------------------------------------
+// Graph CRUD / traversal constants
+// ---------------------------------------------------------------------------
+
+const INSERT_EDGE: &str = "INSERT INTO kb_edges \
+                            (EDGE_ID, FROM_KB_ID, TO_KB_ID, NOTE, CREATED_ON) \
+                            VALUES (?1, ?2, ?3, ?4, ?5)";
+
+const DELETE_EDGE: &str = "DELETE FROM kb_edges WHERE FROM_KB_ID = ?1 AND TO_KB_ID = ?2";
+
+const GET_OUTGOING_EDGES: &str = "SELECT e.EDGE_ID, e.NOTE, e.CREATED_ON, \
+                                   k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE \
+                                   FROM kb_edges e JOIN kbs k ON k.KB_ID = e.TO_KB_ID \
+                                   WHERE e.FROM_KB_ID = ?1 ORDER BY e.CREATED_ON ASC";
+
+const GET_INCOMING_EDGES: &str = "SELECT e.EDGE_ID, e.NOTE, e.CREATED_ON, \
+                                   k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE \
+                                   FROM kb_edges e JOIN kbs k ON k.KB_ID = e.FROM_KB_ID \
+                                   WHERE e.TO_KB_ID = ?1 ORDER BY e.CREATED_ON ASC";
+
+/// Template for the transitive-traversal recursive CTE. `{child_col}`/`{parent_col}`
+/// are swapped by direction: `out` => (TO_KB_ID, FROM_KB_ID), `in` => (FROM_KB_ID, TO_KB_ID).
+///
+/// Note on termination: the recursive `UNION` here dedups whole rows, not
+/// visited node ids — since `depth` is part of every row, a node revisited at
+/// a different depth is *not* a duplicate row and *is* re-emitted. The `?2`
+/// depth bound (`WHERE w.depth < ?2`) is what actually guarantees termination
+/// on a cyclic graph, not the `UNION` by itself.
+const GET_TREE_TPL: &str = "
+WITH RECURSIVE walk(id, depth, parent_id, note) AS (
+    SELECT e.{child_col}, 1, e.{parent_col}, e.NOTE
+    FROM kb_edges e WHERE e.{parent_col} = ?1
+    UNION
+    SELECT e.{child_col}, w.depth + 1, e.{parent_col}, e.NOTE
+    FROM kb_edges e JOIN walk w ON e.{parent_col} = w.id
+    WHERE w.depth < ?2
+)
+SELECT w.id, k.KB_KEY, w.depth, w.parent_id, w.note
+FROM walk w JOIN kbs k ON k.KB_ID = w.id
+ORDER BY w.depth ASC";
 
 // ---------------------------------------------------------------------------
 // SqliteStore helpers
@@ -655,6 +729,153 @@ impl VectorStore for SqliteStore {
 
         Ok(results)
     }
+}
+
+// ---------------------------------------------------------------------------
+// KbGraph implementation
+// ---------------------------------------------------------------------------
+
+impl KbGraph for SqliteStore {
+    fn initialize_graph(&self) -> Result<(), Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        for ddl in &[
+            CREATE_KB_EDGES_TABLE,
+            CREATE_INDEX_EDGES_FROM,
+            CREATE_INDEX_EDGES_TO,
+            CREATE_TRIGGER_AD_EDGES,
+        ] {
+            conn.execute_batch(ddl)
+                .map_err(|e| Error::StorageInitError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn add_edge(&self, edge: &KbEdge) -> Result<(), Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        conn.execute(
+            INSERT_EDGE,
+            params![
+                edge.id,
+                edge.from_id,
+                edge.to_id,
+                edge.note,
+                edge.created_on
+            ],
+        )
+        .map_err(|e| {
+            if e.to_string().contains("UNIQUE constraint failed") {
+                Error::DuplicateEdgeError
+            } else {
+                Error::AddEdgeError(e.to_string())
+            }
+        })?;
+        Ok(())
+    }
+
+    fn remove_edge(&self, params: &RemoveEdgeParams) -> Result<bool, Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let rows = conn
+            .execute(DELETE_EDGE, params![params.from_id, params.to_id])
+            .map_err(|e| Error::RemoveEdgeError(e.to_string()))?;
+        Ok(rows > 0)
+    }
+
+    fn get_related(&self, query: &RelatedQuery) -> Result<RelatedEdges, Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut result = RelatedEdges::default();
+
+        if query.direction != EdgeDirection::In {
+            let mut stmt = conn
+                .prepare(GET_OUTGOING_EDGES)
+                .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+            result.outgoing = stmt
+                .query_map(params![query.kb_id], row_to_outgoing_edge)
+                .map_err(|e| Error::GraphQueryError(e.to_string()))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+        }
+
+        if query.direction != EdgeDirection::Out {
+            let mut stmt = conn
+                .prepare(GET_INCOMING_EDGES)
+                .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+            result.incoming = stmt
+                .query_map(params![query.kb_id], row_to_incoming_edge)
+                .map_err(|e| Error::GraphQueryError(e.to_string()))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+        }
+
+        Ok(result)
+    }
+
+    fn get_tree(&self, query: &TreeQuery) -> Result<Vec<TreeNode>, Error> {
+        let (child_col, parent_col) = match query.direction {
+            EdgeDirection::Out => ("TO_KB_ID", "FROM_KB_ID"),
+            EdgeDirection::In => ("FROM_KB_ID", "TO_KB_ID"),
+            EdgeDirection::Both => {
+                return Err(Error::GraphQueryError(
+                    "direction must be 'out' or 'in' for tree traversal".to_string(),
+                ));
+            }
+        };
+        let sql = GET_TREE_TPL
+            .replace("{child_col}", child_col)
+            .replace("{parent_col}", parent_col);
+
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+        let nodes = stmt
+            .query_map(params![query.kb_id, query.depth], row_to_tree_node)
+            .map_err(|e| Error::GraphQueryError(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+        Ok(nodes)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Graph row helpers
+// ---------------------------------------------------------------------------
+
+fn row_to_outgoing_edge(row: &rusqlite::Row) -> rusqlite::Result<OutgoingEdge> {
+    Ok(OutgoingEdge {
+        edge_id: row.get(0)?,
+        note: row.get(1)?,
+        created_on: row.get(2)?,
+        to: GraphNode {
+            id: row.get(3)?,
+            key: row.get(4)?,
+            category: row.get(5)?,
+            namespace: row.get(6)?,
+        },
+    })
+}
+
+fn row_to_incoming_edge(row: &rusqlite::Row) -> rusqlite::Result<IncomingEdge> {
+    Ok(IncomingEdge {
+        edge_id: row.get(0)?,
+        note: row.get(1)?,
+        created_on: row.get(2)?,
+        from: GraphNode {
+            id: row.get(3)?,
+            key: row.get(4)?,
+            category: row.get(5)?,
+            namespace: row.get(6)?,
+        },
+    })
+}
+
+fn row_to_tree_node(row: &rusqlite::Row) -> rusqlite::Result<TreeNode> {
+    Ok(TreeNode {
+        id: row.get(0)?,
+        key: row.get(1)?,
+        depth: row.get(2)?,
+        parent_id: row.get(3)?,
+        note: row.get(4)?,
+    })
 }
 
 // ---------------------------------------------------------------------------

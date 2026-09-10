@@ -1,13 +1,15 @@
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 use crate::domain::{
-    ExportKbItem, ExportMediaParams, ImportKbItem, KbFilter, KbUpdate, MediaPathParams, NewKb,
-    ScoredKbItem, SemanticQuery, TagSuggestionInput, is_media_category, media_file_path,
-    suggest_tags,
+    EdgeDirection, ExportKbItem, ExportMediaParams, ImportKbItem, KbFilter, KbUpdate, LinkParams,
+    MediaPathParams, NewKb, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput,
+    TreeNode, TreeResult, TreeWalkParams, is_media_category, media_file_path, suggest_tags,
 };
 use crate::errors::Error;
-use crate::ports::{EmbeddingProvider, KbStore, MediaFetcher, MediaStore, VectorStore};
-use crate::service::KBService;
+use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
+use crate::service::{GraphService, KBService};
 
 // ---------------------------------------------------------------------------
 // Parameter structs (satisfy the 2-param rule)
@@ -55,6 +57,24 @@ pub struct ExportParams {
     pub namespace: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+pub struct UnlinkParams {
+    pub from: String,
+    pub to: String,
+}
+
+pub struct RelatedParams {
+    pub key_or_id: String,
+    pub direction: String,
+    pub json: bool,
+}
+
+pub struct TreeParams {
+    pub key_or_id: String,
+    pub direction: String,
+    pub depth: i64,
+    pub json: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -813,6 +833,178 @@ fn print_scored_row(scored: &ScoredKbItem) {
         ns = COL_NS,
         tags = COL_TAGS,
     );
+}
+
+// ---------------------------------------------------------------------------
+// Graph handlers
+// ---------------------------------------------------------------------------
+
+pub fn handle_link<S: KbStore, G: KbGraph>(
+    graph_svc: &GraphService<S, G>,
+    params: LinkParams,
+) -> Result<(), Error> {
+    let edge = graph_svc.link(params)?;
+    println!("Linked: {} -> {} ({})", edge.from_id, edge.to_id, edge.id);
+    Ok(())
+}
+
+pub fn handle_unlink<S: KbStore, G: KbGraph>(
+    graph_svc: &GraphService<S, G>,
+    params: UnlinkParams,
+) -> Result<(), Error> {
+    graph_svc.unlink(&params.from, &params.to)?;
+    println!("Unlinked: {} -> {}", params.from, params.to);
+    Ok(())
+}
+
+pub fn handle_related<S: KbStore, G: KbGraph>(
+    graph_svc: &GraphService<S, G>,
+    params: RelatedParams,
+) -> Result<(), Error> {
+    let direction: EdgeDirection = params.direction.parse().map_err(Error::GraphQueryError)?;
+    let result = graph_svc.related(&params.key_or_id, direction)?;
+    if params.json {
+        let json = serde_json::to_string_pretty(&result)
+            .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+        println!("{json}");
+    } else {
+        print!("{}", render_related(&result, direction));
+    }
+    Ok(())
+}
+
+pub fn handle_tree<S: KbStore, G: KbGraph>(
+    graph_svc: &GraphService<S, G>,
+    params: TreeParams,
+) -> Result<(), Error> {
+    let direction: EdgeDirection = params.direction.parse().map_err(Error::GraphQueryError)?;
+    let result = graph_svc.tree(TreeWalkParams {
+        key_or_id: params.key_or_id,
+        direction,
+        depth: params.depth,
+    })?;
+    if params.json {
+        let json = serde_json::to_string_pretty(&result)
+            .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+        println!("{json}");
+    } else {
+        print!("{}", render_tree(&result));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Graph render helpers (pure — unit-tested without capturing stdout)
+// ---------------------------------------------------------------------------
+
+/// Max NOTE length in human-readable output before truncation with an
+/// ellipsis. `--json` output always carries the full text.
+const NOTE_TRUNCATE_LEN: usize = 40;
+const TREE_COL_KEY: usize = 12;
+
+/// Truncates to `NOTE_TRUNCATE_LEN` *characters* (not bytes), char-safe via
+/// `.chars()` — same technique as `Kb::embedding_text`'s `.chars().take(200)`.
+fn truncate_note(note: &str) -> String {
+    if note.chars().count() <= NOTE_TRUNCATE_LEN {
+        return note.to_string();
+    }
+    let head: String = note.chars().take(NOTE_TRUNCATE_LEN - 1).collect();
+    format!("{head}…")
+}
+
+fn render_related(result: &RelatedResult, direction: EdgeDirection) -> String {
+    let mut out = String::new();
+    if direction != EdgeDirection::In {
+        out.push_str(&format!(
+            "→ {} points to ({})\n",
+            result.node.key,
+            result.outgoing.len()
+        ));
+        for e in &result.outgoing {
+            out.push_str(&format!(
+                "  {:<key$}  {:<cat$}  \"{}\"\n",
+                e.to.key,
+                e.to.category,
+                truncate_note(&e.note),
+                key = COL_KEY,
+                cat = COL_CAT,
+            ));
+        }
+        out.push('\n');
+    }
+    if direction != EdgeDirection::Out {
+        out.push_str(&format!(
+            "← pointed to by {} ({})\n",
+            result.node.key,
+            result.incoming.len()
+        ));
+        for e in &result.incoming {
+            out.push_str(&format!(
+                "  {:<key$}  {:<cat$}  \"{}\"\n",
+                e.from.key,
+                e.from.category,
+                truncate_note(&e.note),
+                key = COL_KEY,
+                cat = COL_CAT,
+            ));
+        }
+    }
+    out
+}
+
+fn render_tree(result: &TreeResult) -> String {
+    TreeRenderer::new(&result.nodes).render(&result.root.key, &result.root.id)
+}
+
+/// Groups the flat `TreeNode` list by `parent_id` once, then walks it
+/// depth-first drawing `├── `/`└── `/`│   ` branches. A struct (not a
+/// free function with 4 params) keeps every method within the 2-param rule.
+struct TreeRenderer<'a> {
+    children: HashMap<&'a str, Vec<&'a TreeNode>>,
+    out: String,
+}
+
+impl<'a> TreeRenderer<'a> {
+    fn new(nodes: &'a [TreeNode]) -> Self {
+        let mut children: HashMap<&str, Vec<&TreeNode>> = HashMap::new();
+        for node in nodes {
+            children
+                .entry(node.parent_id.as_str())
+                .or_default()
+                .push(node);
+        }
+        Self {
+            children,
+            out: String::new(),
+        }
+    }
+
+    fn render(mut self, root_key: &str, root_id: &str) -> String {
+        self.out.push_str(root_key);
+        self.out.push('\n');
+        self.render_children(root_id, "");
+        self.out
+    }
+
+    fn render_children(&mut self, parent_id: &str, prefix: &str) {
+        let kids: Vec<&TreeNode> = match self.children.get(parent_id) {
+            Some(k) => k.clone(),
+            None => return,
+        };
+        let last_idx = kids.len().saturating_sub(1);
+        for (i, node) in kids.iter().enumerate() {
+            let is_last = i == last_idx;
+            let branch = if is_last { "└── " } else { "├── " };
+            self.out.push_str(&format!(
+                "{prefix}{branch}{:<width$} \"{}\"\n",
+                node.key,
+                truncate_note(&node.note),
+                width = TREE_COL_KEY,
+            ));
+            let child_prefix = format!("{prefix}{}", if is_last { "    " } else { "│   " });
+            self.render_children(&node.id, &child_prefix);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
