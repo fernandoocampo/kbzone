@@ -4,8 +4,9 @@ use serde::Deserialize;
 
 use crate::domain::{
     EdgeDirection, ExportKbItem, ExportMediaParams, ImportKbItem, KbFilter, KbUpdate, LinkParams,
-    MediaPathParams, NewKb, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput,
-    TreeNode, TreeResult, TreeWalkParams, is_media_category, media_file_path, suggest_tags,
+    MediaPathParams, NewKb, OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery,
+    TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, is_media_category, media_file_path,
+    suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -19,6 +20,7 @@ pub struct GetParams {
     pub key: Option<String>,
     pub id: Option<String>,
     pub base_dir: String,
+    pub out: Option<String>,
 }
 
 pub struct ImportParams {
@@ -420,6 +422,13 @@ pub fn handle_get<
     svc: &KBService<S, V, E, M, F>,
     params: GetParams,
 ) -> Result<(), Error> {
+    let format: Option<OutputFormat> = params
+        .out
+        .as_deref()
+        .map(str::parse)
+        .transpose()
+        .map_err(Error::GetKBError)?;
+
     let kb = match (params.key, params.id) {
         (Some(k), _) => svc.get_kb_by_key(&k)?,
         (_, Some(i)) => svc.get_kb_by_id(&i)?,
@@ -430,19 +439,31 @@ pub fn handle_get<
     };
 
     match kb {
-        Some(kb) => {
-            print!("{kb}");
-            if is_media_category(&kb.category) {
-                let path = media_file_path(&MediaPathParams {
-                    base_dir: &params.base_dir,
-                    namespace: &kb.namespace,
-                    path: kb.path.as_deref(),
-                    key: &kb.key,
-                    extension: kb.media_extension.as_deref(),
-                });
-                println!("Media File : {}", path);
+        Some(kb) => match format {
+            Some(OutputFormat::Json) => {
+                let json = serde_json::to_string_pretty(&kb)
+                    .map_err(|e| Error::GetKBError(e.to_string()))?;
+                println!("{json}");
             }
-        }
+            Some(OutputFormat::Yaml) => {
+                let yaml =
+                    serde_yaml::to_string(&kb).map_err(|e| Error::GetKBError(e.to_string()))?;
+                print!("{yaml}");
+            }
+            None => {
+                print!("{kb}");
+                if is_media_category(&kb.category) {
+                    let path = media_file_path(&MediaPathParams {
+                        base_dir: &params.base_dir,
+                        namespace: &kb.namespace,
+                        path: kb.path.as_deref(),
+                        key: &kb.key,
+                        extension: kb.media_extension.as_deref(),
+                    });
+                    println!("Media File : {}", path);
+                }
+            }
+        },
         None => println!("Not found."),
     }
     Ok(())

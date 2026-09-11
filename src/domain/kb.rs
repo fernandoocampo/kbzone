@@ -21,7 +21,7 @@ pub fn file_extension(path: &str) -> Option<String> {
 }
 
 /// Full KB entity as stored in the database.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Kb {
     /// Internal UUID, auto-generated on creation.
     pub id: String,
@@ -90,6 +90,28 @@ impl std::fmt::Display for Kb {
             writeln!(f, "Notes     :\n{}", self.notes)?;
         }
         Ok(())
+    }
+}
+
+/// Structured output format for `kb get --out`. Absence of `--out` (plain
+/// text) is represented as `None` at the call site, not as a variant here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    Json,
+    Yaml,
+}
+
+impl std::str::FromStr for OutputFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "json" => Ok(OutputFormat::Json),
+            "yaml" => Ok(OutputFormat::Yaml),
+            other => Err(format!(
+                "invalid output format: {other} (expected json|yaml)"
+            )),
+        }
     }
 }
 

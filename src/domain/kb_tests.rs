@@ -331,3 +331,19 @@ fn media_file_path_with_empty_path() {
     let result = media_file_path(&params);
     assert_eq!(result, "/home/user/kbzona/media/test/file.txt");
 }
+
+#[test]
+fn output_format_from_str_json() {
+    assert_eq!("json".parse::<OutputFormat>(), Ok(OutputFormat::Json));
+}
+
+#[test]
+fn output_format_from_str_yaml() {
+    assert_eq!("yaml".parse::<OutputFormat>(), Ok(OutputFormat::Yaml));
+}
+
+#[test]
+fn output_format_from_str_invalid_returns_error() {
+    let result = "xml".parse::<OutputFormat>();
+    assert!(result.is_err());
+}

@@ -66,6 +66,9 @@ pub enum Command {
 
         #[arg(long, help = "UUID", conflicts_with = "key")]
         id: Option<String>,
+
+        #[arg(long, help = "Output format: json | yaml (default: plain text)")]
+        out: Option<String>,
     },
 
     /// Update an existing entry (identified by --id).

@@ -24,8 +24,8 @@ pub use graph::{
 };
 pub use kb::{
     EmbeddingInput, ExportKbItem, ExportMediaParams, FailedImportItem, ImportBatchResult,
-    ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb, ReindexResult,
-    ScoredKbItem, SemanticQuery, StoreMediaParams, file_extension, is_media_category,
-    media_file_path, normalize_path,
+    ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb, OutputFormat,
+    ReindexResult, ScoredKbItem, SemanticQuery, StoreMediaParams, file_extension,
+    is_media_category, media_file_path, normalize_path,
 };
 pub use tag_suggestion::{TagSuggestionInput, suggest_tags};

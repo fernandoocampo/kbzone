@@ -8,7 +8,7 @@ local SQLite file. The binary is named `kb`.
 ### CLI Commands
 
 - `kb add`                     — Add a new entry (also indexes embedding); flags include `--path` (optional Unix-style path, leading `/` auto-added)
-- `kb get`                     — Fetch a single entry by key or ID; displays `path` if set
+- `kb get`                     — Fetch a single entry by key or ID; displays `path` if set; flags: `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb update`                  — Update an entry (also re-indexes embedding); flags include `--path` (empty string clears the path)
 - `kb delete`                  — Delete an entry (also removes embedding)
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`; uses FTS5 when `--keyword` is set, otherwise a regular SQL filter

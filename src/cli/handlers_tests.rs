@@ -635,3 +635,124 @@ fn render_tree_draws_branches_for_a_multi_level_hierarchy() {
     assert!(lines[4].starts_with("└── chassis"));
     assert!(lines[4].contains("car is built on a chassis"));
 }
+
+fn seed_kb(
+    svc: &KBService<
+        MockKbStore,
+        MockVectorStore,
+        MockEmbeddingProvider,
+        MockMediaStore,
+        MockMediaFetcher,
+    >,
+    key: &str,
+) {
+    svc.add_kb(NewKb {
+        key: key.to_string(),
+        value: "test-value".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        reference: String::new(),
+        namespace: "rust".to_string(),
+        tags: Vec::new(),
+        parent: None,
+        path: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .expect("seed add_kb should succeed");
+}
+
+#[test]
+fn handle_get_found_no_out_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "get-test-key");
+    let params = GetParams {
+        key: Some("get-test-key".to_string()),
+        id: None,
+        base_dir: String::new(),
+        out: None,
+    };
+    let result = handle_get(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_get_found_out_json_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "get-test-json");
+    let params = GetParams {
+        key: Some("get-test-json".to_string()),
+        id: None,
+        base_dir: String::new(),
+        out: Some("json".to_string()),
+    };
+    let result = handle_get(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_get_found_out_yaml_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "get-test-yaml");
+    let params = GetParams {
+        key: Some("get-test-yaml".to_string()),
+        id: None,
+        base_dir: String::new(),
+        out: Some("yaml".to_string()),
+    };
+    let result = handle_get(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_get_not_found_returns_ok() {
+    let svc = make_svc();
+    let params = GetParams {
+        key: Some("no-such-key".to_string()),
+        id: None,
+        base_dir: String::new(),
+        out: None,
+    };
+    let result = handle_get(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_get_not_found_with_out_json_returns_ok() {
+    let svc = make_svc();
+    let params = GetParams {
+        key: Some("no-such-key".to_string()),
+        id: None,
+        base_dir: String::new(),
+        out: Some("json".to_string()),
+    };
+    let result = handle_get(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_get_invalid_out_value_returns_error() {
+    let svc = make_svc();
+    seed_kb(&svc, "get-test-invalid-out");
+    let params = GetParams {
+        key: Some("get-test-invalid-out".to_string()),
+        id: None,
+        base_dir: String::new(),
+        out: Some("xml".to_string()),
+    };
+    let result = handle_get(&svc, params);
+    assert!(matches!(result, Err(Error::GetKBError(_))));
+}
+
+#[test]
+fn handle_get_no_key_no_id_returns_error() {
+    let svc = make_svc();
+    let params = GetParams {
+        key: None,
+        id: None,
+        base_dir: String::new(),
+        out: None,
+    };
+    let result = handle_get(&svc, params);
+    assert!(matches!(result, Err(Error::GetKBError(_))));
+}

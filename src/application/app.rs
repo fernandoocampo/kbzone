@@ -110,12 +110,13 @@ impl App {
                 },
             )?,
 
-            Command::Get { key, id } => handlers::handle_get(
+            Command::Get { key, id, out } => handlers::handle_get(
                 &self.svc,
                 GetParams {
                     key,
                     id,
                     base_dir: self.base_dir.clone(),
+                    out,
                 },
             )?,
 
