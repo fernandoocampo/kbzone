@@ -163,6 +163,9 @@ pub enum Command {
             help = "Maximum distance to include (0.0–1.0). Lower = stricter matching. Results with a distance above this threshold are excluded. Use a higher value (e.g. 0.95) to see more results."
         )]
         threshold: f32,
+
+        #[arg(long, help = "Output format: json | yaml (default: plain text)")]
+        out: Option<String>,
     },
 
     /// Re-generate embeddings for all existing KB entries.

@@ -201,7 +201,7 @@ pub struct KbItem {
 }
 
 /// A KbItem paired with its semantic similarity distance (lower = more similar).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ScoredKbItem {
     pub item: KbItem,
     pub score: f32,

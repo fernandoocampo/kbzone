@@ -808,3 +808,42 @@ fn handle_search_invalid_out_value_returns_error() {
     let result = handle_search(&svc, search_params(Some("xml")));
     assert!(matches!(result, Err(Error::SearchError(_))));
 }
+
+fn ask_params(out: Option<&str>) -> AskParams {
+    AskParams {
+        query: crate::domain::SemanticQuery {
+            text: "test query".to_string(),
+            limit: Some(10),
+            threshold: Some(0.9),
+        },
+        out: out.map(str::to_string),
+    }
+}
+
+#[test]
+fn handle_ask_no_out_succeeds() {
+    let svc = make_svc();
+    let result = handle_ask(&svc, ask_params(None));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_ask_out_json_succeeds() {
+    let svc = make_svc();
+    let result = handle_ask(&svc, ask_params(Some("json")));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_ask_out_yaml_succeeds() {
+    let svc = make_svc();
+    let result = handle_ask(&svc, ask_params(Some("yaml")));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_ask_invalid_out_value_returns_error() {
+    let svc = make_svc();
+    let result = handle_ask(&svc, ask_params(Some("xml")));
+    assert!(matches!(result, Err(Error::VectorSearchError(_))));
+}

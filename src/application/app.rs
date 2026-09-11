@@ -7,7 +7,7 @@ use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
 use crate::cli::handlers::{
-    self, AddParams, ExportParams, GetParams, ImportParams, RelatedParams, SearchParams,
+    self, AddParams, AskParams, ExportParams, GetParams, ImportParams, RelatedParams, SearchParams,
     TreeParams, UnlinkParams,
 };
 use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
@@ -176,12 +176,16 @@ impl App {
                 query,
                 limit,
                 threshold,
+                out,
             } => handlers::handle_ask(
                 &self.svc,
-                SemanticQuery {
-                    text: query,
-                    limit: Some(limit),
-                    threshold: Some(threshold),
+                AskParams {
+                    query: SemanticQuery {
+                        text: query,
+                        limit: Some(limit),
+                        threshold: Some(threshold),
+                    },
+                    out,
                 },
             )?,
 

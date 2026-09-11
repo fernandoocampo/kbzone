@@ -39,6 +39,11 @@ pub struct SearchParams {
     pub out: Option<String>,
 }
 
+pub struct AskParams {
+    pub query: SemanticQuery,
+    pub out: Option<String>,
+}
+
 pub struct AddParams {
     pub key: Option<String>,
     pub value: Option<String>,
@@ -616,8 +621,16 @@ pub fn handle_ask<
     F: MediaFetcher,
 >(
     svc: &KBService<S, V, E, M, F>,
-    query: SemanticQuery,
+    params: AskParams,
 ) -> Result<(), Error> {
+    let format: Option<OutputFormat> = params
+        .out
+        .as_deref()
+        .map(str::parse)
+        .transpose()
+        .map_err(Error::VectorSearchError)?;
+
+    let query = params.query;
     let limit_display = query
         .limit
         .map_or_else(|| "default".to_string(), |l| l.to_string());
@@ -627,6 +640,23 @@ pub fn handle_ask<
     let start = std::time::Instant::now();
     let results = svc.ask(&query)?;
     let elapsed = start.elapsed();
+
+    match format {
+        Some(OutputFormat::Json) => {
+            let json = serde_json::to_string_pretty(&results)
+                .map_err(|e| Error::VectorSearchError(e.to_string()))?;
+            println!("{json}");
+            return Ok(());
+        }
+        Some(OutputFormat::Yaml) => {
+            let yaml = serde_yaml::to_string(&results)
+                .map_err(|e| Error::VectorSearchError(e.to_string()))?;
+            print!("{yaml}");
+            return Ok(());
+        }
+        None => {}
+    }
+
     println!(
         "Query: \"{}\"  Limit: {}  Threshold: {}",
         query.text, limit_display, threshold_display
