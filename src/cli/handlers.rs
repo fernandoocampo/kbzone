@@ -36,6 +36,7 @@ pub struct SearchParams {
     pub reference: Option<String>,
     pub limit: i64,
     pub offset: i64,
+    pub out: Option<String>,
 }
 
 pub struct AddParams {
@@ -516,6 +517,13 @@ pub fn handle_search<
     svc: &KBService<S, V, E, M, F>,
     params: SearchParams,
 ) -> Result<(), Error> {
+    let format: Option<OutputFormat> = params
+        .out
+        .as_deref()
+        .map(str::parse)
+        .transpose()
+        .map_err(Error::SearchError)?;
+
     let mut parts: Vec<String> = Vec::new();
     if let Some(ref k) = params.keyword {
         parts.push(format!("keyword={k}"));
@@ -554,6 +562,22 @@ pub fn handle_search<
     let start = std::time::Instant::now();
     let items = svc.get_kbs(filter)?;
     let elapsed = start.elapsed();
+
+    match format {
+        Some(OutputFormat::Json) => {
+            let json = serde_json::to_string_pretty(&items)
+                .map_err(|e| Error::SearchError(e.to_string()))?;
+            println!("{json}");
+            return Ok(());
+        }
+        Some(OutputFormat::Yaml) => {
+            let yaml =
+                serde_yaml::to_string(&items).map_err(|e| Error::SearchError(e.to_string()))?;
+            print!("{yaml}");
+            return Ok(());
+        }
+        None => {}
+    }
 
     println!(
         "Offset: {}  Limit: {}  Filters: {}",

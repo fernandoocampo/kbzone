@@ -191,7 +191,7 @@ pub struct KbFilter {
 }
 
 /// Lightweight result row for list / search output.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct KbItem {
     pub id: String,
     pub key: String,

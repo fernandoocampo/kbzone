@@ -144,6 +144,9 @@ pub enum Command {
 
         #[arg(long, default_value = "0", help = "Row offset for pagination")]
         offset: i64,
+
+        #[arg(long, help = "Output format: json | yaml (default: plain text)")]
+        out: Option<String>,
     },
 
     /// Semantic / vector search using natural language.

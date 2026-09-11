@@ -756,3 +756,55 @@ fn handle_get_no_key_no_id_returns_error() {
     let result = handle_get(&svc, params);
     assert!(matches!(result, Err(Error::GetKBError(_))));
 }
+
+fn search_params(out: Option<&str>) -> SearchParams {
+    SearchParams {
+        keyword: None,
+        category: None,
+        namespace: None,
+        tags: Vec::new(),
+        reference: None,
+        limit: 20,
+        offset: 0,
+        out: out.map(str::to_string),
+    }
+}
+
+#[test]
+fn handle_search_no_out_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-plain");
+    let result = handle_search(&svc, search_params(None));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_search_out_json_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-json");
+    let result = handle_search(&svc, search_params(Some("json")));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_search_out_yaml_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-yaml");
+    let result = handle_search(&svc, search_params(Some("yaml")));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_search_empty_results_out_json_succeeds() {
+    let svc = make_svc();
+    let result = handle_search(&svc, search_params(Some("json")));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_search_invalid_out_value_returns_error() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-invalid-out");
+    let result = handle_search(&svc, search_params(Some("xml")));
+    assert!(matches!(result, Err(Error::SearchError(_))));
+}

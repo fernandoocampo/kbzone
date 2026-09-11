@@ -157,6 +157,7 @@ impl App {
                 reference,
                 limit,
                 offset,
+                out,
             } => handlers::handle_search(
                 &self.svc,
                 SearchParams {
@@ -167,6 +168,7 @@ impl App {
                     reference,
                     limit,
                     offset,
+                    out,
                 },
             )?,
 
