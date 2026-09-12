@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::domain::{
-    EdgeDirection, ExportEdgeItem, GraphExport, GraphExportEdge, GraphExportNode, GraphNode,
-    GraphViewParams, Kb, KbEdge, KbFilter, LinkParams, NewKbEdge, RelatedQuery, RelatedResult,
-    RemoveEdgeParams, TreeQuery, TreeResult, TreeRoot, TreeWalkParams,
+    EdgeDirection, ExportEdgeItem, FailedImportEdgeItem, GraphExport, GraphExportEdge,
+    GraphExportNode, GraphNode, GraphViewParams, ImportEdgeBatchResult, ImportEdgeItem, Kb, KbEdge,
+    KbFilter, LinkParams, NewKbEdge, RelatedQuery, RelatedResult, RemoveEdgeParams, TreeQuery,
+    TreeResult, TreeRoot, TreeWalkParams,
 };
 use crate::errors::Error;
 use crate::ports::{KbGraph, KbStore};
@@ -37,6 +38,60 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
         });
         self.graph.add_edge(&edge)?;
         Ok(edge)
+    }
+
+    /// Batch-imports edges from a `kb import` document's `graph` section.
+    /// Mirrors `KBService::import_kbs`'s philosophy: per-item failures
+    /// (unresolved key, self-loop, duplicate edge, or any other store
+    /// error) are collected as `FailedImportEdgeItem`s rather than
+    /// aborting the batch — this never returns `Err`.
+    pub fn import_edges(&self, items: Vec<ImportEdgeItem>) -> ImportEdgeBatchResult {
+        let mut saved = Vec::new();
+        let mut failed = Vec::new();
+
+        for item in items {
+            let from = match self.resolve(&item.from_key) {
+                Ok(kb) => kb,
+                Err(e) => {
+                    failed.push(FailedImportEdgeItem {
+                        reason: format!("from key/id not found: {} ({})", item.from_key, e),
+                        item,
+                    });
+                    continue;
+                }
+            };
+            let to = match self.resolve(&item.to_key) {
+                Ok(kb) => kb,
+                Err(e) => {
+                    failed.push(FailedImportEdgeItem {
+                        reason: format!("to key/id not found: {} ({})", item.to_key, e),
+                        item,
+                    });
+                    continue;
+                }
+            };
+            if from.id == to.id {
+                failed.push(FailedImportEdgeItem {
+                    reason: Error::SelfLoopNotAllowed.to_string(),
+                    item,
+                });
+                continue;
+            }
+            let edge = KbEdge::from(NewKbEdge {
+                from_id: from.id,
+                to_id: to.id,
+                note: item.note.clone(),
+            });
+            match self.graph.add_edge(&edge) {
+                Ok(()) => saved.push(edge),
+                Err(e) => failed.push(FailedImportEdgeItem {
+                    reason: e.to_string(),
+                    item,
+                }),
+            }
+        }
+
+        ImportEdgeBatchResult { saved, failed }
     }
 
     /// Resolves both ends and removes the edge in that exact direction.

@@ -8,7 +8,7 @@ use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
 use crate::cli::handlers::{
     self, AddParams, AskParams, ExportParams, ExportServices, GetParams, GraphViewCliParams,
-    ImportParams, RelatedParams, SearchParams, TreeParams, UnlinkParams,
+    ImportParams, ImportServices, RelatedParams, SearchParams, TreeParams, UnlinkParams,
 };
 use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
 use crate::errors::AppError;
@@ -222,11 +222,16 @@ impl App {
             Command::Import {
                 file,
                 failed_items_file,
+                failed_edges_file,
             } => handlers::handle_import(
-                &self.svc,
+                ImportServices {
+                    svc: &self.svc,
+                    graph_svc: &self.graph_svc,
+                },
                 ImportParams {
                     file,
                     failed_items_file,
+                    failed_edges_file,
                 },
             )?,
 

@@ -731,3 +731,132 @@ fn export_edges_sorts_output_deterministically() {
     assert_eq!(edges[0].from_key, "apple");
     assert_eq!(edges[1].from_key, "zebra");
 }
+
+// ---------------------------------------------------------------------------
+// import_edges tests
+// ---------------------------------------------------------------------------
+
+fn make_import_edge_item(from_key: &str, to_key: &str, note: &str) -> ImportEdgeItem {
+    ImportEdgeItem {
+        from_key: from_key.to_string(),
+        to_key: to_key.to_string(),
+        note: note.to_string(),
+    }
+}
+
+#[test]
+fn import_edges_resolves_keys_and_creates_edge() {
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let result = svc.import_edges(vec![make_import_edge_item(
+        "car",
+        "engine",
+        "has an engine",
+    )]);
+
+    assert_eq!(result.saved.len(), 1);
+    assert!(result.failed.is_empty());
+    assert_eq!(result.saved[0].from_id, "car-id");
+    assert_eq!(result.saved[0].to_id, "engine-id");
+    assert_eq!(result.saved[0].note, "has an engine");
+}
+
+#[test]
+fn import_edges_resolves_id_when_key_lookup_fails() {
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let result = svc.import_edges(vec![make_import_edge_item("car-id", "engine-id", "")]);
+
+    assert_eq!(result.saved.len(), 1);
+    assert_eq!(result.saved[0].from_id, "car-id");
+    assert_eq!(result.saved[0].to_id, "engine-id");
+}
+
+#[test]
+fn import_edges_reports_failure_when_from_key_not_found() {
+    let store = MockKbStore::with(vec![make_kb("engine-id", "engine")]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let result = svc.import_edges(vec![make_import_edge_item("no-such", "engine", "")]);
+
+    assert!(result.saved.is_empty());
+    assert_eq!(result.failed.len(), 1);
+    assert!(result.failed[0].reason.contains("from"));
+}
+
+#[test]
+fn import_edges_reports_failure_when_to_key_not_found() {
+    let store = MockKbStore::with(vec![make_kb("car-id", "car")]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let result = svc.import_edges(vec![make_import_edge_item("car", "no-such", "")]);
+
+    assert!(result.saved.is_empty());
+    assert_eq!(result.failed.len(), 1);
+    assert!(result.failed[0].reason.contains("to"));
+}
+
+#[test]
+fn import_edges_rejects_self_loop() {
+    let store = MockKbStore::with(vec![make_kb("car-id", "car")]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let result = svc.import_edges(vec![make_import_edge_item("car", "car", "")]);
+
+    assert!(result.saved.is_empty());
+    assert_eq!(result.failed.len(), 1);
+}
+
+#[test]
+fn import_edges_reports_duplicate_edge_as_failure() {
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let result = svc.import_edges(vec![
+        make_import_edge_item("car", "engine", "first"),
+        make_import_edge_item("car", "engine", "second"),
+    ]);
+
+    assert_eq!(result.saved.len(), 1);
+    assert_eq!(result.failed.len(), 1);
+}
+
+#[test]
+fn import_edges_processes_mixed_batch_independently() {
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let result = svc.import_edges(vec![
+        make_import_edge_item("car", "engine", "valid"),
+        make_import_edge_item("car", "no-such", "bad to"),
+        make_import_edge_item("car", "engine", "duplicate"),
+    ]);
+
+    assert_eq!(result.saved.len(), 1);
+    assert_eq!(result.failed.len(), 2);
+}
+
+#[test]
+fn import_edges_returns_empty_result_for_empty_input() {
+    let store = MockKbStore::with(vec![]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let result = svc.import_edges(vec![]);
+
+    assert!(result.saved.is_empty());
+    assert!(result.failed.is_empty());
+}

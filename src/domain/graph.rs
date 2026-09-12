@@ -8,7 +8,7 @@
 use chrono::Local;
 use uuid::Uuid;
 
-use crate::domain::kb::{ExportKbItem, Kb};
+use crate::domain::kb::{ExportKbItem, ImportKbItem, Kb};
 
 /// A directed relationship between two `Kb` entries, persisted in `kb_edges`.
 #[derive(Debug, Clone, PartialEq)]
@@ -295,6 +295,49 @@ pub struct ExportEdgeItem {
 pub struct ExportDocument {
     pub kbs: Vec<ExportKbItem>,
     pub graph: Vec<ExportEdgeItem>,
+}
+
+// ---------------------------------------------------------------------------
+// `kb import` input DTOs — deserializable counterparts to the `kb export`
+// output DTOs above. New format only: `kb import` reads the single-document
+// `kbs:`/`graph:` shape `kb export` writes; it does not understand the
+// previous `---`-separated stream of bare items.
+// ---------------------------------------------------------------------------
+
+/// Deserializable counterpart to `ExportEdgeItem` — one relationship read
+/// from a `kb import` document's `graph` section. `from_key`/`to_key` carry
+/// the same key-or-id-agnostic semantics as `LinkParams`:
+/// `GraphService::import_edges` resolves either via `GraphService::resolve`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ImportEdgeItem {
+    #[serde(rename = "From")]
+    pub from_key: String,
+    #[serde(rename = "To")]
+    pub to_key: String,
+    #[serde(rename = "Note", default)]
+    pub note: String,
+}
+
+/// Top-level shape `kb import` reads: mirrors `ExportDocument`, but
+/// deserializable. Either section defaults to empty when absent.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ImportDocument {
+    #[serde(default)]
+    pub kbs: Vec<ImportKbItem>,
+    #[serde(default)]
+    pub graph: Vec<ImportEdgeItem>,
+}
+
+/// Result of a batch edge-import operation.
+pub struct ImportEdgeBatchResult {
+    pub saved: Vec<KbEdge>,
+    pub failed: Vec<FailedImportEdgeItem>,
+}
+
+/// An edge that could not be imported, with the reason.
+pub struct FailedImportEdgeItem {
+    pub item: ImportEdgeItem,
+    pub reason: String,
 }
 
 #[cfg(test)]

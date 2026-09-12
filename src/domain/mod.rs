@@ -18,10 +18,11 @@ pub mod kb;
 pub mod tag_suggestion;
 
 pub use graph::{
-    EdgeDirection, ExportDocument, ExportEdgeItem, GraphExport, GraphExportEdge, GraphExportNode,
-    GraphNode, GraphViewParams, IncomingEdge, KbEdge, LinkParams, NewKbEdge, OutgoingEdge,
-    RelatedEdges, RelatedQuery, RelatedResult, RemoveEdgeParams, TreeNode, TreeQuery, TreeResult,
-    TreeRoot, TreeWalkParams,
+    EdgeDirection, ExportDocument, ExportEdgeItem, FailedImportEdgeItem, GraphExport,
+    GraphExportEdge, GraphExportNode, GraphNode, GraphViewParams, ImportDocument,
+    ImportEdgeBatchResult, ImportEdgeItem, IncomingEdge, KbEdge, LinkParams, NewKbEdge,
+    OutgoingEdge, RelatedEdges, RelatedQuery, RelatedResult, RemoveEdgeParams, TreeNode, TreeQuery,
+    TreeResult, TreeRoot, TreeWalkParams,
 };
 pub use kb::{
     EmbeddingInput, ExportKbItem, ExportMediaParams, FailedImportItem, ImportBatchResult,

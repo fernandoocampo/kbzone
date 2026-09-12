@@ -206,7 +206,7 @@ pub enum Command {
         offset: Option<i64>,
     },
 
-    /// Import KB entries from a multi-document YAML file.
+    /// Import KB entries and relationships from a YAML file (see `kb export`'s output shape).
     Import {
         #[arg(long, required = true, help = "Path to the YAML file to import")]
         file: String,
@@ -216,6 +216,12 @@ pub enum Command {
             help = "Output file for items that failed to import (same YAML format)"
         )]
         failed_items_file: String,
+        #[arg(
+            long,
+            default_value = "wrong-kb-edges.yaml",
+            help = "Output file for relationships that failed to import (same YAML format)"
+        )]
+        failed_edges_file: String,
     },
 
     /// Link two existing KB entries (creates a directed edge).

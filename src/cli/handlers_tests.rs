@@ -5,15 +5,20 @@ use std::collections::HashMap;
 
 // ---- Mock implementations ----
 
+// `data` is `Rc`-shared (not a bare `RefCell`) so that cloning a store
+// yields a handle to the *same* underlying data — mirroring how the real
+// `SqliteStore` shares one DB connection across `KBService`/`GraphService`.
+// This lets a test wire one store into both services and observe writes
+// made through either side (needed for the import round-trip test below).
 #[derive(Debug, Clone)]
 struct MockKbStore {
-    data: RefCell<HashMap<String, crate::domain::Kb>>,
+    data: std::rc::Rc<RefCell<HashMap<String, crate::domain::Kb>>>,
 }
 
 impl MockKbStore {
     fn new() -> Self {
         Self {
-            data: RefCell::new(HashMap::new()),
+            data: std::rc::Rc::new(RefCell::new(HashMap::new())),
         }
     }
 
@@ -235,63 +240,261 @@ fn write_temp_yaml(name: &str, content: &str) -> String {
     path
 }
 
+fn make_import_services() -> (
+    KBService<
+        MockKbStore,
+        MockVectorStore,
+        MockEmbeddingProvider,
+        MockMediaStore,
+        MockMediaFetcher,
+    >,
+    GraphService<MockKbStore, MockKbGraph>,
+) {
+    (
+        make_svc(),
+        GraphService::new(MockKbStore::new(), MockKbGraph::default()),
+    )
+}
+
+fn make_kb(id: &str, key: &str) -> crate::domain::Kb {
+    crate::domain::Kb {
+        id: id.to_string(),
+        key: key.to_string(),
+        value: "value".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        reference: String::new(),
+        namespace: "default".to_string(),
+        tags: vec![],
+        created_on: "2026-01-01T00:00:00+0000".to_string(),
+        parent: None,
+        path: None,
+        media_extension: None,
+    }
+}
+
 #[test]
 fn handle_import_returns_file_error_on_missing_file() {
-    let svc = make_svc();
+    let (svc, graph_svc) = make_import_services();
     let params = ImportParams {
         file: "/no/such/file.yaml".to_string(),
         failed_items_file: "/tmp/failed.yaml".to_string(),
+        failed_edges_file: "/tmp/failed_edges.yaml".to_string(),
     };
-    let result = handle_import(&svc, params);
+    let result = handle_import(
+        ImportServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     assert!(matches!(result, Err(Error::ImportFileError(_))));
 }
 
 #[test]
 fn handle_import_returns_parse_error_on_malformed_yaml() {
     let path = write_temp_yaml("malformed_test.yaml", "Key: [\nbad yaml{{{");
-    let svc = make_svc();
+    let (svc, graph_svc) = make_import_services();
     let params = ImportParams {
         file: path.clone(),
         failed_items_file: "/tmp/failed_malformed.yaml".to_string(),
+        failed_edges_file: "/tmp/failed_malformed_edges.yaml".to_string(),
     };
-    let result = handle_import(&svc, params);
+    let result = handle_import(
+        ImportServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     let _ = std::fs::remove_file(&path);
     assert!(matches!(result, Err(Error::ParseImportFileError(_))));
 }
 
 #[test]
 fn handle_import_succeeds_for_valid_file() {
-    let yaml = "Key: rust-ownership\nValue: memory management\n";
+    let yaml = "kbs:\n  - Key: rust-ownership\n    Value: memory management\n";
     let path = write_temp_yaml("valid_import_test.yaml", yaml);
-    let svc = make_svc();
+    let (svc, graph_svc) = make_import_services();
     let params = ImportParams {
         file: path.clone(),
         failed_items_file: "/tmp/failed_valid.yaml".to_string(),
+        failed_edges_file: "/tmp/failed_valid_edges.yaml".to_string(),
     };
-    let result = handle_import(&svc, params);
+    let result = handle_import(
+        ImportServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     let _ = std::fs::remove_file(&path);
     assert!(result.is_ok());
 }
 
 #[test]
 fn handle_import_writes_failed_items_in_yaml_format() {
-    let yaml = "Key: \nValue: memory management\n";
+    let yaml = "kbs:\n  - Key: \n    Value: memory management\n";
     let path = write_temp_yaml("failed_import_test.yaml", yaml);
     let failed_path = std::env::temp_dir()
         .join("failed_items_test.yaml")
         .to_string_lossy()
         .to_string();
-    let svc = make_svc();
+    let (svc, graph_svc) = make_import_services();
     let params = ImportParams {
         file: path.clone(),
         failed_items_file: failed_path.clone(),
+        failed_edges_file: "/tmp/failed_items_test_edges.yaml".to_string(),
     };
-    let result = handle_import(&svc, params);
+    let result = handle_import(
+        ImportServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     let _ = std::fs::remove_file(&path);
     assert!(result.is_ok());
     let failed_content = std::fs::read_to_string(&failed_path).unwrap_or_default();
     let _ = std::fs::remove_file(&failed_path);
     assert!(failed_content.contains("Value") || failed_content.contains("memory"));
+}
+
+#[test]
+fn handle_import_imports_edges_from_graph_section() {
+    let svc = make_svc();
+    let yaml = "kbs:\n  - Key: car\n    Value: a car\n  - Key: engine\n    Value: an engine\ngraph:\n  - From: car\n    To: engine\n    Note: has an engine\n";
+    let path = write_temp_yaml("import_with_edges_test.yaml", yaml);
+
+    let graph_store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
+    let mock_graph = MockKbGraph::default();
+    let graph_svc = GraphService::new(graph_store, mock_graph.clone());
+
+    let params = ImportParams {
+        file: path.clone(),
+        failed_items_file: "/tmp/import_edges_failed_items.yaml".to_string(),
+        failed_edges_file: "/tmp/import_edges_failed_edges.yaml".to_string(),
+    };
+    let result = handle_import(
+        ImportServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    let _ = std::fs::remove_file(&path);
+
+    assert!(result.is_ok());
+    assert_eq!(mock_graph.edges.borrow().len(), 1);
+}
+
+#[test]
+fn handle_import_reports_failed_edges_and_writes_failed_edges_file() {
+    let svc = make_svc();
+    let yaml = "kbs:\n  - Key: car\n    Value: a car\ngraph:\n  - From: car\n    To: no-such-key\n    Note: bad edge\n";
+    let path = write_temp_yaml("import_with_bad_edge_test.yaml", yaml);
+    let failed_edges_path = std::env::temp_dir()
+        .join("failed_edges_test.yaml")
+        .to_string_lossy()
+        .to_string();
+
+    let graph_store = MockKbStore::with(vec![make_kb("car-id", "car")]);
+    let graph_svc = GraphService::new(graph_store, MockKbGraph::default());
+
+    let params = ImportParams {
+        file: path.clone(),
+        failed_items_file: "/tmp/import_bad_edge_failed_items.yaml".to_string(),
+        failed_edges_file: failed_edges_path.clone(),
+    };
+    let result = handle_import(
+        ImportServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    let _ = std::fs::remove_file(&path);
+
+    assert!(result.is_ok());
+    let failed_content = std::fs::read_to_string(&failed_edges_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&failed_edges_path);
+    assert!(failed_content.contains("no-such-key"));
+}
+
+#[test]
+fn handle_import_end_to_end_round_trip_from_handle_export_output() {
+    // Export phase: two linked kbs, written by `handle_export`.
+    let export_svc = make_svc();
+    let kb_a = export_svc.add_kb(make_new_kb("car")).unwrap();
+    let kb_b = export_svc.add_kb(make_new_kb("engine")).unwrap();
+    let export_graph_store = MockKbStore::with(vec![kb_a.clone(), kb_b.clone()]);
+    let export_mock_graph = MockKbGraph::default();
+    export_mock_graph
+        .add_edge(&crate::domain::KbEdge {
+            id: "edge-1".to_string(),
+            from_id: kb_a.id.clone(),
+            to_id: kb_b.id.clone(),
+            note: "has an engine".to_string(),
+            created_on: "2026-01-01T00:00:00+0000".to_string(),
+        })
+        .unwrap();
+    let export_graph_svc = GraphService::new(export_graph_store, export_mock_graph);
+
+    let dir = unique_export_dir("roundtrip");
+    let export_params = ExportParams {
+        file_name: Some("out.yaml".to_string()),
+        folder_output: dir.clone(),
+        category: None,
+        namespace: None,
+        limit: None,
+        offset: None,
+    };
+    handle_export(
+        ExportServices {
+            svc: &export_svc,
+            graph_svc: &export_graph_svc,
+        },
+        export_params,
+    )
+    .unwrap();
+
+    // Import phase: fresh services sharing one store (mirrors `App::build()`
+    // wiring the same concrete `SqliteStore` into both `KBService` and
+    // `GraphService`), so edges can resolve kbs created earlier in the
+    // same import.
+    let shared_store = MockKbStore::new();
+    let import_svc = KBService::new(
+        shared_store.clone(),
+        ServiceDeps {
+            vector_store: MockVectorStore,
+            embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore,
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    );
+    let import_mock_graph = MockKbGraph::default();
+    let import_graph_svc = GraphService::new(shared_store, import_mock_graph.clone());
+
+    let import_params = ImportParams {
+        file: format!("{}/out.yaml", dir),
+        failed_items_file: "/tmp/rt_failed_items.yaml".to_string(),
+        failed_edges_file: "/tmp/rt_failed_edges.yaml".to_string(),
+    };
+    let result = handle_import(
+        ImportServices {
+            svc: &import_svc,
+            graph_svc: &import_graph_svc,
+        },
+        import_params,
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(result.is_ok());
+    assert_eq!(import_mock_graph.edges.borrow().len(), 1);
 }
 
 // ---------------------------------------------------------------------------

@@ -275,7 +275,10 @@ pub struct ImportKbItem {
     #[serde(rename = "Tags", default)]
     pub tags: Vec<String>,
     /// Key of the parent KB item. Resolved to internal UUID at import time.
-    #[serde(rename = "ParentKey", default)]
+    /// Accepts `Parent` too — the field name `kb export`'s `ExportKbItem`
+    /// writes it under — while still serializing back out as `ParentKey`
+    /// (used by the failed-items file format).
+    #[serde(rename = "ParentKey", alias = "Parent", default)]
     pub parent_key: Option<String>,
     #[serde(rename = "Path", default)]
     pub path: Option<String>,

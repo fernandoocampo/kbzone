@@ -155,6 +155,29 @@ fn import_kb_item_optional_fields_default_when_absent() {
     assert!(item.tags.is_empty());
 }
 
+#[test]
+fn import_kb_item_deserializes_parent_alias_from_yaml() {
+    let yaml = "Key: engine\nValue: v\nParent: car\n";
+    let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(item.parent_key, Some("car".to_string()));
+}
+
+#[test]
+fn import_kb_item_still_deserializes_parent_key_field() {
+    let yaml = "Key: engine\nValue: v\nParentKey: car\n";
+    let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(item.parent_key, Some("car".to_string()));
+}
+
+#[test]
+fn import_kb_item_still_serializes_as_parent_key() {
+    let mut item = make_import_item("engine", "v");
+    item.parent_key = Some("car".to_string());
+    let yaml = serde_yaml::to_string(&item).unwrap();
+    assert!(yaml.contains("ParentKey: car"));
+    assert!(!yaml.contains("Parent:"));
+}
+
 // ---------------------------------------------------------------------------
 // normalize_path tests
 // ---------------------------------------------------------------------------

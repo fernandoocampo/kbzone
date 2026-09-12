@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
-
 use crate::cli::{browser, graph_view};
 use crate::domain::{
-    EdgeDirection, ExportDocument, ExportMediaParams, GraphViewParams, ImportKbItem, KbFilter,
-    KbUpdate, LinkParams, MediaPathParams, NewKb, OutputFormat, RelatedResult, ScoredKbItem,
-    SemanticQuery, TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, is_media_category,
-    media_file_path, suggest_tags,
+    EdgeDirection, ExportDocument, ExportMediaParams, GraphViewParams, ImportDocument,
+    ImportEdgeItem, ImportKbItem, KbFilter, KbUpdate, LinkParams, MediaPathParams, NewKb,
+    OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
+    TreeResult, TreeWalkParams, is_media_category, media_file_path, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -27,6 +25,7 @@ pub struct GetParams {
 pub struct ImportParams {
     pub file: String,
     pub failed_items_file: String,
+    pub failed_edges_file: String,
 }
 
 pub struct SearchParams {
@@ -75,6 +74,22 @@ pub struct ExportParams {
 /// `store` field, mirroring how `App::build()` wires
 /// `GraphService::new(store.clone(), store)`.
 pub struct ExportServices<'a, S, V, E, M, F, G>
+where
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+    G: KbGraph,
+{
+    pub svc: &'a KBService<S, V, E, M, F>,
+    pub graph_svc: &'a GraphService<S, G>,
+}
+
+/// Bundles the two services `kb import` needs (`KBService` for entries,
+/// `GraphService` for relationships) into a single argument, satisfying the
+/// 2-parameter rule for `handle_import`. Mirrors `ExportServices`.
+pub struct ImportServices<'a, S, V, E, M, F, G>
 where
     S: KbStore,
     V: VectorStore,
@@ -759,34 +774,33 @@ pub fn handle_reindex<
     Ok(())
 }
 
-pub fn handle_import<
+pub fn handle_import<S, V, E, M, F, G>(
+    services: ImportServices<S, V, E, M, F, G>,
+    params: ImportParams,
+) -> Result<(), Error>
+where
     S: KbStore,
     V: VectorStore,
     E: EmbeddingProvider,
     M: MediaStore,
     F: MediaFetcher,
->(
-    svc: &KBService<S, V, E, M, F>,
-    params: ImportParams,
-) -> Result<(), Error> {
+    G: KbGraph,
+{
     let start = std::time::Instant::now();
 
     let content =
         std::fs::read_to_string(&params.file).map_err(|e| Error::ImportFileError(e.to_string()))?;
 
-    let items: Vec<ImportKbItem> = serde_yaml::Deserializer::from_str(&content)
-        .map(|doc| {
-            <ImportKbItem as Deserialize>::deserialize(doc)
-                .map_err(|e: serde_yaml::Error| Error::ParseImportFileError(e.to_string()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let document: ImportDocument =
+        serde_yaml::from_str(&content).map_err(|e| Error::ParseImportFileError(e.to_string()))?;
 
-    let result = svc.import_kbs(items);
-    let saved_count = result.saved.len();
-    let failed_count = result.failed.len();
+    let kb_result = services.svc.import_kbs(document.kbs);
+    let saved_count = kb_result.saved.len();
+    let failed_count = kb_result.failed.len();
 
-    if !result.failed.is_empty() {
-        let failed_items: Vec<ImportKbItem> = result.failed.into_iter().map(|f| f.item).collect();
+    if !kb_result.failed.is_empty() {
+        let failed_items: Vec<ImportKbItem> =
+            kb_result.failed.into_iter().map(|f| f.item).collect();
         match serialize_failed_items(&failed_items) {
             Ok(content) => {
                 if let Err(e) = write_failed_items(&params.failed_items_file, &content) {
@@ -797,13 +811,40 @@ pub fn handle_import<
         }
     }
 
+    // Edges are imported strictly after kbs complete — the graph section may
+    // reference kbs from this same document, so the store must already
+    // reflect which entries actually landed before resolution is attempted.
+    let edge_result = services.graph_svc.import_edges(document.graph);
+    let edges_saved_count = edge_result.saved.len();
+    let edges_failed_count = edge_result.failed.len();
+
+    if !edge_result.failed.is_empty() {
+        let failed_edges: Vec<ImportEdgeItem> =
+            edge_result.failed.into_iter().map(|f| f.item).collect();
+        match serialize_failed_edges(&failed_edges) {
+            Ok(content) => {
+                if let Err(e) = write_failed_items(&params.failed_edges_file, &content) {
+                    eprintln!("Warning: could not write failed edges file: {}", e);
+                }
+            }
+            Err(e) => eprintln!("Warning: could not serialize failed edges: {}", e),
+        }
+    }
+
     let elapsed = start.elapsed();
     println!("Import complete.");
     println!("  Imported : {}", saved_count);
     println!("  Failed   : {}", failed_count);
+    println!(
+        "  Relationships: {} imported, {} failed",
+        edges_saved_count, edges_failed_count
+    );
     println!("  Duration : {:.2?}", elapsed);
     if failed_count > 0 {
         println!("  Failed items: {}", params.failed_items_file);
+    }
+    if edges_failed_count > 0 {
+        println!("  Failed edges: {}", params.failed_edges_file);
     }
 
     Ok(())
@@ -894,6 +935,10 @@ fn serialize_yaml_docs<T: serde::Serialize>(
 }
 
 fn serialize_failed_items(items: &[ImportKbItem]) -> Result<String, Error> {
+    serialize_yaml_docs(items, Error::WriteFailedItemsError)
+}
+
+fn serialize_failed_edges(items: &[ImportEdgeItem]) -> Result<String, Error> {
     serialize_yaml_docs(items, Error::WriteFailedItemsError)
 }
 
