@@ -7,8 +7,8 @@ use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
 use crate::cli::handlers::{
-    self, AddParams, AskParams, ExportParams, GetParams, GraphViewCliParams, ImportParams,
-    RelatedParams, SearchParams, TreeParams, UnlinkParams,
+    self, AddParams, AskParams, ExportParams, ExportServices, GetParams, GraphViewCliParams,
+    ImportParams, RelatedParams, SearchParams, TreeParams, UnlinkParams,
 };
 use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
 use crate::errors::AppError;
@@ -205,7 +205,10 @@ impl App {
                 limit,
                 offset,
             } => handlers::handle_export(
-                &self.svc,
+                ExportServices {
+                    svc: &self.svc,
+                    graph_svc: &self.graph_svc,
+                },
                 ExportParams {
                     file_name,
                     folder_output,

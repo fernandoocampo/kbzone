@@ -14,7 +14,7 @@ local SQLite file. The binary is named `kb`.
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`, `--out` (`json`\|`yaml`, optional — default is plain text); uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
 - `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded), `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb reindex`                 — Rebuild embeddings for all entries
-- `kb export`                  — Export KB entries to a multi-document YAML file; flags: `--file` (required), `--category`, `--namespace`, `--limit`, `--offset`; parents always appear before children; `Parent` field omitted when parent is not in the filtered set; `Path` field included when set
+- `kb export`                  — Export KB entries and their graph relationships to a single-document YAML file with `kbs`/`graph` sections; flags: `--file-name` (optional), `--folder-output` (required), `--category`, `--namespace`, `--limit`, `--offset`; parents always appear before children; `Parent` field omitted when parent is not in the filtered set; `Path` field included when set; an edge appears in `graph` only when *both* its endpoints are present in the exported `kbs` set
 - `kb import`                  — Import KB entries from a multi-document YAML file; `Path` field is validated and normalised on import
 - `kb quote`                   — Print a random quote-category entry
 - `kb categories`              — List all distinct, non-empty category values; flags: `--namespace` (optional)
@@ -124,8 +124,10 @@ src/
   errors/error.rs                Error + AppError (thiserror)
   domain/kb.rs                   Kb, NewKb, KbFilter, KbItem,
                                    ScoredKbItem, SemanticQuery, EmbeddingInput
-  domain/graph.rs                 KbEdge, NewKbEdge, EdgeDirection, and the
-                                   related/tree query + output DTOs
+  domain/graph.rs                 KbEdge, NewKbEdge, EdgeDirection, the
+                                   related/tree query + output DTOs, and
+                                   ExportEdgeItem/ExportDocument (used by
+                                   `kb export`)
   ports/storage.rs               KbStore trait (outbound port)
   ports/embedding.rs             EmbeddingProvider trait (outbound port)
   ports/vector_store.rs          VectorStore trait (outbound port)

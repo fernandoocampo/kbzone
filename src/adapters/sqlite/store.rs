@@ -194,6 +194,18 @@ SELECT w.id, k.KB_KEY, w.depth, w.parent_id, w.note
 FROM walk w JOIN kbs k ON k.KB_ID = w.id
 ORDER BY w.depth ASC";
 
+/// Template for `get_edges_among_ids` — `{placeholders}` is replaced with a
+/// comma-separated list of numbered params (`?1,?2,...,?n`) at runtime.
+/// SQLite numbered parameters may be referenced more than once in the same
+/// statement and are bound only once, so the same placeholder list is reused
+/// for both the FROM and TO clauses: an edge is only returned when both
+/// endpoints are present in the bound id list.
+const GET_EDGES_AMONG_IDS_TPL: &str = "SELECT EDGE_ID, FROM_KB_ID, TO_KB_ID, NOTE, CREATED_ON \
+                                        FROM kb_edges \
+                                        WHERE FROM_KB_ID IN ({placeholders}) \
+                                        AND TO_KB_ID IN ({placeholders}) \
+                                        ORDER BY CREATED_ON ASC";
+
 // ---------------------------------------------------------------------------
 // SqliteStore helpers
 // ---------------------------------------------------------------------------
@@ -834,6 +846,36 @@ impl KbGraph for SqliteStore {
             .map_err(|e| Error::GraphQueryError(e.to_string()))?;
         Ok(nodes)
     }
+
+    fn get_edges_among_ids(&self, ids: &[String]) -> Result<Vec<KbEdge>, Error> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let placeholders = (1..=ids.len())
+            .map(|i| format!("?{}", i))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = GET_EDGES_AMONG_IDS_TPL.replace("{placeholders}", &placeholders);
+
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+
+        let sql_params: Vec<&dyn rusqlite::types::ToSql> = ids
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let edges = stmt
+            .query_map(sql_params.as_slice(), row_to_kb_edge)
+            .map_err(|e| Error::GraphQueryError(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Error::GraphQueryError(e.to_string()))?;
+
+        Ok(edges)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -875,6 +917,16 @@ fn row_to_tree_node(row: &rusqlite::Row) -> rusqlite::Result<TreeNode> {
         depth: row.get(2)?,
         parent_id: row.get(3)?,
         note: row.get(4)?,
+    })
+}
+
+fn row_to_kb_edge(row: &rusqlite::Row) -> rusqlite::Result<KbEdge> {
+    Ok(KbEdge {
+        id: row.get(0)?,
+        from_id: row.get(1)?,
+        to_id: row.get(2)?,
+        note: row.get(3)?,
+        created_on: row.get(4)?,
     })
 }
 

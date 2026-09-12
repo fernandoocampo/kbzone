@@ -74,3 +74,58 @@ fn graph_node_from_kb_copies_the_relevant_fields() {
     assert_eq!(node.category, "concept");
     assert_eq!(node.namespace, "vehicles");
 }
+
+fn make_export_kb_item(key: &str) -> ExportKbItem {
+    ExportKbItem {
+        key: key.to_string(),
+        value: "a value".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        reference: String::new(),
+        namespace: "vehicles".to_string(),
+        tags: vec![],
+        parent_key: None,
+        path: None,
+        media_extension: None,
+    }
+}
+
+#[test]
+fn export_edge_item_serializes_with_capitalized_keys() {
+    let edge = ExportEdgeItem {
+        from_key: "motogp-twitter".to_string(),
+        to_key: "motogp-quote".to_string(),
+        note: "source account".to_string(),
+    };
+    let yaml = serde_yaml::to_string(&edge).expect("serialize");
+    assert!(yaml.contains("From: motogp-twitter"));
+    assert!(yaml.contains("To: motogp-quote"));
+    assert!(yaml.contains("Note: source account"));
+}
+
+#[test]
+fn export_document_serializes_kbs_and_graph_sections() {
+    let doc = ExportDocument {
+        kbs: vec![make_export_kb_item("motogp-twitter")],
+        graph: vec![ExportEdgeItem {
+            from_key: "a".to_string(),
+            to_key: "b".to_string(),
+            note: String::new(),
+        }],
+    };
+    let yaml = serde_yaml::to_string(&doc).expect("serialize");
+    assert!(yaml.starts_with("kbs:"));
+    assert!(yaml.contains("graph:"));
+    assert!(yaml.contains("From: a"));
+    assert!(yaml.contains("Key: motogp-twitter"));
+}
+
+#[test]
+fn export_document_serializes_empty_graph_as_empty_sequence() {
+    let doc = ExportDocument {
+        kbs: vec![],
+        graph: vec![],
+    };
+    let yaml = serde_yaml::to_string(&doc).expect("serialize");
+    assert!(yaml.contains("graph: []"));
+}

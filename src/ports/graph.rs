@@ -27,4 +27,13 @@ pub trait KbGraph: Debug + Clone {
 
     /// Transitive traversal from `query.kb_id` in one direction, bounded by `query.depth`.
     fn get_tree(&self, query: &TreeQuery) -> Result<Vec<TreeNode>, Error>;
+
+    /// Returns every persisted edge where **both** `from_id` and `to_id` are
+    /// present in `ids`. Used by `kb export` to keep the exported `graph`
+    /// section consistent with whatever `KbFilter` produced the exported
+    /// `kbs` set: an edge whose other endpoint fell outside the filter is
+    /// silently dropped, never emitted as a dangling reference. Returns
+    /// `Ok(vec![])` immediately for an empty `ids` slice without touching
+    /// storage.
+    fn get_edges_among_ids(&self, ids: &[String]) -> Result<Vec<KbEdge>, Error>;
 }

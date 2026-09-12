@@ -746,3 +746,64 @@ fn get_tree_rejects_both_direction() {
     });
     assert!(matches!(result, Err(Error::GraphQueryError(_))));
 }
+
+#[test]
+fn get_edges_among_ids_returns_empty_for_empty_slice() {
+    let store = initialized_graph_store();
+    let edges = store.get_edges_among_ids(&[]).unwrap();
+    assert!(edges.is_empty());
+}
+
+#[test]
+fn get_edges_among_ids_returns_edge_when_both_endpoints_present() {
+    let store = initialized_graph_store();
+    store
+        .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
+        .unwrap();
+    let ids = vec!["car-id".to_string(), "engine-id".to_string()];
+    let edges = store.get_edges_among_ids(&ids).unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].from_id, "car-id");
+    assert_eq!(edges[0].to_id, "engine-id");
+}
+
+#[test]
+fn get_edges_among_ids_omits_edge_when_one_endpoint_missing() {
+    let store = initialized_graph_store();
+    store
+        .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
+        .unwrap();
+    // "engine-id" deliberately excluded — simulates a filter split.
+    let ids = vec!["car-id".to_string()];
+    let edges = store.get_edges_among_ids(&ids).unwrap();
+    assert!(edges.is_empty());
+}
+
+#[test]
+fn get_edges_among_ids_ignores_edges_entirely_outside_the_set() {
+    let store = initialized_graph_store();
+    store
+        .add_edge(&make_edge("edge-1", "car-id", "engine-id", "n"))
+        .unwrap();
+    store
+        .add_edge(&make_edge("edge-2", "other-a", "other-b", "n"))
+        .unwrap();
+    let ids = vec!["car-id".to_string(), "engine-id".to_string()];
+    let edges = store.get_edges_among_ids(&ids).unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].id, "edge-1");
+}
+
+#[test]
+fn get_edges_among_ids_returns_multiple_edges_within_the_set() {
+    let store = initialized_graph_store();
+    store
+        .add_edge(&make_edge("edge-1", "a-id", "b-id", "n1"))
+        .unwrap();
+    store
+        .add_edge(&make_edge("edge-2", "b-id", "c-id", "n2"))
+        .unwrap();
+    let ids = vec!["a-id".to_string(), "b-id".to_string(), "c-id".to_string()];
+    let edges = store.get_edges_among_ids(&ids).unwrap();
+    assert_eq!(edges.len(), 2);
+}

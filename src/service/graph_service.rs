@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::domain::{
-    EdgeDirection, GraphExport, GraphExportEdge, GraphExportNode, GraphNode, GraphViewParams, Kb,
-    KbEdge, LinkParams, NewKbEdge, RelatedQuery, RelatedResult, RemoveEdgeParams, TreeQuery,
-    TreeResult, TreeRoot, TreeWalkParams,
+    EdgeDirection, ExportEdgeItem, GraphExport, GraphExportEdge, GraphExportNode, GraphNode,
+    GraphViewParams, Kb, KbEdge, KbFilter, LinkParams, NewKbEdge, RelatedQuery, RelatedResult,
+    RemoveEdgeParams, TreeQuery, TreeResult, TreeRoot, TreeWalkParams,
 };
 use crate::errors::Error;
 use crate::ports::{KbGraph, KbStore};
@@ -163,6 +163,56 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
             nodes,
             edges: edges_by_id.into_values().collect(),
         })
+    }
+
+    /// Returns the edges among the entries matched by `filter`, translated
+    /// to `(from_key, to_key, note)` DTOs for `kb export`'s `graph` section.
+    /// An edge is only included when *both* its endpoints survive `filter`
+    /// — mirrors `KBService::export_kbs`'s "omit `Parent` when the parent
+    /// isn't in the filtered set" rule, applied to edges. Independently
+    /// re-runs `store.get_kbs_full(filter)` rather than accepting the
+    /// already-fetched `Kb` list from `KBService`, keeping the two services
+    /// uncoupled (edges have no coupling to the CRUD/embedding flow). Output
+    /// is sorted by `(from_key, to_key)` for deterministic file content.
+    pub fn export_edges(&self, filter: &KbFilter) -> Result<Vec<ExportEdgeItem>, Error> {
+        let kbs = self.store.get_kbs_full(filter)?;
+        if kbs.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let id_to_key: HashMap<&str, &str> = kbs
+            .iter()
+            .map(|kb| (kb.id.as_str(), kb.key.as_str()))
+            .collect();
+        let ids: Vec<String> = kbs.iter().map(|kb| kb.id.clone()).collect();
+
+        let mut edges = self
+            .graph
+            .get_edges_among_ids(&ids)?
+            .into_iter()
+            .map(|e| {
+                let from_key = id_to_key.get(e.from_id.as_str()).ok_or_else(|| {
+                    Error::GraphQueryError(format!(
+                        "edge {} references an id ({}) outside the exported set",
+                        e.id, e.from_id
+                    ))
+                })?;
+                let to_key = id_to_key.get(e.to_id.as_str()).ok_or_else(|| {
+                    Error::GraphQueryError(format!(
+                        "edge {} references an id ({}) outside the exported set",
+                        e.id, e.to_id
+                    ))
+                })?;
+                Ok(ExportEdgeItem {
+                    from_key: from_key.to_string(),
+                    to_key: to_key.to_string(),
+                    note: e.note,
+                })
+            })
+            .collect::<Result<Vec<ExportEdgeItem>, Error>>()?;
+
+        edges.sort_by(|a, b| (&a.from_key, &a.to_key).cmp(&(&b.from_key, &b.to_key)));
+        Ok(edges)
     }
 
     /// Resolves user input to a full `Kb`: tries `key` first (the common CLI

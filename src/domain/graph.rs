@@ -8,7 +8,7 @@
 use chrono::Local;
 use uuid::Uuid;
 
-use crate::domain::kb::Kb;
+use crate::domain::kb::{ExportKbItem, Kb};
 
 /// A directed relationship between two `Kb` entries, persisted in `kb_edges`.
 #[derive(Debug, Clone, PartialEq)]
@@ -267,6 +267,34 @@ pub struct GraphExport {
     pub root_key: String,
     pub nodes: Vec<GraphExportNode>,
     pub edges: Vec<GraphExportEdge>,
+}
+
+// ---------------------------------------------------------------------------
+// `kb export` output DTOs — the portable, DB-independent YAML shape written
+// by `kb export`. Unlike `GraphExportEdge` (raw ids, ephemeral HTML-view use
+// only), these carry `key`, never `id` — the same portability rule
+// `ExportKbItem` already follows for entries.
+// ---------------------------------------------------------------------------
+
+/// One relationship in the exported `graph` section. Only ever produced for
+/// an edge whose *both* endpoints survived the same `KbFilter` as the
+/// exported `kbs` set — see `GraphService::export_edges`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExportEdgeItem {
+    #[serde(rename = "From")]
+    pub from_key: String,
+    #[serde(rename = "To")]
+    pub to_key: String,
+    #[serde(rename = "Note")]
+    pub note: String,
+}
+
+/// Top-level shape of the file written by `kb export`: a single YAML
+/// document with a `kbs` section (entries) and a `graph` section (edges).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExportDocument {
+    pub kbs: Vec<ExportKbItem>,
+    pub graph: Vec<ExportEdgeItem>,
 }
 
 #[cfg(test)]

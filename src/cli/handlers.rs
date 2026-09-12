@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::cli::{browser, graph_view};
 use crate::domain::{
-    EdgeDirection, ExportKbItem, ExportMediaParams, GraphViewParams, ImportKbItem, KbFilter,
+    EdgeDirection, ExportDocument, ExportMediaParams, GraphViewParams, ImportKbItem, KbFilter,
     KbUpdate, LinkParams, MediaPathParams, NewKb, OutputFormat, RelatedResult, ScoredKbItem,
     SemanticQuery, TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, is_media_category,
     media_file_path, suggest_tags,
@@ -66,6 +66,25 @@ pub struct ExportParams {
     pub namespace: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+/// Bundles the two services `kb export` needs (`KBService` for entries,
+/// `GraphService` for relationships) into a single argument, satisfying the
+/// 2-parameter rule for `handle_export`. `S` is shared: the same concrete
+/// store type backs both `KbStore` (for `KBService`) and `GraphService`'s
+/// `store` field, mirroring how `App::build()` wires
+/// `GraphService::new(store.clone(), store)`.
+pub struct ExportServices<'a, S, V, E, M, F, G>
+where
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+    G: KbGraph,
+{
+    pub svc: &'a KBService<S, V, E, M, F>,
+    pub graph_svc: &'a GraphService<S, G>,
 }
 
 pub struct UnlinkParams {
@@ -790,16 +809,18 @@ pub fn handle_import<
     Ok(())
 }
 
-pub fn handle_export<
+pub fn handle_export<S, V, E, M, F, G>(
+    services: ExportServices<S, V, E, M, F, G>,
+    params: ExportParams,
+) -> Result<(), Error>
+where
     S: KbStore,
     V: VectorStore,
     E: EmbeddingProvider,
     M: MediaStore,
     F: MediaFetcher,
->(
-    svc: &KBService<S, V, E, M, F>,
-    params: ExportParams,
-) -> Result<(), Error> {
+    G: KbGraph,
+{
     std::fs::create_dir_all(&params.folder_output)
         .map_err(|e| Error::ExportError(e.to_string()))?;
 
@@ -814,24 +835,35 @@ pub fn handle_export<
         ..KbFilter::default()
     };
 
-    let items = svc.export_kbs(filter)?;
+    let items = services.svc.export_kbs(filter.clone())?;
     if items.is_empty() {
         println!("No entries to export.");
         return Ok(());
     }
 
-    let content = serialize_export_items(&items)?;
+    let edges = services.graph_svc.export_edges(&filter)?;
+    let document = ExportDocument {
+        kbs: items,
+        graph: edges,
+    };
+
+    let content =
+        serde_yaml::to_string(&document).map_err(|e| Error::ExportError(e.to_string()))?;
     std::fs::write(&output_path, &content).map_err(|e| Error::ExportError(e.to_string()))?;
 
-    let entry_count = items.len();
-    let media_count = svc.export_media(ExportMediaParams {
+    let entry_count = document.kbs.len();
+    let edge_count = document.graph.len();
+    let media_count = services.svc.export_media(ExportMediaParams {
         target_dir: params.folder_output,
         category: params.category,
         namespace: params.namespace,
-        items,
+        items: document.kbs,
     })?;
 
-    println!("Exported {} entries to {}", entry_count, output_path);
+    println!(
+        "Exported {} entries and {} relationship(s) to {}",
+        entry_count, edge_count, output_path
+    );
     if media_count > 0 {
         println!("Copied {} media file(s).", media_count);
     }
@@ -867,10 +899,6 @@ fn serialize_failed_items(items: &[ImportKbItem]) -> Result<String, Error> {
 
 fn write_failed_items(path: &str, content: &str) -> Result<(), Error> {
     std::fs::write(path, content).map_err(|e| Error::WriteFailedItemsError(e.to_string()))
-}
-
-fn serialize_export_items(items: &[ExportKbItem]) -> Result<String, Error> {
-    serialize_yaml_docs(items, Error::ExportError)
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,14 @@ impl MockKbStore {
             data: RefCell::new(HashMap::new()),
         }
     }
+
+    fn with(entries: Vec<crate::domain::Kb>) -> Self {
+        let store = Self::new();
+        for kb in entries {
+            store.data.borrow_mut().insert(kb.id.clone(), kb);
+        }
+        store
+    }
 }
 
 impl crate::ports::KbStore for MockKbStore {
@@ -79,7 +87,7 @@ impl crate::ports::KbStore for MockKbStore {
         &self,
         _filter: &crate::domain::KbFilter,
     ) -> Result<Vec<crate::domain::Kb>, Error> {
-        Ok(Vec::new())
+        Ok(self.data.borrow().values().cloned().collect())
     }
 
     fn get_categories(&self, _namespace: Option<&str>) -> Result<Vec<String>, Error> {
@@ -152,6 +160,54 @@ struct MockMediaFetcher;
 impl crate::ports::MediaFetcher for MockMediaFetcher {
     fn fetch(&self, url: &str) -> Result<String, Error> {
         Ok(format!("/tmp/mock-{}", url))
+    }
+}
+
+/// Minimal `KbGraph` mock for `handle_export` tests — only
+/// `get_edges_among_ids` needs real behavior; the other methods are
+/// unreachable stubs for this handler.
+#[derive(Debug, Clone, Default)]
+struct MockKbGraph {
+    edges: std::rc::Rc<RefCell<Vec<crate::domain::KbEdge>>>,
+}
+
+impl crate::ports::KbGraph for MockKbGraph {
+    fn initialize_graph(&self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn add_edge(&self, edge: &crate::domain::KbEdge) -> Result<(), Error> {
+        self.edges.borrow_mut().push(edge.clone());
+        Ok(())
+    }
+
+    fn remove_edge(&self, _params: &crate::domain::RemoveEdgeParams) -> Result<bool, Error> {
+        Ok(false)
+    }
+
+    fn get_related(
+        &self,
+        _query: &crate::domain::RelatedQuery,
+    ) -> Result<crate::domain::RelatedEdges, Error> {
+        Ok(crate::domain::RelatedEdges::default())
+    }
+
+    fn get_tree(
+        &self,
+        _query: &crate::domain::TreeQuery,
+    ) -> Result<Vec<crate::domain::TreeNode>, Error> {
+        Ok(vec![])
+    }
+
+    fn get_edges_among_ids(&self, ids: &[String]) -> Result<Vec<crate::domain::KbEdge>, Error> {
+        let set: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+        Ok(self
+            .edges
+            .borrow()
+            .iter()
+            .filter(|e| set.contains(e.from_id.as_str()) && set.contains(e.to_id.as_str()))
+            .cloned()
+            .collect())
     }
 }
 
@@ -236,6 +292,154 @@ fn handle_import_writes_failed_items_in_yaml_format() {
     let failed_content = std::fs::read_to_string(&failed_path).unwrap_or_default();
     let _ = std::fs::remove_file(&failed_path);
     assert!(failed_content.contains("Value") || failed_content.contains("memory"));
+}
+
+// ---------------------------------------------------------------------------
+// handle_export tests
+// ---------------------------------------------------------------------------
+
+fn make_new_kb(key: &str) -> crate::domain::NewKb {
+    crate::domain::NewKb {
+        key: key.to_string(),
+        value: "a value".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        namespace: "default".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        parent: None,
+        path: None,
+        media_url: None,
+        media_extension: None,
+    }
+}
+
+fn unique_export_dir(name: &str) -> String {
+    std::env::temp_dir()
+        .join(format!("kb_export_test_{}", name))
+        .to_string_lossy()
+        .to_string()
+}
+
+#[test]
+fn handle_export_writes_kbs_and_graph_sections_to_a_single_yaml_document() {
+    let svc = make_svc();
+    let kb_a = svc.add_kb(make_new_kb("car")).unwrap();
+    let kb_b = svc.add_kb(make_new_kb("engine")).unwrap();
+
+    let graph_store = MockKbStore::with(vec![kb_a.clone(), kb_b.clone()]);
+    let mock_graph = MockKbGraph::default();
+    mock_graph
+        .add_edge(&crate::domain::KbEdge {
+            id: "edge-1".to_string(),
+            from_id: kb_a.id.clone(),
+            to_id: kb_b.id.clone(),
+            note: "has an engine".to_string(),
+            created_on: "2026-01-01T00:00:00+0000".to_string(),
+        })
+        .unwrap();
+    let graph_svc = GraphService::new(graph_store, mock_graph);
+
+    let dir = unique_export_dir("full");
+    let params = ExportParams {
+        file_name: Some("out.yaml".to_string()),
+        folder_output: dir.clone(),
+        category: None,
+        namespace: None,
+        limit: None,
+        offset: None,
+    };
+
+    let result = handle_export(
+        ExportServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    assert!(result.is_ok());
+
+    let content = std::fs::read_to_string(format!("{}/out.yaml", dir)).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(content.starts_with("kbs:"));
+    assert!(content.contains("graph:"));
+    assert!(content.contains("From: car"));
+    assert!(content.contains("To: engine"));
+}
+
+#[test]
+fn handle_export_prints_no_entries_message_and_skips_write_when_filter_matches_nothing() {
+    let svc = make_svc();
+    let graph_svc = GraphService::new(MockKbStore::new(), MockKbGraph::default());
+
+    let dir = unique_export_dir("empty");
+    let params = ExportParams {
+        file_name: Some("out.yaml".to_string()),
+        folder_output: dir.clone(),
+        category: None,
+        namespace: None,
+        limit: None,
+        offset: None,
+    };
+
+    let result = handle_export(
+        ExportServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    assert!(result.is_ok());
+    assert!(!std::path::Path::new(&format!("{}/out.yaml", dir)).exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn handle_export_omits_edge_when_filter_splits_a_linked_pair() {
+    let svc = make_svc();
+    let kb_a = svc.add_kb(make_new_kb("car")).unwrap();
+
+    // Simulates the "split pair" scenario: only "car" survives the filter
+    // that produced the exported `kbs` set — "engine" (and its id) never
+    // appears in the graph store either.
+    let graph_store = MockKbStore::with(vec![kb_a.clone()]);
+    let mock_graph = MockKbGraph::default();
+    mock_graph
+        .add_edge(&crate::domain::KbEdge {
+            id: "edge-1".to_string(),
+            from_id: kb_a.id.clone(),
+            to_id: "engine-id-not-in-set".to_string(),
+            note: "has an engine".to_string(),
+            created_on: "2026-01-01T00:00:00+0000".to_string(),
+        })
+        .unwrap();
+    let graph_svc = GraphService::new(graph_store, mock_graph);
+
+    let dir = unique_export_dir("split");
+    let params = ExportParams {
+        file_name: Some("out.yaml".to_string()),
+        folder_output: dir.clone(),
+        category: None,
+        namespace: None,
+        limit: None,
+        offset: None,
+    };
+
+    let result = handle_export(
+        ExportServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    assert!(result.is_ok());
+
+    let content = std::fs::read_to_string(format!("{}/out.yaml", dir)).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(content.contains("graph: []"));
+    assert!(!content.contains("From:"));
 }
 
 #[test]

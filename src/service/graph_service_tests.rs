@@ -72,7 +72,7 @@ impl KbStore for MockKbStore {
     }
 
     fn get_kbs_full(&self, _filter: &KbFilter) -> Result<Vec<Kb>, Error> {
-        Ok(vec![])
+        Ok(self.data.borrow().values().cloned().collect())
     }
 
     fn get_categories(&self, _namespace: Option<&str>) -> Result<Vec<String>, Error> {
@@ -176,6 +176,17 @@ impl KbGraph for MockKbGraph {
     fn get_tree(&self, _query: &TreeQuery) -> Result<Vec<TreeNode>, Error> {
         Ok(self.tree_nodes.borrow().clone())
     }
+
+    fn get_edges_among_ids(&self, ids: &[String]) -> Result<Vec<KbEdge>, Error> {
+        let set: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+        Ok(self
+            .edges
+            .borrow()
+            .iter()
+            .filter(|e| set.contains(e.from_id.as_str()) && set.contains(e.to_id.as_str()))
+            .cloned()
+            .collect())
+    }
 }
 
 // ---- fixtures ----
@@ -194,6 +205,16 @@ fn make_kb(id: &str, key: &str) -> Kb {
         parent: None,
         path: None,
         media_extension: None,
+    }
+}
+
+fn make_kb_edge(id: &str, from_id: &str, to_id: &str, note: &str) -> KbEdge {
+    KbEdge {
+        id: id.to_string(),
+        from_id: from_id.to_string(),
+        to_id: to_id.to_string(),
+        note: note.to_string(),
+        created_on: "2026-01-01T00:00:00+0000".to_string(),
     }
 }
 
@@ -644,4 +665,69 @@ fn export_graph_unknown_root_returns_kb_not_found() {
     });
 
     assert!(matches!(result, Err(Error::KBNotFound)));
+}
+
+// ---- export_edges tests ----
+
+#[test]
+fn export_edges_returns_empty_when_no_kbs_match_filter() {
+    let svc = GraphService::new(MockKbStore::new(), MockKbGraph::new());
+    let edges = svc.export_edges(&KbFilter::default()).unwrap();
+    assert!(edges.is_empty());
+}
+
+#[test]
+fn export_edges_returns_edge_with_keys_when_both_endpoints_in_filtered_set() {
+    let store = MockKbStore::with(vec![make_kb("a-id", "car"), make_kb("b-id", "engine")]);
+    let graph = MockKbGraph::new();
+    graph
+        .add_edge(&make_kb_edge("e1", "a-id", "b-id", "has an engine"))
+        .unwrap();
+    let svc = GraphService::new(store, graph);
+
+    let edges = svc.export_edges(&KbFilter::default()).unwrap();
+
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].from_key, "car");
+    assert_eq!(edges[0].to_key, "engine");
+    assert_eq!(edges[0].note, "has an engine");
+}
+
+#[test]
+fn export_edges_omits_edge_when_target_kb_outside_filtered_set() {
+    // Simulates the "split pair" scenario: only "car" survived the filter
+    // that produced the exported `kbs` set.
+    let store = MockKbStore::with(vec![make_kb("a-id", "car")]);
+    let graph = MockKbGraph::new();
+    graph
+        .add_edge(&make_kb_edge("e1", "a-id", "b-id", "has an engine"))
+        .unwrap();
+    let svc = GraphService::new(store, graph);
+
+    let edges = svc.export_edges(&KbFilter::default()).unwrap();
+
+    assert!(edges.is_empty());
+}
+
+#[test]
+fn export_edges_sorts_output_deterministically() {
+    let store = MockKbStore::with(vec![
+        make_kb("a-id", "zebra"),
+        make_kb("b-id", "apple"),
+        make_kb("c-id", "mango"),
+    ]);
+    let graph = MockKbGraph::new();
+    graph
+        .add_edge(&make_kb_edge("e1", "a-id", "c-id", "n1"))
+        .unwrap();
+    graph
+        .add_edge(&make_kb_edge("e2", "b-id", "c-id", "n2"))
+        .unwrap();
+    let svc = GraphService::new(store, graph);
+
+    let edges = svc.export_edges(&KbFilter::default()).unwrap();
+
+    assert_eq!(edges.len(), 2);
+    assert_eq!(edges[0].from_key, "apple");
+    assert_eq!(edges[1].from_key, "zebra");
 }
