@@ -22,6 +22,7 @@ local SQLite file. The binary is named `kb`.
 - `kb unlink <from> <to>`      — Remove the edge between two entries (key or ID); errors if no such edge exists
 - `kb related <key-or-id>`     — Show one-hop outgoing/incoming relationships; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--json` (full NOTE text; human output truncates NOTE to 40 chars)
 - `kb tree <key-or-id>`        — Transitive relationship traversal via a recursive CTE; flags: `--direction` (`out`\|`in`, default `out`), `--depth` (default `10`), `--json`
+- `kb graph <key-or-id>`       — Open an interactive HTML graph view (vis-network) in the default browser: drag nodes, click one to inspect its full content, see its relationships highlighted; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--depth` (default `2`); requires internet access (vis-network loads from a CDN) and writes no file — served once in-memory over a loopback HTTP connection, then the process exits
 
 ### Configuration
 
@@ -137,9 +138,15 @@ src/
                                    integration tests (in-memory + sqlite-vec)
   adapters/fastembed/provider.rs FastEmbedProvider (bge-small-en-v1.5, 384 dims)
   cli/commands.rs                Clap derive subcommands (incl. ask, reindex, link,
-                                   unlink, related, tree)
+                                   unlink, related, tree, graph)
   cli/handlers.rs                Free `handle_*` functions per command, each taking
                                    the relevant service + a `*Params` struct (2-param rule)
+  cli/graph_view.rs              Pure HTML rendering for `kb graph` — inlines a
+                                   `GraphExport` as JSON into assets/graph_view.html
+                                   (vis-network via CDN); no I/O
+  cli/browser.rs                 One-shot local HTTP hand-off for `kb graph` — serves
+                                   the rendered HTML once over loopback, opens the
+                                   default browser, writes no file to disk
   application/config.rs          Config (YAML) — db_path + embedding.provider
   application/app.rs             App::build() wires deps (holds both KBService and
                                    GraphService); App::run() dispatches CLI

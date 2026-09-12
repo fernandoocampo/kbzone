@@ -5,5 +5,7 @@
 //!   wrapper that groups [`crate::service::Service`] and [`crate::service::SemanticService`]
 //!   to satisfy the two-parameter rule
 
+pub mod browser;
 pub mod commands;
+pub mod graph_view;
 pub mod handlers;

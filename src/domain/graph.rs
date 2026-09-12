@@ -99,6 +99,16 @@ pub struct TreeWalkParams {
     pub depth: i64,
 }
 
+/// Input for `GraphService::export_graph`. `key_or_id` is raw CLI input.
+/// Unlike `TreeWalkParams`, `Both` is a valid direction here — the BFS
+/// walks one hop at a time via `KbGraph::get_related`, which already
+/// supports `Both` per call.
+pub struct GraphViewParams {
+    pub key_or_id: String,
+    pub direction: EdgeDirection,
+    pub depth: i64,
+}
+
 // ---------------------------------------------------------------------------
 // Port-layer input DTOs (already resolved to internal KB_IDs)
 // ---------------------------------------------------------------------------
@@ -199,6 +209,64 @@ pub struct TreeResult {
     pub root: TreeRoot,
     pub direction: String,
     pub nodes: Vec<TreeNode>,
+}
+
+// ---------------------------------------------------------------------------
+// `kb graph` output DTOs — a fully hydrated node/edge set for rendering an
+// interactive HTML view. Unlike `GraphNode`/`TreeNode`, `GraphExportNode`
+// carries the *complete* `Kb` record: the browser has no way to query the
+// database live, so every field a click-to-inspect panel might show has to
+// be embedded up front.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GraphExportNode {
+    pub id: String,
+    pub key: String,
+    pub value: String,
+    pub notes: String,
+    pub category: String,
+    pub namespace: String,
+    pub reference: String,
+    pub tags: Vec<String>,
+    pub path: Option<String>,
+    pub created_on: String,
+}
+
+impl From<&Kb> for GraphExportNode {
+    fn from(kb: &Kb) -> Self {
+        GraphExportNode {
+            id: kb.id.clone(),
+            key: kb.key.clone(),
+            value: kb.value.clone(),
+            notes: kb.notes.clone(),
+            category: kb.category.clone(),
+            namespace: kb.namespace.clone(),
+            reference: kb.reference.clone(),
+            tags: kb.tags.clone(),
+            path: kb.path.clone(),
+            created_on: kb.created_on.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GraphExportEdge {
+    pub id: String,
+    pub from_id: String,
+    pub to_id: String,
+    pub note: String,
+    pub created_on: String,
+}
+
+/// Service/CLI-level output for `kb graph`: the root entry plus every node
+/// and edge reachable from it within the requested depth/direction.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GraphExport {
+    pub root_id: String,
+    pub root_key: String,
+    pub nodes: Vec<GraphExportNode>,
+    pub edges: Vec<GraphExportEdge>,
 }
 
 #[cfg(test)]

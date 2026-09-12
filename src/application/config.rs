@@ -35,11 +35,9 @@ pub struct Config {
 impl Config {
     /// Returns the config file path, honouring `$KBZONA_HOME`.
     pub fn config_file_path() -> PathBuf {
-        let home = std::env::var("KBZONA_HOME").unwrap_or_else(|_| {
-            let h = dirs_next();
-            format!("{}/kbzona", h)
-        });
-        PathBuf::from(home).join("config.yaml")
+        let kbzona_home = std::env::var("KBZONA_HOME").ok();
+        let base = resolve_base_dir(kbzona_home.as_deref(), "kbzona");
+        PathBuf::from(base).join("config.yaml")
     }
 
     /// Loads config from disk, creating a default file if absent.
@@ -106,9 +104,10 @@ impl Config {
     }
 
     fn default_config() -> Result<Self, String> {
-        let home = dirs_next();
+        let kbzona_home = std::env::var("KBZONA_HOME").ok();
+        let base = resolve_base_dir(kbzona_home.as_deref(), ".kbzona");
         Ok(Config {
-            db_path: format!("{}/.kbzona/kbzona.db", home),
+            db_path: format!("{base}/kbzona.db"),
             embedding: EmbeddingConfig::default(),
         })
     }
@@ -140,3 +139,19 @@ pub fn expand_tilde(path: &str) -> String {
 fn dirs_next() -> String {
     std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
 }
+
+/// Resolves the base directory for either the config file or the DB. When
+/// `kbzona_home` is set (i.e. `$KBZONA_HOME`), it IS the base directory —
+/// used as-is, with no `default_suffix` appended — so everything a fresh
+/// config points at (config file and, by extension, `db_path`) is rooted
+/// under the same override. Otherwise falls back to `$HOME/<default_suffix>`.
+fn resolve_base_dir(kbzona_home: Option<&str>, default_suffix: &str) -> String {
+    match kbzona_home {
+        Some(dir) => dir.to_string(),
+        None => format!("{}/{default_suffix}", dirs_next()),
+    }
+}
+
+#[cfg(test)]
+#[path = "config_tests.rs"]
+mod tests;

@@ -269,4 +269,17 @@ pub enum Command {
         #[arg(long, help = "Output as JSON (full NOTE text, no truncation)")]
         json: bool,
     },
+
+    /// Generate an interactive HTML graph view and open it in your browser
+    /// (drag nodes, click to inspect, see relationships highlighted).
+    Graph {
+        #[arg(help = "Key or UUID of the entry")]
+        key_or_id: String,
+
+        #[arg(long, default_value = "both", help = "out | in | both")]
+        direction: String,
+
+        #[arg(long, default_value = "2", help = "Traversal depth from the root")]
+        depth: i64,
+    },
 }

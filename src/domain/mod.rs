@@ -18,9 +18,9 @@ pub mod kb;
 pub mod tag_suggestion;
 
 pub use graph::{
-    EdgeDirection, GraphNode, IncomingEdge, KbEdge, LinkParams, NewKbEdge, OutgoingEdge,
-    RelatedEdges, RelatedQuery, RelatedResult, RemoveEdgeParams, TreeNode, TreeQuery, TreeResult,
-    TreeRoot, TreeWalkParams,
+    EdgeDirection, GraphExport, GraphExportEdge, GraphExportNode, GraphNode, GraphViewParams,
+    IncomingEdge, KbEdge, LinkParams, NewKbEdge, OutgoingEdge, RelatedEdges, RelatedQuery,
+    RelatedResult, RemoveEdgeParams, TreeNode, TreeQuery, TreeResult, TreeRoot, TreeWalkParams,
 };
 pub use kb::{
     EmbeddingInput, ExportKbItem, ExportMediaParams, FailedImportItem, ImportBatchResult,

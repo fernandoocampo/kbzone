@@ -1,6 +1,9 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::domain::{
-    EdgeDirection, GraphNode, Kb, KbEdge, LinkParams, NewKbEdge, RelatedQuery, RelatedResult,
-    RemoveEdgeParams, TreeQuery, TreeResult, TreeRoot, TreeWalkParams,
+    EdgeDirection, GraphExport, GraphExportEdge, GraphExportNode, GraphNode, GraphViewParams, Kb,
+    KbEdge, LinkParams, NewKbEdge, RelatedQuery, RelatedResult, RemoveEdgeParams, TreeQuery,
+    TreeResult, TreeRoot, TreeWalkParams,
 };
 use crate::errors::Error;
 use crate::ports::{KbGraph, KbStore};
@@ -90,6 +93,75 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
             },
             direction: params.direction.as_str().to_string(),
             nodes,
+        })
+    }
+
+    /// Breadth-first traversal from the resolved entry, in the requested
+    /// direction (`Both` is valid here, unlike `tree`), bounded by
+    /// `params.depth`, hydrating every visited node into a full `Kb` record
+    /// — the caller (an offline HTML view) has no way to query the database
+    /// live, so every field has to be embedded up front.
+    pub fn export_graph(&self, params: GraphViewParams) -> Result<GraphExport, Error> {
+        let root = self.resolve(&params.key_or_id)?;
+
+        let mut visited_ids: HashSet<String> = HashSet::new();
+        let mut edges_by_id: HashMap<String, GraphExportEdge> = HashMap::new();
+        visited_ids.insert(root.id.clone());
+
+        let mut frontier = vec![root.id.clone()];
+        for _ in 0..params.depth {
+            if frontier.is_empty() {
+                break;
+            }
+            let mut next_frontier = Vec::new();
+            for kb_id in &frontier {
+                let related = self.graph.get_related(&RelatedQuery {
+                    kb_id: kb_id.clone(),
+                    direction: params.direction,
+                })?;
+                for out in related.outgoing {
+                    edges_by_id
+                        .entry(out.edge_id.clone())
+                        .or_insert(GraphExportEdge {
+                            id: out.edge_id,
+                            from_id: kb_id.clone(),
+                            to_id: out.to.id.clone(),
+                            note: out.note,
+                            created_on: out.created_on,
+                        });
+                    if visited_ids.insert(out.to.id.clone()) {
+                        next_frontier.push(out.to.id);
+                    }
+                }
+                for inc in related.incoming {
+                    edges_by_id
+                        .entry(inc.edge_id.clone())
+                        .or_insert(GraphExportEdge {
+                            id: inc.edge_id,
+                            from_id: inc.from.id.clone(),
+                            to_id: kb_id.clone(),
+                            note: inc.note,
+                            created_on: inc.created_on,
+                        });
+                    if visited_ids.insert(inc.from.id.clone()) {
+                        next_frontier.push(inc.from.id);
+                    }
+                }
+            }
+            frontier = next_frontier;
+        }
+
+        let mut nodes = Vec::with_capacity(visited_ids.len());
+        for id in &visited_ids {
+            let kb = self.store.get_kb_by_id(id)?.ok_or(Error::KBNotFound)?;
+            nodes.push(GraphExportNode::from(&kb));
+        }
+
+        Ok(GraphExport {
+            root_id: root.id,
+            root_key: root.key,
+            nodes,
+            edges: edges_by_id.into_values().collect(),
         })
     }
 

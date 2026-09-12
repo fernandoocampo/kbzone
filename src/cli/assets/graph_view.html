@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>kbzone graph</title>
+<script src="https://unpkg.com/vis-network@9/standalone/umd/vis-network.min.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #14161a;
+    --panel-bg: #1c1f26;
+    --border: #2c313c;
+    --text: #e6e6e6;
+    --muted: #9aa0ac;
+    --accent: #f5a623;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 1rem;
+    margin: 0;
+    font-weight: 600;
+  }
+  header .meta {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  #legend {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  #legend span.swatch {
+    display: inline-block;
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 50%;
+    margin-right: 0.3rem;
+    vertical-align: middle;
+  }
+  main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+  #network {
+    flex: 1;
+    min-width: 0;
+  }
+  #panel {
+    width: 340px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--border);
+    background: var(--panel-bg);
+    padding: 1rem;
+    overflow-y: auto;
+  }
+  #panel .placeholder {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  #panel h2 {
+    margin: 0 0 0.75rem;
+    font-size: 1.1rem;
+    word-break: break-word;
+  }
+  #panel dt {
+    color: var(--muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-top: 0.75rem;
+  }
+  #panel dd {
+    margin: 0.2rem 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.9rem;
+  }
+  #panel dd.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1 id="root-title">kbzone graph</h1>
+    <span class="meta" id="root-meta"></span>
+    <div id="legend"></div>
+  </header>
+  <main>
+    <div id="network"></div>
+    <aside id="panel">
+      <p class="placeholder">Click a node to inspect it.</p>
+    </aside>
+  </main>
+  <script>
+    const GRAPH = __GRAPH_DATA__;
+
+    // Deterministic category -> color mapping so the legend always matches
+    // what's drawn, independent of vis-network's own group palette.
+    const PALETTE = [
+      "#4f8ff7", "#f5a623", "#7ed957", "#e05d5d", "#b98cf2",
+      "#4fd0c4", "#f2789f", "#d0d060", "#7a8ba6", "#f28c4f",
+    ];
+    function colorFor(category) {
+      const key = category || "uncategorized";
+      let hash = 0;
+      for (let i = 0; i < key.length; i++) {
+        hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+      }
+      return PALETTE[hash % PALETTE.length];
+    }
+
+    function truncate(text, max) {
+      if (!text) return "";
+      return text.length > max ? text.slice(0, max) + "…" : text;
+    }
+
+    const nodesById = new Map(GRAPH.nodes.map((n) => [n.id, n]));
+
+    const nodesArray = GRAPH.nodes.map((n) => {
+      const isRoot = n.id === GRAPH.root_id;
+      return {
+        id: n.id,
+        label: n.key,
+        title: `${n.category || "(no category)"} / ${n.namespace || "(no namespace)"}`,
+        color: colorFor(n.category),
+        shape: "dot",
+        size: isRoot ? 24 : 14,
+        borderWidth: isRoot ? 3 : 1,
+        font: { color: "#e6e6e6" },
+      };
+    });
+
+    const edgesArray = GRAPH.edges.map((e) => ({
+      id: e.id,
+      from: e.from_id,
+      to: e.to_id,
+      label: truncate(e.note, 24),
+      title: e.note || "",
+      arrows: "to",
+      color: { color: "#5a6070", highlight: "#f5a623" },
+      font: { color: "#9aa0ac", size: 10, strokeWidth: 0, align: "middle" },
+      smooth: { type: "dynamic" },
+    }));
+
+    const nodesDataSet = new vis.DataSet(nodesArray);
+    const edgesDataSet = new vis.DataSet(edgesArray);
+
+    const network = new vis.Network(
+      document.getElementById("network"),
+      { nodes: nodesDataSet, edges: edgesDataSet },
+      {
+        physics: {
+          stabilization: true,
+          barnesHut: { gravitationalConstant: -12000, springLength: 160, springConstant: 0.03 },
+        },
+        interaction: { hover: true, tooltipDelay: 150 },
+      }
+    );
+
+    document.getElementById("root-title").textContent = `kbzone graph — ${GRAPH.root_key}`;
+    document.getElementById("root-meta").textContent =
+      `${GRAPH.nodes.length} nodes, ${GRAPH.edges.length} edges`;
+
+    const legend = document.getElementById("legend");
+    const categories = [...new Set(GRAPH.nodes.map((n) => n.category || "uncategorized"))].sort();
+    for (const category of categories) {
+      const item = document.createElement("span");
+      const swatch = document.createElement("span");
+      swatch.className = "swatch";
+      swatch.style.background = colorFor(category);
+      item.appendChild(swatch);
+      item.appendChild(document.createTextNode(category));
+      legend.appendChild(item);
+    }
+
+    const panel = document.getElementById("panel");
+
+    function field(dl, label, value, mono) {
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      if (mono) dd.className = "mono";
+      dd.textContent = value && value.length ? value : "—";
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+    }
+
+    function showDetails(node) {
+      panel.innerHTML = "";
+      const h2 = document.createElement("h2");
+      h2.textContent = node.key;
+      panel.appendChild(h2);
+
+      const dl = document.createElement("dl");
+      field(dl, "Category", node.category);
+      field(dl, "Namespace", node.namespace);
+      field(dl, "Reference", node.reference);
+      field(dl, "Tags", (node.tags || []).join(", "));
+      field(dl, "Path", node.path || "");
+      field(dl, "Value", node.value);
+      field(dl, "Notes", node.notes);
+      field(dl, "Created", node.created_on, true);
+      field(dl, "ID", node.id, true);
+      panel.appendChild(dl);
+    }
+
+    function hideDetails() {
+      panel.innerHTML = '<p class="placeholder">Click a node to inspect it.</p>';
+    }
+
+    function highlightNeighborhood(nodeId) {
+      const connectedNodes = new Set(network.getConnectedNodes(nodeId));
+      connectedNodes.add(nodeId);
+      const connectedEdges = new Set(network.getConnectedEdges(nodeId));
+
+      nodesDataSet.update(
+        GRAPH.nodes.map((n) => ({ id: n.id, opacity: connectedNodes.has(n.id) ? 1 : 0.15 }))
+      );
+      edgesDataSet.update(
+        GRAPH.edges.map((e) => ({
+          id: e.id,
+          color: connectedEdges.has(e.id)
+            ? { color: "#f5a623", highlight: "#f5a623", opacity: 1 }
+            : { color: "#5a6070", highlight: "#f5a623", opacity: 0.12 },
+        }))
+      );
+    }
+
+    function clearHighlight() {
+      nodesDataSet.update(GRAPH.nodes.map((n) => ({ id: n.id, opacity: 1 })));
+      edgesDataSet.update(
+        GRAPH.edges.map((e) => ({ id: e.id, color: { color: "#5a6070", highlight: "#f5a623", opacity: 1 } }))
+      );
+    }
+
+    network.on("selectNode", (params) => {
+      const node = nodesById.get(params.nodes[0]);
+      if (!node) return;
+      showDetails(node);
+      highlightNeighborhood(node.id);
+    });
+
+    network.on("deselectNode", () => {
+      hideDetails();
+      clearHighlight();
+    });
+  </script>
+</body>
+</html>

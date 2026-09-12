@@ -448,3 +448,200 @@ fn tree_returns_root_and_flat_node_list() {
     assert_eq!(result.nodes.len(), 1);
     assert_eq!(result.nodes[0].key, "engine");
 }
+
+// ---- export_graph tests ----
+
+#[test]
+fn export_graph_single_hop_out_direction_includes_root_and_target() {
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let store = MockKbStore::with(vec![car.clone(), engine.clone()]);
+    let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
+    let svc = GraphService::new(store, graph);
+
+    svc.link(LinkParams {
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
+        note: "has an engine".to_string(),
+    })
+    .unwrap();
+
+    let result = svc
+        .export_graph(GraphViewParams {
+            key_or_id: "car".to_string(),
+            direction: EdgeDirection::Out,
+            depth: 1,
+        })
+        .unwrap();
+
+    assert_eq!(result.root_id, "car-id");
+    assert_eq!(result.root_key, "car");
+    assert_eq!(result.nodes.len(), 2);
+    assert!(result.nodes.iter().any(|n| n.key == "car"));
+    assert!(result.nodes.iter().any(|n| n.key == "engine"));
+    assert_eq!(result.edges.len(), 1);
+    assert_eq!(result.edges[0].from_id, "car-id");
+    assert_eq!(result.edges[0].to_id, "engine-id");
+    assert_eq!(result.edges[0].note, "has an engine");
+}
+
+#[test]
+fn export_graph_respects_depth_limit() {
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let piston = make_kb("piston-id", "piston");
+    let store = MockKbStore::with(vec![car.clone(), engine.clone(), piston.clone()]);
+    let graph = MockKbGraph::with_nodes(vec![
+        GraphNode::from(&car),
+        GraphNode::from(&engine),
+        GraphNode::from(&piston),
+    ]);
+    let svc = GraphService::new(store, graph);
+
+    svc.link(LinkParams {
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
+        note: String::new(),
+    })
+    .unwrap();
+    svc.link(LinkParams {
+        from_key_or_id: "engine".to_string(),
+        to_key_or_id: "piston".to_string(),
+        note: String::new(),
+    })
+    .unwrap();
+
+    let result = svc
+        .export_graph(GraphViewParams {
+            key_or_id: "car".to_string(),
+            direction: EdgeDirection::Out,
+            depth: 1,
+        })
+        .unwrap();
+
+    assert_eq!(result.nodes.len(), 2);
+    assert!(!result.nodes.iter().any(|n| n.key == "piston"));
+    assert_eq!(result.edges.len(), 1);
+}
+
+#[test]
+fn export_graph_direction_both_merges_outgoing_and_incoming() {
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let kit = make_kb("kit-id", "spare-parts-kit");
+    let store = MockKbStore::with(vec![car.clone(), engine.clone(), kit.clone()]);
+    let graph = MockKbGraph::with_nodes(vec![
+        GraphNode::from(&car),
+        GraphNode::from(&engine),
+        GraphNode::from(&kit),
+    ]);
+    let svc = GraphService::new(store, graph);
+
+    svc.link(LinkParams {
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
+        note: String::new(),
+    })
+    .unwrap();
+    svc.link(LinkParams {
+        from_key_or_id: "spare-parts-kit".to_string(),
+        to_key_or_id: "car".to_string(),
+        note: String::new(),
+    })
+    .unwrap();
+
+    let result = svc
+        .export_graph(GraphViewParams {
+            key_or_id: "car".to_string(),
+            direction: EdgeDirection::Both,
+            depth: 1,
+        })
+        .unwrap();
+
+    assert_eq!(result.nodes.len(), 3);
+    assert_eq!(result.edges.len(), 2);
+}
+
+#[test]
+fn export_graph_dedups_node_reached_via_multiple_paths() {
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let wheel = make_kb("wheel-id", "wheel");
+    let store = MockKbStore::with(vec![car.clone(), engine.clone(), wheel.clone()]);
+    let graph = MockKbGraph::with_nodes(vec![
+        GraphNode::from(&car),
+        GraphNode::from(&engine),
+        GraphNode::from(&wheel),
+    ]);
+    let svc = GraphService::new(store, graph);
+
+    svc.link(LinkParams {
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
+        note: String::new(),
+    })
+    .unwrap();
+    svc.link(LinkParams {
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "wheel".to_string(),
+        note: String::new(),
+    })
+    .unwrap();
+    svc.link(LinkParams {
+        from_key_or_id: "engine".to_string(),
+        to_key_or_id: "wheel".to_string(),
+        note: String::new(),
+    })
+    .unwrap();
+
+    let result = svc
+        .export_graph(GraphViewParams {
+            key_or_id: "car".to_string(),
+            direction: EdgeDirection::Out,
+            depth: 2,
+        })
+        .unwrap();
+
+    assert_eq!(result.nodes.len(), 3);
+    assert_eq!(result.edges.len(), 3);
+}
+
+#[test]
+fn export_graph_depth_zero_returns_only_root() {
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let store = MockKbStore::with(vec![car.clone(), engine.clone()]);
+    let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
+    let svc = GraphService::new(store, graph);
+
+    svc.link(LinkParams {
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
+        note: String::new(),
+    })
+    .unwrap();
+
+    let result = svc
+        .export_graph(GraphViewParams {
+            key_or_id: "car".to_string(),
+            direction: EdgeDirection::Out,
+            depth: 0,
+        })
+        .unwrap();
+
+    assert_eq!(result.nodes.len(), 1);
+    assert!(result.edges.is_empty());
+}
+
+#[test]
+fn export_graph_unknown_root_returns_kb_not_found() {
+    let svc = GraphService::new(MockKbStore::new(), MockKbGraph::new());
+
+    let result = svc.export_graph(GraphViewParams {
+        key_or_id: "does-not-exist".to_string(),
+        direction: EdgeDirection::Out,
+        depth: 1,
+    });
+
+    assert!(matches!(result, Err(Error::KBNotFound)));
+}

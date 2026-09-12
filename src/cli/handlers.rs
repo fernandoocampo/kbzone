@@ -2,11 +2,12 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
+use crate::cli::{browser, graph_view};
 use crate::domain::{
-    EdgeDirection, ExportKbItem, ExportMediaParams, ImportKbItem, KbFilter, KbUpdate, LinkParams,
-    MediaPathParams, NewKb, OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery,
-    TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, is_media_category, media_file_path,
-    suggest_tags,
+    EdgeDirection, ExportKbItem, ExportMediaParams, GraphViewParams, ImportKbItem, KbFilter,
+    KbUpdate, LinkParams, MediaPathParams, NewKb, OutputFormat, RelatedResult, ScoredKbItem,
+    SemanticQuery, TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, is_media_category,
+    media_file_path, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -83,6 +84,12 @@ pub struct TreeParams {
     pub direction: String,
     pub depth: i64,
     pub json: bool,
+}
+
+pub struct GraphViewCliParams {
+    pub key_or_id: String,
+    pub direction: String,
+    pub depth: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -966,6 +973,20 @@ pub fn handle_tree<S: KbStore, G: KbGraph>(
         print!("{}", render_tree(&result));
     }
     Ok(())
+}
+
+pub fn handle_graph<S: KbStore, G: KbGraph>(
+    graph_svc: &GraphService<S, G>,
+    params: GraphViewCliParams,
+) -> Result<(), Error> {
+    let direction: EdgeDirection = params.direction.parse().map_err(Error::GraphQueryError)?;
+    let export = graph_svc.export_graph(GraphViewParams {
+        key_or_id: params.key_or_id,
+        direction,
+        depth: params.depth,
+    })?;
+    let html = graph_view::render_graph_html(&export)?;
+    browser::serve_once_and_open(&html)
 }
 
 // ---------------------------------------------------------------------------

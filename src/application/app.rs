@@ -7,8 +7,8 @@ use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
 use crate::cli::handlers::{
-    self, AddParams, AskParams, ExportParams, GetParams, ImportParams, RelatedParams, SearchParams,
-    TreeParams, UnlinkParams,
+    self, AddParams, AskParams, ExportParams, GetParams, GraphViewCliParams, ImportParams,
+    RelatedParams, SearchParams, TreeParams, UnlinkParams,
 };
 use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
 use crate::errors::AppError;
@@ -267,6 +267,19 @@ impl App {
                     direction,
                     depth,
                     json,
+                },
+            )?,
+
+            Command::Graph {
+                key_or_id,
+                direction,
+                depth,
+            } => handlers::handle_graph(
+                &self.graph_svc,
+                GraphViewCliParams {
+                    key_or_id,
+                    direction,
+                    depth,
                 },
             )?,
         }
