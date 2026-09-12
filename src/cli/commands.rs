@@ -57,6 +57,18 @@ pub enum Command {
             help = "URL or local file path for media category entries (e.g. https://… or /path/to/file.jpg)"
         )]
         media_url: String,
+
+        /// Full entry as a JSON object, e.g.
+        /// `{"key":"k","value":"v","category":"quote","tags":["a","b"]}`.
+        /// `key`, `value`, `category` and `tags` are required; `tags` must be
+        /// a non-empty array with no blank entries (duplicates are silently
+        /// deduped). Mutually exclusive with every other `add` flag — skips
+        /// all prompts and prints only the created entry as JSON.
+        #[arg(
+            long,
+            help = "Full entry as a JSON object (mutually exclusive with the other add flags)"
+        )]
+        json: Option<String>,
     },
 
     /// Get a single entry by key or ID.

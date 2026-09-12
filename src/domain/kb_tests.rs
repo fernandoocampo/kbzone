@@ -370,3 +370,133 @@ fn output_format_from_str_invalid_returns_error() {
     let result = "xml".parse::<OutputFormat>();
     assert!(result.is_err());
 }
+
+fn make_add_json_input() -> AddJsonInput {
+    AddJsonInput {
+        key: "complexity-views".to_string(),
+        value: "Fools ignore complexity.".to_string(),
+        category: "quote".to_string(),
+        tags: vec!["complexity".to_string(), "perlis".to_string()],
+        reference: "Alan Perlis".to_string(),
+        notes: String::new(),
+        namespace: String::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+    }
+}
+
+#[test]
+fn add_json_input_validate_fails_when_key_blank() {
+    let mut input = make_add_json_input();
+    input.key = "   ".to_string();
+    assert!(matches!(input.validate(), Err(Error::InvalidJsonInput(_))));
+}
+
+#[test]
+fn add_json_input_validate_fails_when_value_blank() {
+    let mut input = make_add_json_input();
+    input.value = "   ".to_string();
+    assert!(matches!(input.validate(), Err(Error::InvalidJsonInput(_))));
+}
+
+#[test]
+fn add_json_input_validate_fails_when_category_blank() {
+    let mut input = make_add_json_input();
+    input.category = "   ".to_string();
+    assert!(matches!(input.validate(), Err(Error::InvalidJsonInput(_))));
+}
+
+#[test]
+fn add_json_input_validate_fails_when_tags_empty() {
+    let mut input = make_add_json_input();
+    input.tags = Vec::new();
+    assert!(matches!(input.validate(), Err(Error::InvalidJsonInput(_))));
+}
+
+#[test]
+fn add_json_input_validate_passes_with_all_required_fields() {
+    let input = make_add_json_input();
+    assert!(input.validate().is_ok());
+}
+
+#[test]
+fn dedup_tags_rejects_blank_tag() {
+    let result = dedup_tags(vec!["a".to_string(), "  ".to_string()]);
+    assert!(matches!(result, Err(Error::InvalidTagError(_))));
+}
+
+#[test]
+fn dedup_tags_preserves_first_occurrence_order_and_dedupes() {
+    let result = dedup_tags(vec![
+        "b".to_string(),
+        "a".to_string(),
+        "b".to_string(),
+        "c".to_string(),
+        "a".to_string(),
+    ]);
+    assert_eq!(
+        result.expect("expected Ok"),
+        vec!["b".to_string(), "a".to_string(), "c".to_string()]
+    );
+}
+
+#[test]
+fn dedup_tags_trims_before_comparing() {
+    let result = dedup_tags(vec![" a".to_string(), "a ".to_string()]);
+    assert_eq!(result.expect("expected Ok"), vec!["a".to_string()]);
+}
+
+#[test]
+fn try_from_add_json_input_builds_new_kb_with_trimmed_fields() {
+    let mut input = make_add_json_input();
+    input.key = "  complexity-views  ".to_string();
+    input.value = "  Fools ignore complexity.  ".to_string();
+    input.category = "  quote  ".to_string();
+    input.tags = vec!["a".to_string(), "a".to_string(), "b".to_string()];
+    let new_kb = NewKb::try_from(input).expect("expected Ok NewKb");
+    assert_eq!(new_kb.key, "complexity-views");
+    assert_eq!(new_kb.value, "Fools ignore complexity.");
+    assert_eq!(new_kb.category, "quote");
+    assert_eq!(new_kb.tags, vec!["a".to_string(), "b".to_string()]);
+    assert_eq!(new_kb.media_extension, None);
+}
+
+#[test]
+fn try_from_add_json_input_normalizes_path() {
+    let mut input = make_add_json_input();
+    input.path = Some("personal/rust".to_string());
+    let new_kb = NewKb::try_from(input).expect("expected Ok NewKb");
+    assert_eq!(new_kb.path, Some("/personal/rust".to_string()));
+}
+
+#[test]
+fn try_from_add_json_input_rejects_invalid_path() {
+    let mut input = make_add_json_input();
+    input.path = Some("../evil".to_string());
+    let result = NewKb::try_from(input);
+    assert!(matches!(result, Err(Error::InvalidPathError(_))));
+}
+
+#[test]
+fn try_from_add_json_input_defaults_optional_fields() {
+    let input = AddJsonInput {
+        key: "k".to_string(),
+        value: "v".to_string(),
+        category: "concept".to_string(),
+        tags: vec!["t".to_string()],
+        reference: String::new(),
+        notes: String::new(),
+        namespace: String::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+    };
+    let new_kb = NewKb::try_from(input).expect("expected Ok NewKb");
+    assert_eq!(new_kb.reference, "");
+    assert_eq!(new_kb.notes, "");
+    assert_eq!(new_kb.namespace, "");
+    assert_eq!(new_kb.parent, None);
+    assert_eq!(new_kb.path, None);
+    assert_eq!(new_kb.media_url, None);
+}

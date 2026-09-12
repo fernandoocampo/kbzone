@@ -668,6 +668,7 @@ fn build_new_kb_non_interactive_all_fields_provided_no_prompt() {
         parent: None,
         path: None,
         media_url: None,
+        json: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -693,6 +694,7 @@ fn handle_add_non_interactive_fails_without_key() {
         parent: None,
         path: None,
         media_url: None,
+        json: None,
     };
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::MissingRequiredField(_))));
@@ -713,6 +715,7 @@ fn handle_add_non_interactive_fails_without_value() {
         parent: None,
         path: None,
         media_url: None,
+        json: None,
     };
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::MissingRequiredField(_))));
@@ -732,6 +735,7 @@ fn build_new_kb_non_interactive_builds_correctly() {
         parent: None,
         path: None,
         media_url: None,
+        json: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -766,6 +770,29 @@ fn parse_tags_filters_empty_strings() {
 #[test]
 fn parse_tags_returns_empty_for_empty_input() {
     let result = parse_tags("");
+    assert!(result.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// suggested_tags_for tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn suggested_tags_for_derives_suggestions_from_fields() {
+    let result = suggested_tags_for(&["rust ownership", "memory safety"], &[]);
+    assert!(result.contains(&"ownership".to_string()));
+}
+
+#[test]
+fn suggested_tags_for_excludes_existing_tags() {
+    let result = suggested_tags_for(&["rust ownership memory"], &["rust".to_string()]);
+    assert!(!result.contains(&"rust".to_string()));
+    assert!(result.contains(&"ownership".to_string()));
+}
+
+#[test]
+fn suggested_tags_for_returns_empty_for_stop_words_only() {
+    let result = suggested_tags_for(&["the a an is"], &[]);
     assert!(result.is_empty());
 }
 
@@ -836,6 +863,7 @@ fn build_new_kb_non_interactive_uses_provided_reference() {
         parent: None,
         path: None,
         media_url: None,
+        json: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -857,11 +885,135 @@ fn build_new_kb_non_interactive_uses_provided_tags() {
         parent: None,
         path: None,
         media_url: None,
+        json: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
     let kb = result.expect("expected Ok");
     assert_eq!(kb.tags, vec!["rust".to_string(), "memory".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// handle_add --json tests
+// ---------------------------------------------------------------------------
+
+fn add_params_with_json(json: Option<&str>) -> AddParams {
+    AddParams {
+        key: None,
+        value: None,
+        notes: String::new(),
+        category: String::new(),
+        reference: String::new(),
+        namespace: String::new(),
+        tags: Vec::new(),
+        interactive: false,
+        parent: None,
+        path: None,
+        media_url: None,
+        json: json.map(str::to_string),
+    }
+}
+
+#[test]
+fn handle_add_json_creates_entry_and_returns_ok() {
+    let svc = make_svc();
+    let params = add_params_with_json(Some(
+        r#"{"key":"complexity-views","value":"Fools ignore complexity.","category":"quote","tags":["a","b"],"reference":"Alan Perlis"}"#,
+    ));
+    let result = handle_add(&svc, params);
+    assert!(result.is_ok());
+    let kb = svc
+        .get_kb_by_key("complexity-views")
+        .expect("lookup should succeed")
+        .expect("entry should be persisted");
+    assert_eq!(kb.value, "Fools ignore complexity.");
+    assert_eq!(kb.category, "quote");
+    assert_eq!(kb.reference, "Alan Perlis");
+    assert_eq!(kb.tags, vec!["a".to_string(), "b".to_string()]);
+}
+
+#[test]
+fn handle_add_json_dedupes_tags_end_to_end() {
+    let svc = make_svc();
+    let params = add_params_with_json(Some(
+        r#"{"key":"dedup-key","value":"v","category":"concept","tags":["a","a","b"]}"#,
+    ));
+    let result = handle_add(&svc, params);
+    assert!(result.is_ok());
+    let kb = svc
+        .get_kb_by_key("dedup-key")
+        .expect("lookup should succeed")
+        .expect("entry should be persisted");
+    assert_eq!(kb.tags, vec!["a".to_string(), "b".to_string()]);
+}
+
+#[test]
+fn handle_add_json_rejects_blank_tag() {
+    let svc = make_svc();
+    let params = add_params_with_json(Some(
+        r#"{"key":"blank-tag-key","value":"v","category":"concept","tags":["a"," "]}"#,
+    ));
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::InvalidTagError(_))));
+    assert!(
+        svc.get_kb_by_key("blank-tag-key")
+            .expect("lookup should succeed")
+            .is_none()
+    );
+}
+
+#[test]
+fn handle_add_json_rejects_missing_required_field() {
+    let svc = make_svc();
+    let params = add_params_with_json(Some(r#"{"key":"k","value":"v","tags":["a"]}"#));
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::InvalidJsonInput(_))));
+}
+
+#[test]
+fn handle_add_json_rejects_malformed_json() {
+    let svc = make_svc();
+    let params = add_params_with_json(Some("not json"));
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::InvalidJsonInput(_))));
+}
+
+#[test]
+fn handle_add_json_conflicts_with_key_flag() {
+    let svc = make_svc();
+    let mut params = add_params_with_json(Some(
+        r#"{"key":"k","value":"v","category":"concept","tags":["a"]}"#,
+    ));
+    params.key = Some("some-other-key".to_string());
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::ConflictingAddFlags(_))));
+    assert!(
+        svc.get_kb_by_key("k")
+            .expect("lookup should succeed")
+            .is_none()
+    );
+}
+
+#[test]
+fn handle_add_json_conflicts_with_tags_flag() {
+    let svc = make_svc();
+    let mut params = add_params_with_json(Some(
+        r#"{"key":"k","value":"v","category":"concept","tags":["a"]}"#,
+    ));
+    params.tags = vec!["extra".to_string()];
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::ConflictingAddFlags(_))));
+}
+
+#[test]
+fn handle_add_json_conflicts_with_interactive_flag() {
+    let svc = make_svc();
+    let mut params = add_params_with_json(Some(
+        r#"{"key":"k","value":"v","category":"concept","tags":["a"]}"#,
+    ));
+    params.interactive = true;
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::ConflictingAddFlags(_))));
 }
 
 #[test]

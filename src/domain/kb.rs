@@ -323,6 +323,103 @@ impl From<ImportKbItem> for NewKb {
     }
 }
 
+/// Input DTO for `kb add --json`. Deserialized directly from the CLI-supplied
+/// JSON string. Unlike [`ImportKbItem`] (batch-tolerant YAML import), a single
+/// invalid `AddJsonInput` is a hard error, not a skip-and-report-later case.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AddJsonInput {
+    pub key: String,
+    pub value: String,
+    pub category: String,
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub reference: String,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub namespace: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub media_url: Option<String>,
+}
+
+impl AddJsonInput {
+    /// Hard-fails when a mandatory field (`key`/`value`/`category` blank
+    /// after trim, or `tags` empty) is missing. Category and tags are
+    /// strict because both feed the embedding text and back the vector index.
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.key.trim().is_empty() {
+            return Err(Error::InvalidJsonInput(
+                "missing required field: key".to_string(),
+            ));
+        }
+        if self.value.trim().is_empty() {
+            return Err(Error::InvalidJsonInput(
+                "missing required field: value".to_string(),
+            ));
+        }
+        if self.category.trim().is_empty() {
+            return Err(Error::InvalidJsonInput(
+                "missing required field: category".to_string(),
+            ));
+        }
+        if self.tags.is_empty() {
+            return Err(Error::InvalidJsonInput(
+                "tags must be a non-empty array".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Trims each tag, rejects any blank entry, and dedupes exact-match
+/// duplicates while preserving first-occurrence order.
+fn dedup_tags(tags: Vec<String>) -> Result<Vec<String>, Error> {
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let trimmed = tag.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(Error::InvalidTagError(
+                "blank tag entry is not allowed".to_string(),
+            ));
+        }
+        if seen.insert(trimmed.clone()) {
+            result.push(trimmed);
+        }
+    }
+    Ok(result)
+}
+
+impl TryFrom<AddJsonInput> for NewKb {
+    type Error = Error;
+
+    fn try_from(input: AddJsonInput) -> Result<Self, Error> {
+        input.validate()?;
+        let tags = dedup_tags(input.tags)?;
+        let path = match input.path.filter(|p| !p.is_empty()) {
+            Some(p) => Some(normalize_path(&p)?),
+            None => None,
+        };
+        Ok(NewKb {
+            key: input.key.trim().to_string(),
+            value: input.value.trim().to_string(),
+            notes: input.notes,
+            category: input.category.trim().to_string(),
+            reference: input.reference,
+            namespace: input.namespace,
+            tags,
+            parent: input.parent,
+            path,
+            media_url: input.media_url,
+            media_extension: None,
+        })
+    }
+}
+
 /// Parameters for computing the media file storage path.
 pub struct MediaPathParams<'a> {
     pub base_dir: &'a str,

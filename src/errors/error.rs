@@ -45,6 +45,12 @@ pub enum Error {
     QuoteError(String),
     #[error("missing required field: {0}")]
     MissingRequiredField(String),
+    #[error("invalid --json payload: {0}")]
+    InvalidJsonInput(String),
+    #[error("invalid tag: {0}")]
+    InvalidTagError(String),
+    #[error("--json cannot be combined with other add flags: {0}")]
+    ConflictingAddFlags(String),
     #[error("interactive input error: {0}")]
     InteractiveInputError(String),
     #[error("parent KB not found")]

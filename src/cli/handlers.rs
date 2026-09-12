@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use crate::cli::{browser, graph_view};
 use crate::domain::{
-    EdgeDirection, ExportDocument, ExportMediaParams, GraphViewParams, ImportDocument,
-    ImportEdgeItem, ImportKbItem, KbFilter, KbUpdate, LinkParams, MediaPathParams, NewKb,
-    OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
+    AddJsonInput, EdgeDirection, ExportDocument, ExportMediaParams, GraphViewParams,
+    ImportDocument, ImportEdgeItem, ImportKbItem, KbFilter, KbUpdate, LinkParams, MediaPathParams,
+    NewKb, OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
     TreeResult, TreeWalkParams, is_media_category, media_file_path, suggest_tags,
 };
 use crate::errors::Error;
@@ -56,6 +56,7 @@ pub struct AddParams {
     pub parent: Option<String>,
     pub path: Option<String>,
     pub media_url: Option<String>,
+    pub json: Option<String>,
 }
 
 pub struct ExportParams {
@@ -188,6 +189,10 @@ pub fn handle_add<
     svc: &KBService<S, V, E, M, F>,
     params: AddParams,
 ) -> Result<(), Error> {
+    if let Some(json_str) = params.json.clone() {
+        assert_no_conflicting_add_flags(&params)?;
+        return handle_add_json(svc, &json_str);
+    }
     let new_kb = if params.interactive {
         build_new_kb_interactive(params)?
     } else {
@@ -204,21 +209,69 @@ pub fn handle_add<
     let kb = svc.add_kb(new_kb)?;
     println!("--- Created successfully ---");
     print!("{kb}");
-    let suggestion_input = TagSuggestionInput {
-        text_fields: vec![
-            kb.key.clone(),
-            kb.value.clone(),
-            kb.notes.clone(),
-            kb.reference.clone(),
-            kb.category.clone(),
-            kb.namespace.clone(),
+    let suggestions = suggested_tags_for(
+        &[
+            &kb.key,
+            &kb.value,
+            &kb.notes,
+            &kb.reference,
+            &kb.category,
+            &kb.namespace,
         ],
-        existing_tags: kb.tags.clone(),
-    };
-    let suggestions = suggest_tags(&suggestion_input, 5);
+        &kb.tags,
+    );
     if !suggestions.is_empty() {
         println!("Suggested tags : {}", suggestions.join(", "));
     }
+    Ok(())
+}
+
+/// Rejects `--json` combined with any individual `add` field flag. Checked
+/// manually (rather than via clap `conflicts_with_all`) because several
+/// sibling flags default to `""`/an empty `Vec`, which clap can't reliably
+/// distinguish from "the user explicitly passed the default value".
+fn assert_no_conflicting_add_flags(params: &AddParams) -> Result<(), Error> {
+    let conflicts = params.key.is_some()
+        || params.value.is_some()
+        || !params.notes.is_empty()
+        || !params.category.is_empty()
+        || !params.namespace.is_empty()
+        || !params.reference.is_empty()
+        || !params.tags.is_empty()
+        || params.interactive
+        || params.parent.is_some()
+        || params.path.is_some()
+        || params.media_url.is_some();
+    if conflicts {
+        return Err(Error::ConflictingAddFlags(
+            "--json cannot be combined with --key/--value/--notes/--category/--namespace/\
+             --reference/--tags/--interactive/--parent/--path/--media-url"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// One-shot, non-interactive path for `kb add --json`: parses, validates and
+/// saves the entry, then prints only the created entry as JSON — no prompts,
+/// no "Created successfully" header, no tag-suggestion hint.
+fn handle_add_json<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
+    json_str: &str,
+) -> Result<(), Error> {
+    let input: AddJsonInput =
+        serde_json::from_str(json_str).map_err(|e| Error::InvalidJsonInput(e.to_string()))?;
+    let new_kb = NewKb::try_from(input)?;
+    let kb = svc.add_kb(new_kb)?;
+    let json =
+        serde_json::to_string_pretty(&kb).map_err(|e| Error::InvalidJsonInput(e.to_string()))?;
+    println!("{json}");
     Ok(())
 }
 
@@ -249,6 +302,20 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
         params.reference
     };
     let tags = if params.tags.is_empty() {
+        let suggestions = suggested_tags_for(
+            &[
+                &key,
+                &value,
+                &params.notes,
+                &reference,
+                &params.category,
+                &params.namespace,
+            ],
+            &[],
+        );
+        if !suggestions.is_empty() {
+            eprintln!("Suggested tags : {}", suggestions.join(", "));
+        }
         let input = prompt_for("Tags comma-separated (optional)", false)?;
         parse_tags(&input)
     } else {
@@ -301,6 +368,13 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         params.reference
     };
     let tags = if params.tags.is_empty() {
+        let suggestions = suggested_tags_for(
+            &[&key, &value, &notes, &category, &namespace, &reference],
+            &[],
+        );
+        if !suggestions.is_empty() {
+            eprintln!("Suggested tags : {}", suggestions.join(", "));
+        }
         let tags_input = prompt_for("Tags comma-separated (optional)", false)?;
         parse_tags(&tags_input)
     } else {
@@ -344,6 +418,16 @@ fn parse_tags(input: &str) -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// Computes up to 5 tag suggestions from the given text fields, excluding
+/// any tag already in `existing_tags`.
+fn suggested_tags_for(fields: &[&str], existing_tags: &[String]) -> Vec<String> {
+    let suggestion_input = TagSuggestionInput {
+        text_fields: fields.iter().map(|s| s.to_string()).collect(),
+        existing_tags: existing_tags.to_vec(),
+    };
+    suggest_tags(&suggestion_input, 5)
 }
 
 fn format_preview(kb: &NewKb) -> String {
