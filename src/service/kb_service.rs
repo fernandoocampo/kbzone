@@ -125,6 +125,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                 .unwrap_or(existing.namespace),
             reference: update.reference.unwrap_or(existing.reference),
             tags: update.tags.unwrap_or(existing.tags),
+            metadata: existing.metadata,
             created_on: existing.created_on,
             parent: update.parent.or(existing.parent),
             path,

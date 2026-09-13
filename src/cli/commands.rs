@@ -1,5 +1,12 @@
 use clap::{Parser, Subcommand};
 
+/// Parses a single `KEY=VALUE` token, splitting on the first `=` only.
+fn parse_key_val(s: &str) -> Result<(String, String), String> {
+    s.split_once('=')
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .ok_or_else(|| format!("invalid KEY=VALUE pair (missing '='): {s}"))
+}
+
 /// kbzone — local knowledge base CLI
 #[derive(Parser, Debug)]
 #[command(name = "kb", about = "Manage your local knowledge base")]
@@ -37,6 +44,10 @@ pub enum Command {
         /// Comma-separated tags, e.g. `rust,memory,concepts`
         #[arg(long, value_delimiter = ',', help = "Comma-separated search tags")]
         tags: Vec<String>,
+
+        /// Comma-separated key=value metadata pairs, e.g. `author=me,priority=high`
+        #[arg(long, value_delimiter = ',', value_parser = parse_key_val, help = "Comma-separated key=value metadata pairs (e.g. author=me,priority=high)")]
+        metadata: Vec<(String, String)>,
 
         #[arg(long, help = "Prompt for missing required fields interactively")]
         interactive: bool,

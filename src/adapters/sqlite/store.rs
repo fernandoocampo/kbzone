@@ -57,25 +57,25 @@ END";
 // ---------------------------------------------------------------------------
 
 const GET_KB_BY_ID: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                             REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION \
+                             REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
                              FROM kbs WHERE KB_ID = ?1";
 
 const GET_KB_BY_KEY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                              REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION \
+                              REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
                               FROM kbs WHERE KB_KEY = ?1";
 
 const INSERT_KB: &str = "INSERT INTO kbs \
-                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION) \
-                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA) \
+                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 
 const UPDATE_KB: &str = "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGORY=?4, \
-                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, PARENT_KB_ID=?8, KB_PATH=?9, MEDIA_EXTENSION=?10 \
-                          WHERE KB_ID=?11";
+                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, PARENT_KB_ID=?8, KB_PATH=?9, MEDIA_EXTENSION=?10, METADATA=?11 \
+                          WHERE KB_ID=?12";
 
 const DELETE_KB: &str = "DELETE FROM kbs WHERE KB_ID=?1";
 
 const GET_RANDOM_QUOTE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                 REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION \
+                                 REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
                                  FROM kbs WHERE LOWER(CATEGORY) = 'quote' \
                                  ORDER BY RANDOM() LIMIT 1";
 
@@ -88,7 +88,7 @@ const GET_DISTINCT_CATEGORIES_BY_NAMESPACE: &str = "SELECT DISTINCT CATEGORY FRO
      ORDER BY CATEGORY ASC";
 
 const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                   REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION FROM kbs";
+                                   REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA FROM kbs";
 
 const SEARCH_FTS: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
                            FROM kbs k \
@@ -310,6 +310,12 @@ impl KbStore for SqliteStore {
         {
             return Err(Error::StorageInitError(e.to_string()));
         }
+        // Idempotent migration: add METADATA column if it does not exist yet.
+        if let Err(e) = conn.execute_batch("ALTER TABLE kbs ADD COLUMN METADATA TEXT DEFAULT NULL")
+            && !e.to_string().contains("duplicate column name")
+        {
+            return Err(Error::StorageInitError(e.to_string()));
+        }
         Ok(())
     }
 
@@ -356,6 +362,8 @@ impl KbStore for SqliteStore {
 
     fn save_kb(&self, kb: &Kb) -> Result<(), Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
+        let metadata_json =
+            serde_json::to_string(&kb.metadata).map_err(|e| Error::CreateKBError(e.to_string()))?;
         conn.execute(
             INSERT_KB,
             params![
@@ -371,6 +379,7 @@ impl KbStore for SqliteStore {
                 kb.parent,
                 kb.path,
                 kb.media_extension,
+                metadata_json,
             ],
         )
         .map_err(|e| Error::CreateKBError(e.to_string()))?;
@@ -379,6 +388,8 @@ impl KbStore for SqliteStore {
 
     fn update_kb(&self, kb: &Kb) -> Result<bool, Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
+        let metadata_json =
+            serde_json::to_string(&kb.metadata).map_err(|e| Error::UpdateKBError(e.to_string()))?;
         let rows = conn
             .execute(
                 UPDATE_KB,
@@ -393,6 +404,7 @@ impl KbStore for SqliteStore {
                     kb.parent,
                     kb.path,
                     kb.media_extension,
+                    metadata_json,
                     kb.id,
                 ],
             )
@@ -572,6 +584,13 @@ impl SqliteStore {
 
 fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
     let tag_values: String = row.get(7).map_err(|e| Error::GetKBError(e.to_string()))?;
+    let metadata_raw: Option<String> = row.get(12).map_err(|e| Error::GetKBError(e.to_string()))?;
+    let metadata: std::collections::BTreeMap<String, String> = match metadata_raw {
+        Some(s) if !s.trim().is_empty() => {
+            serde_json::from_str(&s).map_err(|e| Error::GetKBError(e.to_string()))?
+        }
+        _ => std::collections::BTreeMap::new(),
+    };
     Ok(Kb {
         id: row.get(0).map_err(|e| Error::GetKBError(e.to_string()))?,
         key: row.get(1).map_err(|e| Error::GetKBError(e.to_string()))?,
@@ -585,6 +604,7 @@ fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
         } else {
             tag_values.split_whitespace().map(str::to_string).collect()
         },
+        metadata,
         created_on: row.get(8).map_err(|e| Error::GetKBError(e.to_string()))?,
         parent: row
             .get::<_, Option<String>>(9)

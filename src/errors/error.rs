@@ -49,6 +49,10 @@ pub enum Error {
     InvalidJsonInput(String),
     #[error("invalid tag: {0}")]
     InvalidTagError(String),
+    #[error("invalid metadata: {0}")]
+    InvalidMetadataError(String),
+    #[error("duplicate metadata key: {0}")]
+    DuplicateMetadataKeyError(String),
     #[error("--json cannot be combined with other add flags: {0}")]
     ConflictingAddFlags(String),
     #[error("interactive input error: {0}")]

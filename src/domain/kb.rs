@@ -1,4 +1,5 @@
 use chrono::Local;
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::errors::Error;
@@ -39,6 +40,8 @@ pub struct Kb {
     pub namespace: String,
     /// Searchable keywords; drives FTS5 tag search.
     pub tags: Vec<String>,
+    /// Freeform key-value metadata pairs, unique by key.
+    pub metadata: BTreeMap<String, String>,
     /// ISO-8601 creation timestamp.
     pub created_on: String,
     /// Internal UUID of the parent KB item, if any.
@@ -70,6 +73,15 @@ impl Kb {
     }
 }
 
+/// Formats a BTreeMap of metadata as comma-separated `key=value` pairs.
+pub fn format_metadata(metadata: &BTreeMap<String, String>) -> String {
+    metadata
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 impl std::fmt::Display for Kb {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "ID        : {}", self.id)?;
@@ -79,6 +91,7 @@ impl std::fmt::Display for Kb {
         writeln!(f, "Namespace : {}", self.namespace)?;
         writeln!(f, "Reference : {}", self.reference)?;
         writeln!(f, "Tags      : {}", self.tags.join(", "))?;
+        writeln!(f, "Metadata  : {}", format_metadata(&self.metadata))?;
         writeln!(f, "Created   : {}", self.created_on)?;
         if let Some(ref p) = self.path {
             writeln!(f, "Path      : {}", p)?;
@@ -125,6 +138,8 @@ pub struct NewKb {
     pub reference: String,
     pub namespace: String,
     pub tags: Vec<String>,
+    /// Freeform key-value metadata pairs, unique by key.
+    pub metadata: BTreeMap<String, String>,
     /// Internal UUID of the parent KB item, if any.
     pub parent: Option<String>,
     /// Optional Unix-style hierarchical path (e.g. `/personal/rust`).
@@ -153,6 +168,7 @@ impl From<NewKb> for Kb {
             reference: new.reference,
             namespace: new.namespace.to_lowercase(),
             tags: new.tags,
+            metadata: new.metadata,
             created_on: Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string(),
             parent: new.parent,
             path: new.path,
@@ -315,6 +331,7 @@ impl From<ImportKbItem> for NewKb {
             reference: item.reference,
             namespace: item.namespace,
             tags: item.tags,
+            metadata: BTreeMap::new(),
             parent: None, // parent_key is resolved to UUID in the service layer
             path: item.path,
             media_url: None,
@@ -344,6 +361,8 @@ pub struct AddJsonInput {
     pub parent: Option<String>,
     #[serde(default)]
     pub media_url: Option<String>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
 }
 
 impl AddJsonInput {
@@ -371,6 +390,11 @@ impl AddJsonInput {
                 "tags must be a non-empty array".to_string(),
             ));
         }
+        if self.metadata.keys().any(|k| k.trim().is_empty()) {
+            return Err(Error::InvalidJsonInput(
+                "metadata keys must not be blank".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -394,6 +418,26 @@ fn dedup_tags(tags: Vec<String>) -> Result<Vec<String>, Error> {
     Ok(result)
 }
 
+/// Trims each key/value, rejects a blank trimmed key, and rejects an
+/// exact-match duplicate trimmed key. Unlike `dedup_tags`, a duplicate
+/// key is a hard error, not a silent drop.
+pub fn build_metadata(pairs: Vec<(String, String)>) -> Result<BTreeMap<String, String>, Error> {
+    let mut result = BTreeMap::new();
+    for (key, value) in pairs {
+        let key = key.trim().to_string();
+        let value = value.trim().to_string();
+        if key.is_empty() {
+            return Err(Error::InvalidMetadataError(
+                "blank metadata key is not allowed".to_string(),
+            ));
+        }
+        if result.insert(key.clone(), value).is_some() {
+            return Err(Error::DuplicateMetadataKeyError(key));
+        }
+    }
+    Ok(result)
+}
+
 impl TryFrom<AddJsonInput> for NewKb {
     type Error = Error;
 
@@ -412,6 +456,7 @@ impl TryFrom<AddJsonInput> for NewKb {
             reference: input.reference,
             namespace: input.namespace,
             tags,
+            metadata: input.metadata,
             parent: input.parent,
             path,
             media_url: input.media_url,

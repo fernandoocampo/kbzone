@@ -117,6 +117,28 @@ kb add --key rust-borrowing \
 
 The parent must already exist; the command fails with an error if the ID is not found.
 
+### Metadata (custom key-value pairs)
+
+Add arbitrary key-value metadata to an entry using the `--metadata` flag. Pairs are comma-separated, with each pair formatted as `key=value`. Keys must be unique (duplicates are rejected with an error).
+
+```sh
+kb add --key rust-ownership \
+       --value "Each value has a single owner..." \
+       --category concept \
+       --namespace rust \
+       --tags rust,memory,ownership \
+       --metadata "author=me,priority=high,source-format=book"
+```
+
+Metadata is stored as JSON in the database and displayed when retrieving an entry:
+
+```sh
+kb get --key rust-ownership         # plain text output includes metadata line
+kb get --key rust-ownership --out json   # metadata appears as a JSON object
+```
+
+Both the interactive prompt (`--interactive`) and `--json` input paths also support metadata.
+
 ### Media entries
 
 When `--category media` is used, you must also supply `--media-url` pointing to the file to associate with the entry. The value can be a **URL** (`http://` or `https://`) or a **local file path**.

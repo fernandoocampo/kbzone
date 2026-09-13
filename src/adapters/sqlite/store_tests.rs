@@ -20,6 +20,7 @@ fn make_kb(id: &str, key: &str) -> Kb {
         reference: String::new(),
         namespace: "default".to_string(),
         tags: vec!["rust".to_string(), "memory".to_string()],
+        metadata: std::collections::BTreeMap::new(),
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         parent: None,
         path: None,

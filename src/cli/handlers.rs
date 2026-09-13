@@ -5,11 +5,13 @@ use crate::domain::{
     AddJsonInput, EdgeDirection, ExportDocument, ExportMediaParams, GraphViewParams,
     ImportDocument, ImportEdgeItem, ImportKbItem, KbFilter, KbUpdate, LinkParams, MediaPathParams,
     NewKb, OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
-    TreeResult, TreeWalkParams, is_media_category, media_file_path, suggest_tags,
+    TreeResult, TreeWalkParams, build_metadata, format_metadata, is_media_category,
+    media_file_path, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
 use crate::service::{GraphService, KBService};
+use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
 // Parameter structs (satisfy the 2-param rule)
@@ -52,6 +54,7 @@ pub struct AddParams {
     pub namespace: String,
     pub reference: String,
     pub tags: Vec<String>,
+    pub metadata: Vec<(String, String)>,
     pub interactive: bool,
     pub parent: Option<String>,
     pub path: Option<String>,
@@ -238,6 +241,7 @@ fn assert_no_conflicting_add_flags(params: &AddParams) -> Result<(), Error> {
         || !params.namespace.is_empty()
         || !params.reference.is_empty()
         || !params.tags.is_empty()
+        || !params.metadata.is_empty()
         || params.interactive
         || params.parent.is_some()
         || params.path.is_some()
@@ -245,7 +249,7 @@ fn assert_no_conflicting_add_flags(params: &AddParams) -> Result<(), Error> {
     if conflicts {
         return Err(Error::ConflictingAddFlags(
             "--json cannot be combined with --key/--value/--notes/--category/--namespace/\
-             --reference/--tags/--interactive/--parent/--path/--media-url"
+             --reference/--tags/--metadata/--interactive/--parent/--path/--media-url"
                 .to_string(),
         ));
     }
@@ -321,6 +325,7 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
     } else {
         params.tags
     };
+    let metadata = build_metadata(params.metadata)?;
     let path = params.path.filter(|p| !p.is_empty());
     let media_url = resolve_media_url(&params.category, params.media_url)?;
     Ok(NewKb {
@@ -331,6 +336,7 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
         reference,
         namespace: params.namespace,
         tags,
+        metadata,
         parent: params.parent,
         path,
         media_url,
@@ -380,6 +386,19 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
     } else {
         params.tags
     };
+    let metadata = if params.metadata.is_empty() {
+        let input = prompt_for(
+            "Metadata as key=value pairs, comma-separated (optional)",
+            false,
+        )?;
+        if input.is_empty() {
+            BTreeMap::new()
+        } else {
+            build_metadata(parse_metadata_input(&input))?
+        }
+    } else {
+        build_metadata(params.metadata)?
+    };
     let path = match params.path.filter(|p| !p.is_empty()) {
         Some(p) => Some(p),
         None => {
@@ -396,6 +415,7 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         reference,
         namespace,
         tags,
+        metadata,
         parent: params.parent,
         path,
         media_url,
@@ -420,6 +440,16 @@ fn parse_tags(input: &str) -> Vec<String> {
         .collect()
 }
 
+/// Splits a free-text `key=value,key=value` string into raw pairs.
+/// Tokens without `=` are silently skipped (lenient).
+fn parse_metadata_input(input: &str) -> Vec<(String, String)> {
+    input
+        .split(',')
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .collect()
+}
+
 /// Computes up to 5 tag suggestions from the given text fields, excluding
 /// any tag already in `existing_tags`.
 fn suggested_tags_for(fields: &[&str], existing_tags: &[String]) -> Vec<String> {
@@ -432,7 +462,7 @@ fn suggested_tags_for(fields: &[&str], existing_tags: &[String]) -> Vec<String> 
 
 fn format_preview(kb: &NewKb) -> String {
     let mut s = format!(
-        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  path      : {}\n  parent    : {}",
+        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  metadata  : {}\n  path      : {}\n  parent    : {}",
         kb.key,
         kb.value,
         kb.notes,
@@ -440,6 +470,7 @@ fn format_preview(kb: &NewKb) -> String {
         kb.namespace,
         kb.reference,
         kb.tags.join(", "),
+        format_metadata(&kb.metadata),
         kb.path.as_deref().unwrap_or("-"),
         kb.parent.as_deref().unwrap_or("(none)"),
     );
@@ -480,6 +511,13 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
     } else {
         parse_tags(&tags_input)
     };
+    let metadata_current = format_metadata(&kb.metadata);
+    let metadata_input = prompt_adjust("metadata (comma-separated key=value)", &metadata_current)?;
+    let metadata = if metadata_input.is_empty() {
+        kb.metadata
+    } else {
+        build_metadata(parse_metadata_input(&metadata_input))?
+    };
     let path_current = kb.path.as_deref().unwrap_or("");
     let path_input = prompt_adjust("path (optional, e.g. /personal/rust)", path_current)?;
     let path = if path_input.is_empty() {
@@ -509,6 +547,7 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
         namespace,
         reference,
         tags,
+        metadata,
         path,
         parent,
         media_url,

@@ -14,6 +14,7 @@ fn make_kb(value: &str) -> Kb {
         parent: None,
         path: None,
         media_extension: None,
+        metadata: std::collections::BTreeMap::new(),
     }
 }
 
@@ -383,6 +384,7 @@ fn make_add_json_input() -> AddJsonInput {
         path: None,
         parent: None,
         media_url: None,
+        metadata: std::collections::BTreeMap::new(),
     }
 }
 
@@ -448,6 +450,78 @@ fn dedup_tags_trims_before_comparing() {
 }
 
 #[test]
+fn build_metadata_rejects_blank_key() {
+    let result = build_metadata(vec![("  ".to_string(), "v".to_string())]);
+    assert!(matches!(result, Err(Error::InvalidMetadataError(_))));
+}
+
+#[test]
+fn build_metadata_rejects_duplicate_key() {
+    let result = build_metadata(vec![
+        ("author".to_string(), "me".to_string()),
+        ("author".to_string(), "you".to_string()),
+    ]);
+    assert!(matches!(result, Err(Error::DuplicateMetadataKeyError(_))));
+}
+
+#[test]
+fn build_metadata_trims_keys_and_values() {
+    let result =
+        build_metadata(vec![(" author ".to_string(), " me ".to_string())]).expect("expected Ok");
+    assert_eq!(result.get("author"), Some(&"me".to_string()));
+}
+
+#[test]
+fn build_metadata_builds_ordered_map_from_pairs() {
+    let result = build_metadata(vec![
+        ("priority".to_string(), "high".to_string()),
+        ("author".to_string(), "me".to_string()),
+    ])
+    .expect("expected Ok");
+    assert_eq!(
+        result.into_iter().collect::<Vec<_>>(),
+        vec![
+            ("author".to_string(), "me".to_string()),
+            ("priority".to_string(), "high".to_string())
+        ]
+    );
+}
+
+#[test]
+fn build_metadata_empty_input_returns_empty_map() {
+    assert!(build_metadata(vec![]).expect("expected Ok").is_empty());
+}
+
+#[test]
+fn format_metadata_joins_pairs_as_key_equals_value() {
+    let mut map = std::collections::BTreeMap::new();
+    map.insert("author".to_string(), "me".to_string());
+    map.insert("priority".to_string(), "high".to_string());
+    assert_eq!(format_metadata(&map), "author=me, priority=high");
+}
+
+#[test]
+fn format_metadata_empty_map_returns_empty_string() {
+    assert_eq!(format_metadata(&std::collections::BTreeMap::new()), "");
+}
+
+#[test]
+fn embedding_text_ignores_metadata() {
+    let mut kb1 = make_kb("value");
+    kb1.metadata.insert("author".to_string(), "me".to_string());
+    let kb2 = make_kb("value");
+    assert_eq!(kb1.embedding_text(), kb2.embedding_text());
+}
+
+#[test]
+fn display_includes_metadata_line() {
+    let mut kb = make_kb("some value");
+    kb.metadata.insert("author".to_string(), "me".to_string());
+    let rendered = kb.to_string();
+    assert!(rendered.contains("Metadata  : author=me"));
+}
+
+#[test]
 fn try_from_add_json_input_builds_new_kb_with_trimmed_fields() {
     let mut input = make_add_json_input();
     input.key = "  complexity-views  ".to_string();
@@ -491,6 +565,7 @@ fn try_from_add_json_input_defaults_optional_fields() {
         path: None,
         parent: None,
         media_url: None,
+        metadata: std::collections::BTreeMap::new(),
     };
     let new_kb = NewKb::try_from(input).expect("expected Ok NewKb");
     assert_eq!(new_kb.reference, "");
@@ -499,4 +574,21 @@ fn try_from_add_json_input_defaults_optional_fields() {
     assert_eq!(new_kb.parent, None);
     assert_eq!(new_kb.path, None);
     assert_eq!(new_kb.media_url, None);
+}
+
+#[test]
+fn add_json_input_validate_rejects_blank_metadata_key() {
+    let mut input = make_add_json_input();
+    input.metadata.insert("  ".to_string(), "x".to_string());
+    assert!(matches!(input.validate(), Err(Error::InvalidJsonInput(_))));
+}
+
+#[test]
+fn try_from_add_json_input_passes_metadata_through_unchanged() {
+    let mut input = make_add_json_input();
+    input
+        .metadata
+        .insert("author".to_string(), "me".to_string());
+    let new_kb = NewKb::try_from(input).expect("expected Ok NewKb");
+    assert_eq!(new_kb.metadata.get("author"), Some(&"me".to_string()));
 }

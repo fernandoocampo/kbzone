@@ -27,7 +27,7 @@ pub use graph::{
 pub use kb::{
     AddJsonInput, EmbeddingInput, ExportKbItem, ExportMediaParams, FailedImportItem,
     ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb,
-    OutputFormat, ReindexResult, ScoredKbItem, SemanticQuery, StoreMediaParams, file_extension,
-    is_media_category, media_file_path, normalize_path,
+    OutputFormat, ReindexResult, ScoredKbItem, SemanticQuery, StoreMediaParams, build_metadata,
+    file_extension, format_metadata, is_media_category, media_file_path, normalize_path,
 };
 pub use tag_suggestion::{TagSuggestionInput, suggest_tags};
