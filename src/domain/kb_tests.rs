@@ -522,6 +522,58 @@ fn display_includes_metadata_line() {
 }
 
 #[test]
+fn parse_metadata_input_splits_comma_and_equals() {
+    let input = "author=me,priority=high";
+    let result = parse_metadata_input(input);
+    assert_eq!(
+        result,
+        vec![
+            ("author".to_string(), "me".to_string()),
+            ("priority".to_string(), "high".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn parse_metadata_input_skips_tokens_without_equals() {
+    let input = "author=me,invalid,priority=high";
+    let result = parse_metadata_input(input);
+    assert_eq!(
+        result,
+        vec![
+            ("author".to_string(), "me".to_string()),
+            ("priority".to_string(), "high".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn parse_metadata_input_trims_keys_and_values() {
+    let input = "  author = me  , priority = high  ";
+    let result = parse_metadata_input(input);
+    assert_eq!(
+        result,
+        vec![
+            ("author".to_string(), "me".to_string()),
+            ("priority".to_string(), "high".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn parse_metadata_input_empty_string_returns_empty_vec() {
+    let result = parse_metadata_input("");
+    assert_eq!(result, vec![]);
+}
+
+#[test]
+fn parse_metadata_input_only_invalid_tokens_returns_empty_vec() {
+    let input = "invalid,also-invalid,no-equals";
+    let result = parse_metadata_input(input);
+    assert_eq!(result, vec![]);
+}
+
+#[test]
 fn try_from_add_json_input_builds_new_kb_with_trimmed_fields() {
     let mut input = make_add_json_input();
     input.key = "  complexity-views  ".to_string();

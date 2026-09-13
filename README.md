@@ -73,6 +73,7 @@ Each entry in your knowledge base has the following fields:
 | `namespace` | string | No | Grouping scope (e.g. `rust`, `kubernetes`, `personal`, `work`) |
 | `reference` | string | No | Source attribution — author, book title, URL, person's name. Included in semantic search. |
 | `tags` | string[] | No | Comma-separated keywords for full-text search and semantic matching (e.g. `["rust", "memory", "ownership"]`) |
+| `metadata` | string[] | No | Comma-separated key=value metadata pairs (e.g. author=me,priority=high) |
 | `path` | string | No | Optional Unix-style hierarchical path for filing (e.g. `/learning/rust`, `/work/projects`). Leading `/` is added automatically. |
 | `parent` | UUID string | No | UUID of another KB entry to create a hierarchical parent-child relationship |
 | `created_on` | ISO-8601 timestamp | Auto-generated | Creation timestamp (set automatically, not editable) |
@@ -261,9 +262,11 @@ kb update --id <uuid> --value "Updated value" --tags rust,ownership,borrow
 kb update --id <uuid> --parent <parent-uuid>
 kb update --id <uuid> --path /learning/rust
 kb update --id <uuid> --path ""   # clears the path
+kb update --id <uuid> --metadata "priority=high"
+kb update --id <uuid> --metadata ""   # clears all metadata
 ```
 
-Only the fields you pass are changed. Pass `--parent` to set or change the parent; the parent must already exist. Pass `--path` to set or change the path; pass an empty string to clear it.
+Only the fields you pass are changed. Pass `--parent` to set or change the parent; the parent must already exist. Pass `--path` to set or change the path; pass an empty string to clear it. Pass `--metadata` to replace the entire metadata map (comma-separated `key=value` pairs); pass an empty string to clear all metadata. Metadata replaces entirely — to change one key you must retype all keys.
 
 > **Note:** `--path` cannot be changed for entries with `category = media`. Delete and re-create the entry to change the storage path.
 

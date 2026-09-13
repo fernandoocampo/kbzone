@@ -6,7 +6,7 @@ use crate::domain::{
     ImportDocument, ImportEdgeItem, ImportKbItem, KbFilter, KbUpdate, LinkParams, MediaPathParams,
     NewKb, OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
     TreeResult, TreeWalkParams, build_metadata, format_metadata, is_media_category,
-    media_file_path, suggest_tags,
+    media_file_path, parse_metadata_input, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -437,16 +437,6 @@ fn parse_tags(input: &str) -> Vec<String> {
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .collect()
-}
-
-/// Splits a free-text `key=value,key=value` string into raw pairs.
-/// Tokens without `=` are silently skipped (lenient).
-fn parse_metadata_input(input: &str) -> Vec<(String, String)> {
-    input
-        .split(',')
-        .filter_map(|pair| pair.split_once('='))
-        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
         .collect()
 }
 

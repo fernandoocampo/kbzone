@@ -597,6 +597,7 @@ fn update_kb_merges_partial_fields_correctly() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -630,6 +631,7 @@ fn update_kb_reindexes_when_embedding_text_changes() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
     assert_eq!(vector.indexed.borrow().len(), 1);
@@ -661,6 +663,7 @@ fn update_kb_skips_reindex_when_only_notes_changes() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
     assert!(vector.indexed.borrow().is_empty());
@@ -679,6 +682,7 @@ fn update_kb_returns_not_found_for_unknown_id() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(matches!(
         make_svc().update_kb(update),
@@ -711,6 +715,7 @@ fn update_kb_returns_ok_when_embedding_update_fails() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }
@@ -733,6 +738,7 @@ fn update_kb_rejects_stolen_key() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(matches!(
         svc.update_kb(update),
@@ -755,6 +761,7 @@ fn update_kb_same_key_same_entry_is_ok() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }
@@ -777,6 +784,7 @@ fn update_kb_lowercases_key() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -799,6 +807,7 @@ fn update_kb_lowercases_category() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -821,10 +830,175 @@ fn update_kb_lowercases_namespace() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
     assert_eq!(fetched.namespace, "upperns");
+}
+
+#[test]
+fn update_kb_replaces_metadata_when_provided() {
+    let mut original = make_kb("id-1", "rust-ownership");
+    original
+        .metadata
+        .insert("author".to_string(), "me".to_string());
+    let store = MockKbStore::with(vec![original]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: Some("priority=high".to_string()),
+    };
+    assert!(svc.update_kb(update).is_ok());
+    let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
+    assert_eq!(fetched.metadata.len(), 1);
+    assert_eq!(fetched.metadata.get("priority"), Some(&"high".to_string()));
+    assert_eq!(fetched.metadata.get("author"), None);
+}
+
+#[test]
+fn update_kb_keeps_metadata_when_not_provided() {
+    let mut original = make_kb("id-1", "rust-ownership");
+    original
+        .metadata
+        .insert("author".to_string(), "me".to_string());
+    let store = MockKbStore::with(vec![original]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: Some("new value".to_string()),
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: None,
+    };
+    assert!(svc.update_kb(update).is_ok());
+    let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
+    assert_eq!(fetched.metadata.len(), 1);
+    assert_eq!(fetched.metadata.get("author"), Some(&"me".to_string()));
+}
+
+#[test]
+fn update_kb_clears_metadata_with_empty_string() {
+    let mut original = make_kb("id-1", "rust-ownership");
+    original
+        .metadata
+        .insert("author".to_string(), "me".to_string());
+    original
+        .metadata
+        .insert("priority".to_string(), "high".to_string());
+    let store = MockKbStore::with(vec![original]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: Some("".to_string()),
+    };
+    assert!(svc.update_kb(update).is_ok());
+    let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
+    assert!(fetched.metadata.is_empty());
+}
+
+#[test]
+fn update_kb_rejects_duplicate_metadata_key() {
+    let original = make_kb("id-1", "rust-ownership");
+    let store = MockKbStore::with(vec![original]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: Some("a=1,a=2".to_string()),
+    };
+    assert!(matches!(
+        svc.update_kb(update),
+        Err(Error::DuplicateMetadataKeyError(_))
+    ));
+}
+
+#[test]
+fn update_kb_rejects_blank_metadata_key() {
+    let original = make_kb("id-1", "rust-ownership");
+    let store = MockKbStore::with(vec![original]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: Some("=v".to_string()),
+    };
+    assert!(matches!(
+        svc.update_kb(update),
+        Err(Error::InvalidMetadataError(_))
+    ));
+}
+
+#[test]
+fn update_kb_skips_reindex_when_only_metadata_changes() {
+    let original = make_kb("id-1", "rust-ownership");
+    let store = MockKbStore::with(vec![original]);
+    let vector = MockVectorStore::default();
+    let svc = KBService::new(
+        store,
+        ServiceDeps {
+            vector_store: vector.clone(),
+            embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    );
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: Some("author=me".to_string()),
+    };
+    assert!(svc.update_kb(update).is_ok());
+    assert_eq!(vector.indexed.borrow().len(), 0);
 }
 
 // ---- delete_kb tests ----
@@ -1277,6 +1451,7 @@ fn update_kb_with_valid_parent_succeeds() {
         tags: None,
         parent: Some("parent-id".to_string()),
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("child-id").unwrap().unwrap();
@@ -1299,6 +1474,7 @@ fn update_kb_with_missing_parent_fails() {
         tags: None,
         parent: Some("nonexistent-parent-id".to_string()),
         path: None,
+        metadata: None,
     };
     assert!(matches!(
         svc.update_kb(update),
@@ -1619,6 +1795,7 @@ fn update_kb_media_blocks_path_change() {
         tags: None,
         parent: None,
         path: Some("/new/path".to_string()),
+        metadata: None,
     };
     assert!(matches!(
         svc.update_kb(update),
@@ -1641,6 +1818,7 @@ fn update_kb_media_allows_non_path_changes() {
         tags: None,
         parent: None,
         path: None,
+        metadata: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }

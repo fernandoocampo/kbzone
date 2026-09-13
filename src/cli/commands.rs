@@ -133,6 +133,12 @@ pub enum Command {
             help = "New path (optional). Leading / is added automatically. Pass empty string to clear."
         )]
         path: Option<String>,
+
+        #[arg(
+            long,
+            help = "New metadata as key=value pairs (comma-separated); replaces existing. Pass empty string to clear."
+        )]
+        metadata: Option<String>,
     },
 
     /// Delete an entry by ID.

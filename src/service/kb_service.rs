@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use crate::domain::{
     EmbeddingInput, ExportKbItem, ExportMediaParams, FailedImportItem, ImportBatchResult,
     ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb, ReindexResult,
-    ScoredKbItem, SemanticQuery, StoreMediaParams, file_extension, is_media_category,
-    media_file_path, normalize_path,
+    ScoredKbItem, SemanticQuery, StoreMediaParams, build_metadata, file_extension,
+    is_media_category, media_file_path, normalize_path, parse_metadata_input,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -110,6 +110,12 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             None => existing.path.clone(),
         };
 
+        let metadata = match update.metadata {
+            Some(ref s) if !s.trim().is_empty() => build_metadata(parse_metadata_input(s))?,
+            Some(_) => std::collections::BTreeMap::new(),
+            None => existing.metadata.clone(),
+        };
+
         let updated = Kb {
             id: existing.id,
             key: update.key.map(|v| v.to_lowercase()).unwrap_or(existing.key),
@@ -125,7 +131,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                 .unwrap_or(existing.namespace),
             reference: update.reference.unwrap_or(existing.reference),
             tags: update.tags.unwrap_or(existing.tags),
-            metadata: existing.metadata,
+            metadata,
             created_on: existing.created_on,
             parent: update.parent.or(existing.parent),
             path,

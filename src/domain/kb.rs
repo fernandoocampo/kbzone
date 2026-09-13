@@ -192,6 +192,10 @@ pub struct KbUpdate {
     pub parent: Option<String>,
     /// Set a new path. `None` = keep existing. Empty string = clear path.
     pub path: Option<String>,
+    /// New metadata as `key=value,key=value` pairs. `None` = keep existing.
+    /// Empty string = clear all metadata. Otherwise replaces the entire map
+    /// (whole-replace, like `tags`) after validation via `build_metadata`.
+    pub metadata: Option<String>,
 }
 
 /// Parameters for list / search operations.
@@ -436,6 +440,16 @@ pub fn build_metadata(pairs: Vec<(String, String)>) -> Result<BTreeMap<String, S
         }
     }
     Ok(result)
+}
+
+/// Splits a free-text `key=value,key=value` string into raw pairs.
+/// Tokens without `=` are silently skipped (lenient).
+pub fn parse_metadata_input(input: &str) -> Vec<(String, String)> {
+    input
+        .split(',')
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .collect()
 }
 
 impl TryFrom<AddJsonInput> for NewKb {

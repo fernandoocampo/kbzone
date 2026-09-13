@@ -7,9 +7,9 @@ local SQLite file. The binary is named `kb`.
 
 ### CLI Commands
 
-- `kb add`                     — Add a new entry (also indexes embedding); flags include `--path` (optional Unix-style path, leading `/` auto-added)
+- `kb add`                     — Add a new entry (also indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs) and `--path` (optional Unix-style path, leading `/` auto-added)
 - `kb get`                     — Fetch a single entry by key or ID; displays `path` if set; flags: `--out` (`json`\|`yaml`, optional — default is plain text)
-- `kb update`                  — Update an entry (also re-indexes embedding); flags include `--path` (empty string clears the path)
+- `kb update`                  — Update an entry (also re-indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs; replaces existing metadata; empty string clears all) and `--path` (empty string clears the path)
 - `kb delete`                  — Delete an entry (also removes embedding)
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`, `--out` (`json`\|`yaml`, optional — default is plain text); uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
 - `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded), `--out` (`json`\|`yaml`, optional — default is plain text)
@@ -43,8 +43,10 @@ embedding:
 When indexing an entry (on `add`, `update`, or `reindex`), the text fed to the embedding model is:
 
 ```
-"{key} {category} {namespace} {tags_as_string} {value[0..200]}"
+"{key} {category} {namespace} {reference} {tags_as_string} {value[0..200]}"
 ```
+
+Note: `metadata` is **not** included in the embedding text and does not trigger a re-index when updated (updates to only metadata are skipped).
 
 This is constructed by `Kb::embedding_text()` in `domain/kb.rs`.
 
@@ -69,6 +71,8 @@ namespace: String
 reference: String
 // Searchable keywords — power FTS5 and are included in embedding
 tags: Vec<String>
+// Freeform key-value metadata pairs, unique by key (not included in embedding text)
+metadata: BTreeMap<String, String>
 // Optional Unix-style path (e.g. /personal/cars/engines).
 // Leading `/` is auto-added if omitted. Validated on add/update/import.
 path: Option<String>

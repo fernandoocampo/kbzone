@@ -135,6 +135,7 @@ impl App {
                 tags,
                 parent,
                 path,
+                metadata,
             } => handlers::handle_update(
                 &self.svc,
                 KbUpdate {
@@ -148,6 +149,7 @@ impl App {
                     tags,
                     parent,
                     path,
+                    metadata,
                 },
             )?,
 
