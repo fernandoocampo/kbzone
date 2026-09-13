@@ -9,8 +9,11 @@ A personal knowledge base CLI tool with semantic search, built in Rust. Store no
 - **Add** entries with a key, value, notes, category, namespace, tags, a reference source, and an optional parent entry
 - **Search** entries by tag keywords (full-text search via SQLite FTS5)
 - **Ask** questions in natural language — finds semantically similar entries using local vector embeddings (no external API calls)
+- **Organize** entries with hierarchical paths and parent-child relationships
+- **Link** entries together with semantic relationships (edges with optional notes)
+- **Explore** relationships with one-hop queries, transitive trees, and interactive graph visualization
 - **List, get, update, delete** entries with flexible filters
-- **Export** entries to a YAML file, with optional category/namespace filters and pagination
+- **Export** entries and their relationships to a YAML file, with optional filters and pagination
 - **Import** entries in bulk from a YAML file
 - **Reindex** — rebuild embeddings for all entries at any time
 - **Quote** — print a random entry from the `quote` category
@@ -53,6 +56,38 @@ export KBZONA_HOME=/path/to/custom/dir
 ```
 
 The embedding model cache is stored alongside the database at `{db_path_parent}/fastembed_cache/`.
+
+## Data Model
+
+### KB Item Fields
+
+Each entry in your knowledge base has the following fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | UUID string | Auto-generated | Unique internal identifier (set automatically on creation) |
+| `key` | string | Yes | User-defined identifier; normalized to lowercase on save (e.g. `rust-ownership`, `kubernetes-pods`) |
+| `value` | string | Yes | Main content or answer — the core information you're storing |
+| `notes` | string | No | Extended notes, elaboration, or additional context |
+| `category` | string | No | Entry type for organization (e.g. `quote`, `bookmark`, `concept`, `command`, `media`) |
+| `namespace` | string | No | Grouping scope (e.g. `rust`, `kubernetes`, `personal`, `work`) |
+| `reference` | string | No | Source attribution — author, book title, URL, person's name. Included in semantic search. |
+| `tags` | string[] | No | Comma-separated keywords for full-text search and semantic matching (e.g. `["rust", "memory", "ownership"]`) |
+| `path` | string | No | Optional Unix-style hierarchical path for filing (e.g. `/learning/rust`, `/work/projects`). Leading `/` is added automatically. |
+| `parent` | UUID string | No | UUID of another KB entry to create a hierarchical parent-child relationship |
+| `created_on` | ISO-8601 timestamp | Auto-generated | Creation timestamp (set automatically, not editable) |
+
+### Graph Relationships
+
+Beyond hierarchical parent-child links, you can create semantic relationships (edges) between any two KB entries:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID string | Unique internal identifier for the edge |
+| `from_id` | UUID string | Source KB entry ID |
+| `to_id` | UUID string | Target KB entry ID |
+| `note` | string | Free-text description of why these entries are connected |
+| `created_on` | ISO-8601 timestamp | Creation timestamp |
 
 ## Usage
 
@@ -128,21 +163,27 @@ The original extension is preserved. If the source is a URL, the file is first d
 ```sh
 kb get --key rust-ownership
 kb get --id <uuid>
+kb get --key rust-ownership --out json
+kb get --key rust-ownership --out yaml
 ```
 
-### List entries
+Retrieve a single entry by key or ID. Use `--out` to format output as `json` or `yaml` (default: plain text).
+
+### Search and filter entries
+
+The `search` command filters, lists, and finds entries by keyword, category, namespace, tags, or reference:
 
 ```sh
-kb list
-kb list --category concept --namespace rust --limit 50
-kb list --tags rust,memory
+kb search                                                      # List all entries
+kb search --category concept --namespace rust --limit 50      # Filter by category and namespace
+kb search --tags rust,memory                                  # Filter by tags
+kb search --keyword kubernetes                                # Full-text search in tags (FTS5)
+kb search --reference "Kubernetes Official"                   # Filter by reference
+kb search --keyword pod --out json                            # Output as JSON
+kb search --category concept --limit 10 --offset 20           # Pagination
 ```
 
-### Full-text tag search
-
-```sh
-kb search --keyword kubernetes
-```
+Filters are cumulative — multiple filters are combined with AND logic. Use `--keyword` for full-text tag search (powered by SQLite FTS5). Use `--out` to format results as `json` or `yaml` (default: plain text).
 
 ### Semantic / natural language search
 
@@ -218,7 +259,7 @@ For `media` category entries, the associated media file is deleted **before** th
 
 ```sh
 kb import --file my-entries.yaml
-kb import --file my-entries.yaml --failed-items-file failures.yaml
+kb import --file my-entries.yaml --failed-items-file failures.yaml --failed-edges-file bad-edges.yaml
 ```
 
 The YAML file should be a multi-document file (entries separated by `---`). Each document supports the following fields:
@@ -236,19 +277,20 @@ Path: /learning/rust        # optional: Unix-style path; leading / auto-added if
 MediaExtension: jpg         # optional: file extension for media entries (e.g. jpg, png, pdf)
 ```
 
-`ParentKey` is resolved to an internal UUID at import time. If the referenced key does not exist, that item is recorded as a failure and the rest of the batch continues. Items that fail validation or import are written to the failed items file for inspection.
+`ParentKey` is resolved to an internal UUID at import time. If the referenced key does not exist, that item is recorded as a failure and the rest of the batch continues. Items that fail validation or import are written to the failed items file (default: `wrong-kb-items.yaml`). Relationships (edges) that fail to import are written to the failed edges file (default: `wrong-kb-edges.yaml`).
 
 ### Export entries
 
 ```sh
-kb export --file my-entries.yaml
-kb export --file my-entries.yaml --category concept
-kb export --file my-entries.yaml --namespace rust
-kb export --file my-entries.yaml --category concept --namespace rust
-kb export --file my-entries.yaml --limit 100 --offset 0
+kb export --folder-output ./backup
+kb export --folder-output ./backup --file-name my-entries.yaml
+kb export --folder-output ./backup --category concept
+kb export --folder-output ./backup --namespace rust
+kb export --folder-output ./backup --category concept --namespace rust
+kb export --folder-output ./backup --limit 100 --offset 0
 ```
 
-Exports matching entries to a multi-document YAML file in the same format accepted by `kb import`. Filters are cumulative — `--category` and `--namespace` are combined with AND. Use `--limit` and `--offset` for pagination.
+Exports matching entries to a multi-document YAML file in the same format accepted by `kb import`. Filters are cumulative — `--category` and `--namespace` are combined with AND. Use `--limit` and `--offset` for pagination. The `--folder-output` directory is required and is where the YAML file will be written; `--file-name` is optional and defaults to `exported-kb-<yyyy-mm-dd-hh-mi-ss>.yaml`.
 
 Parent–child relationships are preserved: an entry's `Parent` field is only written when its parent is also included in the export set. Parents always appear before their children in the output file so the file can be re-imported directly with `kb import`.
 
@@ -284,6 +326,82 @@ kb quote
 ```
 
 Returns a random entry with `category = quote`.
+
+### List all categories
+
+```sh
+kb categories
+kb categories --namespace rust
+```
+
+Lists all distinct, non-empty category values in the knowledge base. Use `--namespace` to limit results to a specific namespace.
+
+### Create a relationship link between two entries
+
+```sh
+kb link rust-ownership rust-borrowing
+kb link <uuid-1> <uuid-2> --note "borrowing is a refinement of ownership"
+```
+
+Creates a directed edge (relationship) between two entries. Each argument accepts either a key or a UUID. Use `--note` to add a free-text description of why these entries are related. Attempting to link the same pair twice in the same direction will return an error.
+
+### Remove a relationship link
+
+```sh
+kb unlink rust-ownership rust-borrowing
+kb unlink <uuid-1> <uuid-2>
+```
+
+Removes the directed edge between two entries. Returns an error if no such edge exists.
+
+### Show one-hop relationships
+
+```sh
+kb related rust-ownership
+kb related rust-ownership --direction out
+kb related rust-ownership --direction in
+kb related rust-ownership --direction both
+kb related rust-ownership --json
+```
+
+Shows entries that are directly connected to the given entry (one hop). 
+
+- `--direction out` (default `both`): Show only outgoing edges (entries this one points to)
+- `--direction in`: Show only incoming edges (entries that point to this one)
+- `--direction both`: Show both directions
+- `--json`: Output as JSON with full NOTE text; default plain text truncates NOTE to 40 characters
+
+### Show the relationship tree
+
+```sh
+kb tree rust-ownership
+kb tree rust-ownership --direction out
+kb tree rust-ownership --depth 5
+kb tree rust-ownership --json
+```
+
+Traverses relationships transitively, showing all connected entries up to a maximum depth.
+
+- `--direction` (`out` | `in`, default `out`): Direction of traversal
+- `--depth` (default `10`): Maximum traversal depth
+- `--json`: Output as JSON with full NOTE text; default plain text truncates NOTE to 40 characters
+
+### Interactive graph visualization
+
+```sh
+kb graph rust-ownership
+kb graph rust-ownership --direction both --depth 2
+```
+
+Opens an interactive HTML graph view in your default browser showing the entry and its relationships. You can:
+- Drag nodes to rearrange the graph
+- Click a node to inspect its full content
+- See relationships highlighted visually
+
+- `--direction` (`out` | `in` | `both`, default `both`): Relationship directions to display
+- `--depth` (default `2`): Maximum traversal depth from the root entry
+
+**Note:** Requires internet access (vis-network loads from CDN). The graph is served once over a loopback HTTP connection; no files are written to disk.
 
 ### Version info
 
