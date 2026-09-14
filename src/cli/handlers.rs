@@ -3,10 +3,11 @@ use std::collections::HashMap;
 use crate::cli::{browser, graph_view};
 use crate::domain::{
     AddJsonInput, EdgeDirection, ExportDocument, ExportMediaParams, GraphViewParams,
-    ImportDocument, ImportEdgeItem, ImportKbItem, KbFilter, KbUpdate, LinkParams, MediaPathParams,
-    NewKb, OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
-    TreeResult, TreeWalkParams, build_metadata, format_metadata, is_media_category,
-    media_file_path, parse_metadata_input, suggest_tags,
+    ImportDocument, ImportEdgeItem, ImportKbItem, KbFilter, KbRelationships, KbUpdate,
+    KbWithRelationships, LinkParams, MediaPathParams, NewKb, OutputFormat, RelatedResult,
+    ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams,
+    build_metadata, format_metadata, is_media_category, media_file_path, parse_metadata_input,
+    suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -22,6 +23,9 @@ pub struct GetParams {
     pub id: Option<String>,
     pub base_dir: String,
     pub out: Option<String>,
+    pub with_out_connections: bool,
+    pub with_in_connections: bool,
+    pub with_all_connections: bool,
 }
 
 pub struct ImportParams {
@@ -94,6 +98,23 @@ where
 /// `GraphService` for relationships) into a single argument, satisfying the
 /// 2-parameter rule for `handle_import`. Mirrors `ExportServices`.
 pub struct ImportServices<'a, S, V, E, M, F, G>
+where
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+    G: KbGraph,
+{
+    pub svc: &'a KBService<S, V, E, M, F>,
+    pub graph_svc: &'a GraphService<S, G>,
+}
+
+/// Bundles the two services `kb get` needs (`KBService` to resolve the
+/// entry, `GraphService` to fetch its relationships when requested) into a
+/// single argument, satisfying the 2-parameter rule for `handle_get`.
+/// Mirrors `ExportServices`/`ImportServices`.
+pub struct GetServices<'a, S, V, E, M, F, G>
 where
     S: KbStore,
     V: VectorStore,
@@ -572,16 +593,40 @@ fn prompt_for(label: &str, required: bool) -> Result<String, Error> {
     Ok(trimmed)
 }
 
-pub fn handle_get<
+/// The three `kb get` relationship flags, bundled to satisfy the 2-param
+/// rule for [`resolve_relationship_direction`].
+struct RelationshipFlags {
+    with_out: bool,
+    with_in: bool,
+    with_all: bool,
+}
+
+/// Maps `kb get`'s three relationship flags to the direction to fetch, or
+/// `None` if the caller asked for no relationship info at all (the
+/// default — preserves `kb get`'s original output exactly).
+/// `--with-all-connections` always wins, regardless of the other two flags.
+fn resolve_relationship_direction(flags: RelationshipFlags) -> Option<EdgeDirection> {
+    match (flags.with_out, flags.with_in, flags.with_all) {
+        (_, _, true) => Some(EdgeDirection::Both),
+        (true, true, false) => Some(EdgeDirection::Both),
+        (true, false, false) => Some(EdgeDirection::Out),
+        (false, true, false) => Some(EdgeDirection::In),
+        (false, false, false) => None,
+    }
+}
+
+pub fn handle_get<S, V, E, M, F, G>(
+    services: GetServices<S, V, E, M, F, G>,
+    params: GetParams,
+) -> Result<(), Error>
+where
     S: KbStore,
     V: VectorStore,
     E: EmbeddingProvider,
     M: MediaStore,
     F: MediaFetcher,
->(
-    svc: &KBService<S, V, E, M, F>,
-    params: GetParams,
-) -> Result<(), Error> {
+    G: KbGraph,
+{
     let format: Option<OutputFormat> = params
         .out
         .as_deref()
@@ -590,41 +635,70 @@ pub fn handle_get<
         .map_err(Error::GetKBError)?;
 
     let kb = match (params.key, params.id) {
-        (Some(k), _) => svc.get_kb_by_key(&k)?,
-        (_, Some(i)) => svc.get_kb_by_id(&i)?,
+        (Some(k), _) => services.svc.get_kb_by_key(&k)?,
+        (_, Some(i)) => services.svc.get_kb_by_id(&i)?,
         _ => {
             eprintln!("error: provide --key or --id");
             return Err(Error::GetKBError("no lookup key provided".to_string()));
         }
     };
 
-    match kb {
-        Some(kb) => match format {
-            Some(OutputFormat::Json) => {
-                let json = serde_json::to_string_pretty(&kb)
-                    .map_err(|e| Error::GetKBError(e.to_string()))?;
-                println!("{json}");
+    let kb = match kb {
+        Some(kb) => kb,
+        None => {
+            println!("Not found.");
+            return Ok(());
+        }
+    };
+
+    let direction = resolve_relationship_direction(RelationshipFlags {
+        with_out: params.with_out_connections,
+        with_in: params.with_in_connections,
+        with_all: params.with_all_connections,
+    });
+    // `RelatedResult` (with its `node` field) is what `render_related` needs
+    // for the plain-text branch; the JSON/YAML branches drop `node` via
+    // `KbRelationships::from` since the root entry is already flattened at
+    // the top level of `KbWithRelationships` — repeating it under
+    // `relationships.node` would just duplicate those fields.
+    let related_result = direction
+        .map(|d| services.graph_svc.related(&kb.id, d))
+        .transpose()?;
+
+    match format {
+        Some(OutputFormat::Json) => {
+            let dto = KbWithRelationships {
+                kb,
+                relationships: related_result.map(KbRelationships::from),
+            };
+            let json =
+                serde_json::to_string_pretty(&dto).map_err(|e| Error::GetKBError(e.to_string()))?;
+            println!("{json}");
+        }
+        Some(OutputFormat::Yaml) => {
+            let dto = KbWithRelationships {
+                kb,
+                relationships: related_result.map(KbRelationships::from),
+            };
+            let yaml = serde_yaml::to_string(&dto).map_err(|e| Error::GetKBError(e.to_string()))?;
+            print!("{yaml}");
+        }
+        None => {
+            print!("{kb}");
+            if is_media_category(&kb.category) {
+                let path = media_file_path(&MediaPathParams {
+                    base_dir: &params.base_dir,
+                    namespace: &kb.namespace,
+                    path: kb.path.as_deref(),
+                    key: &kb.key,
+                    extension: kb.media_extension.as_deref(),
+                });
+                println!("Media File : {}", path);
             }
-            Some(OutputFormat::Yaml) => {
-                let yaml =
-                    serde_yaml::to_string(&kb).map_err(|e| Error::GetKBError(e.to_string()))?;
-                print!("{yaml}");
+            if let (Some(d), Some(result)) = (direction, &related_result) {
+                print!("{}", render_related(result, d));
             }
-            None => {
-                print!("{kb}");
-                if is_media_category(&kb.category) {
-                    let path = media_file_path(&MediaPathParams {
-                        base_dir: &params.base_dir,
-                        namespace: &kb.namespace,
-                        path: kb.path.as_deref(),
-                        key: &kb.key,
-                        extension: kb.media_extension.as_deref(),
-                    });
-                    println!("Media File : {}", path);
-                }
-            }
-        },
-        None => println!("Not found."),
+        }
     }
     Ok(())
 }

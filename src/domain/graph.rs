@@ -188,6 +188,39 @@ pub struct RelatedResult {
     pub incoming: Vec<IncomingEdge>,
 }
 
+/// Outgoing/incoming edges without the root-node echo `RelatedResult`
+/// carries for standalone `kb related` output. Embedded inside
+/// `KbWithRelationships`, the root entry is already present at the top
+/// level (via `#[serde(flatten)]` on `Kb`), so repeating its
+/// `id`/`key`/`category`/`namespace` under a nested `node` field would
+/// just duplicate what's already there.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct KbRelationships {
+    pub outgoing: Vec<OutgoingEdge>,
+    pub incoming: Vec<IncomingEdge>,
+}
+
+impl From<RelatedResult> for KbRelationships {
+    fn from(result: RelatedResult) -> Self {
+        KbRelationships {
+            outgoing: result.outgoing,
+            incoming: result.incoming,
+        }
+    }
+}
+
+/// `kb get` output when the caller requested relationship info via
+/// `--with-out-connections`/`--with-in-connections`/`--with-all-connections`.
+/// `relationships` is omitted entirely from JSON/YAML when no direction was
+/// requested, preserving the exact pre-existing `Kb`-only output shape.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct KbWithRelationships {
+    #[serde(flatten)]
+    pub kb: Kb,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationships: Option<KbRelationships>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TreeNode {
     pub id: String,

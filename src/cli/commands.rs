@@ -92,6 +92,21 @@ pub enum Command {
 
         #[arg(long, help = "Output format: json | yaml (default: plain text)")]
         out: Option<String>,
+
+        #[arg(
+            long,
+            help = "Show outgoing relationships (entries this one connects to)"
+        )]
+        with_out_connections: bool,
+
+        #[arg(
+            long,
+            help = "Show incoming relationships (entries connected to this one)"
+        )]
+        with_in_connections: bool,
+
+        #[arg(long, help = "Show both outgoing and incoming relationships")]
+        with_all_connections: bool,
     },
 
     /// Update an existing entry (identified by --id).

@@ -7,8 +7,9 @@ use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
 use crate::cli::handlers::{
-    self, AddParams, AskParams, ExportParams, ExportServices, GetParams, GraphViewCliParams,
-    ImportParams, ImportServices, RelatedParams, SearchParams, TreeParams, UnlinkParams,
+    self, AddParams, AskParams, ExportParams, ExportServices, GetParams, GetServices,
+    GraphViewCliParams, ImportParams, ImportServices, RelatedParams, SearchParams, TreeParams,
+    UnlinkParams,
 };
 use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
 use crate::errors::AppError;
@@ -114,13 +115,26 @@ impl App {
                 },
             )?,
 
-            Command::Get { key, id, out } => handlers::handle_get(
-                &self.svc,
+            Command::Get {
+                key,
+                id,
+                out,
+                with_out_connections,
+                with_in_connections,
+                with_all_connections,
+            } => handlers::handle_get(
+                GetServices {
+                    svc: &self.svc,
+                    graph_svc: &self.graph_svc,
+                },
                 GetParams {
                     key,
                     id,
                     base_dir: self.base_dir.clone(),
                     out,
+                    with_out_connections,
+                    with_in_connections,
+                    with_all_connections,
                 },
             )?,
 

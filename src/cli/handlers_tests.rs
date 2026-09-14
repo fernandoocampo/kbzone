@@ -168,12 +168,40 @@ impl crate::ports::MediaFetcher for MockMediaFetcher {
     }
 }
 
-/// Minimal `KbGraph` mock for `handle_export` tests — only
-/// `get_edges_among_ids` needs real behavior; the other methods are
-/// unreachable stubs for this handler.
+/// `KbGraph` mock shared by `handle_export`/`handle_import` tests (only
+/// `get_edges_among_ids` needs real behavior there) and by `handle_get`
+/// relationship tests (which need real `get_related` filtering). `nodes`
+/// lets a test pre-populate the node metadata a real SQL join would attach
+/// to each edge (mirrors `MockKbGraph::with_nodes` in
+/// `service/graph_service_tests.rs` — test modules don't share mocks in
+/// this codebase, so this is a local duplicate of that pattern).
 #[derive(Debug, Clone, Default)]
 struct MockKbGraph {
     edges: std::rc::Rc<RefCell<Vec<crate::domain::KbEdge>>>,
+    nodes: std::rc::Rc<RefCell<HashMap<String, crate::domain::GraphNode>>>,
+}
+
+impl MockKbGraph {
+    fn with_nodes(nodes: Vec<crate::domain::GraphNode>) -> Self {
+        let graph = Self::default();
+        for node in nodes {
+            graph.nodes.borrow_mut().insert(node.id.clone(), node);
+        }
+        graph
+    }
+
+    fn node_for(&self, id: &str) -> crate::domain::GraphNode {
+        self.nodes
+            .borrow()
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| crate::domain::GraphNode {
+                id: id.to_string(),
+                key: String::new(),
+                category: String::new(),
+                namespace: String::new(),
+            })
+    }
 }
 
 impl crate::ports::KbGraph for MockKbGraph {
@@ -192,9 +220,35 @@ impl crate::ports::KbGraph for MockKbGraph {
 
     fn get_related(
         &self,
-        _query: &crate::domain::RelatedQuery,
+        query: &crate::domain::RelatedQuery,
     ) -> Result<crate::domain::RelatedEdges, Error> {
-        Ok(crate::domain::RelatedEdges::default())
+        let edges = self.edges.borrow();
+        let mut result = crate::domain::RelatedEdges::default();
+        if query.direction != crate::domain::EdgeDirection::In {
+            result.outgoing = edges
+                .iter()
+                .filter(|e| e.from_id == query.kb_id)
+                .map(|e| crate::domain::OutgoingEdge {
+                    edge_id: e.id.clone(),
+                    note: e.note.clone(),
+                    created_on: e.created_on.clone(),
+                    to: self.node_for(&e.to_id),
+                })
+                .collect();
+        }
+        if query.direction != crate::domain::EdgeDirection::Out {
+            result.incoming = edges
+                .iter()
+                .filter(|e| e.to_id == query.kb_id)
+                .map(|e| crate::domain::IncomingEdge {
+                    edge_id: e.id.clone(),
+                    note: e.note.clone(),
+                    created_on: e.created_on.clone(),
+                    from: self.node_for(&e.from_id),
+                })
+                .collect();
+        }
+        Ok(result)
     }
 
     fn get_tree(
@@ -216,11 +270,12 @@ impl crate::ports::KbGraph for MockKbGraph {
     }
 }
 
-fn make_svc()
--> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
+fn make_svc_with_store(
+    store: MockKbStore,
+) -> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
 {
     KBService::new(
-        MockKbStore::new(),
+        store,
         ServiceDeps {
             vector_store: MockVectorStore,
             embedder: MockEmbeddingProvider,
@@ -228,6 +283,35 @@ fn make_svc()
             media_fetcher: MockMediaFetcher,
             base_dir: String::new(),
         },
+    )
+}
+
+fn make_svc()
+-> KBService<MockKbStore, MockVectorStore, MockEmbeddingProvider, MockMediaStore, MockMediaFetcher>
+{
+    make_svc_with_store(MockKbStore::new())
+}
+
+/// Builds a `(KBService, GraphService)` pair for `handle_get` relationship
+/// tests: `kbs` are seeded into both services' stores (so `GraphService`'s
+/// internal key-or-id resolution can find them by id), and `graph` carries
+/// any pre-seeded edges/nodes.
+fn make_get_services(
+    kbs: Vec<crate::domain::Kb>,
+    graph: MockKbGraph,
+) -> (
+    KBService<
+        MockKbStore,
+        MockVectorStore,
+        MockEmbeddingProvider,
+        MockMediaStore,
+        MockMediaFetcher,
+    >,
+    GraphService<MockKbStore, MockKbGraph>,
+) {
+    (
+        make_svc_with_store(MockKbStore::with(kbs.clone())),
+        GraphService::new(MockKbStore::with(kbs), graph),
     )
 }
 
@@ -271,6 +355,16 @@ fn make_kb(id: &str, key: &str) -> crate::domain::Kb {
         parent: None,
         path: None,
         media_extension: None,
+    }
+}
+
+fn make_kb_edge(id: &str, from_id: &str, to_id: &str, note: &str) -> crate::domain::KbEdge {
+    crate::domain::KbEdge {
+        id: id.to_string(),
+        from_id: from_id.to_string(),
+        to_id: to_id.to_string(),
+        note: note.to_string(),
+        created_on: "2026-01-01T00:00:00+0000".to_string(),
     }
 }
 
@@ -1156,6 +1250,81 @@ fn render_related_direction_in_hides_outgoing_section() {
 }
 
 #[test]
+fn resolve_relationship_direction_none_when_no_flags() {
+    let flags = RelationshipFlags {
+        with_out: false,
+        with_in: false,
+        with_all: false,
+    };
+    assert_eq!(resolve_relationship_direction(flags), None);
+}
+
+#[test]
+fn resolve_relationship_direction_out_only() {
+    let flags = RelationshipFlags {
+        with_out: true,
+        with_in: false,
+        with_all: false,
+    };
+    assert_eq!(
+        resolve_relationship_direction(flags),
+        Some(EdgeDirection::Out)
+    );
+}
+
+#[test]
+fn resolve_relationship_direction_in_only() {
+    let flags = RelationshipFlags {
+        with_out: false,
+        with_in: true,
+        with_all: false,
+    };
+    assert_eq!(
+        resolve_relationship_direction(flags),
+        Some(EdgeDirection::In)
+    );
+}
+
+#[test]
+fn resolve_relationship_direction_all_flag() {
+    let flags = RelationshipFlags {
+        with_out: false,
+        with_in: false,
+        with_all: true,
+    };
+    assert_eq!(
+        resolve_relationship_direction(flags),
+        Some(EdgeDirection::Both)
+    );
+}
+
+#[test]
+fn resolve_relationship_direction_out_and_in_combined() {
+    let flags = RelationshipFlags {
+        with_out: true,
+        with_in: true,
+        with_all: false,
+    };
+    assert_eq!(
+        resolve_relationship_direction(flags),
+        Some(EdgeDirection::Both)
+    );
+}
+
+#[test]
+fn resolve_relationship_direction_all_wins_over_others() {
+    let flags = RelationshipFlags {
+        with_out: true,
+        with_in: false,
+        with_all: true,
+    };
+    assert_eq!(
+        resolve_relationship_direction(flags),
+        Some(EdgeDirection::Both)
+    );
+}
+
+#[test]
 fn render_tree_draws_branches_for_a_multi_level_hierarchy() {
     let result = TreeResult {
         root: TreeRoot {
@@ -1233,17 +1402,34 @@ fn seed_kb(
     .expect("seed add_kb should succeed");
 }
 
+/// A `graph_svc` with no seeded edges — fine for tests that pass no
+/// relationship flags, since `direction` then resolves to `None` and
+/// `graph_svc.related` is never called.
+fn make_empty_graph_svc() -> GraphService<MockKbStore, MockKbGraph> {
+    GraphService::new(MockKbStore::new(), MockKbGraph::default())
+}
+
 #[test]
 fn handle_get_found_no_out_succeeds() {
     let svc = make_svc();
     seed_kb(&svc, "get-test-key");
+    let graph_svc = make_empty_graph_svc();
     let params = GetParams {
         key: Some("get-test-key".to_string()),
         id: None,
         base_dir: String::new(),
         out: None,
+        with_out_connections: false,
+        with_in_connections: false,
+        with_all_connections: false,
     };
-    let result = handle_get(&svc, params);
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     assert!(result.is_ok());
 }
 
@@ -1251,13 +1437,23 @@ fn handle_get_found_no_out_succeeds() {
 fn handle_get_found_out_json_succeeds() {
     let svc = make_svc();
     seed_kb(&svc, "get-test-json");
+    let graph_svc = make_empty_graph_svc();
     let params = GetParams {
         key: Some("get-test-json".to_string()),
         id: None,
         base_dir: String::new(),
         out: Some("json".to_string()),
+        with_out_connections: false,
+        with_in_connections: false,
+        with_all_connections: false,
     };
-    let result = handle_get(&svc, params);
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     assert!(result.is_ok());
 }
 
@@ -1265,39 +1461,69 @@ fn handle_get_found_out_json_succeeds() {
 fn handle_get_found_out_yaml_succeeds() {
     let svc = make_svc();
     seed_kb(&svc, "get-test-yaml");
+    let graph_svc = make_empty_graph_svc();
     let params = GetParams {
         key: Some("get-test-yaml".to_string()),
         id: None,
         base_dir: String::new(),
         out: Some("yaml".to_string()),
+        with_out_connections: false,
+        with_in_connections: false,
+        with_all_connections: false,
     };
-    let result = handle_get(&svc, params);
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     assert!(result.is_ok());
 }
 
 #[test]
 fn handle_get_not_found_returns_ok() {
     let svc = make_svc();
+    let graph_svc = make_empty_graph_svc();
     let params = GetParams {
         key: Some("no-such-key".to_string()),
         id: None,
         base_dir: String::new(),
         out: None,
+        with_out_connections: false,
+        with_in_connections: false,
+        with_all_connections: false,
     };
-    let result = handle_get(&svc, params);
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     assert!(result.is_ok());
 }
 
 #[test]
 fn handle_get_not_found_with_out_json_returns_ok() {
     let svc = make_svc();
+    let graph_svc = make_empty_graph_svc();
     let params = GetParams {
         key: Some("no-such-key".to_string()),
         id: None,
         base_dir: String::new(),
         out: Some("json".to_string()),
+        with_out_connections: false,
+        with_in_connections: false,
+        with_all_connections: false,
     };
-    let result = handle_get(&svc, params);
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     assert!(result.is_ok());
 }
 
@@ -1305,27 +1531,196 @@ fn handle_get_not_found_with_out_json_returns_ok() {
 fn handle_get_invalid_out_value_returns_error() {
     let svc = make_svc();
     seed_kb(&svc, "get-test-invalid-out");
+    let graph_svc = make_empty_graph_svc();
     let params = GetParams {
         key: Some("get-test-invalid-out".to_string()),
         id: None,
         base_dir: String::new(),
         out: Some("xml".to_string()),
+        with_out_connections: false,
+        with_in_connections: false,
+        with_all_connections: false,
     };
-    let result = handle_get(&svc, params);
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     assert!(matches!(result, Err(Error::GetKBError(_))));
 }
 
 #[test]
 fn handle_get_no_key_no_id_returns_error() {
     let svc = make_svc();
+    let graph_svc = make_empty_graph_svc();
     let params = GetParams {
         key: None,
         id: None,
         base_dir: String::new(),
         out: None,
+        with_out_connections: false,
+        with_in_connections: false,
+        with_all_connections: false,
     };
-    let result = handle_get(&svc, params);
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
     assert!(matches!(result, Err(Error::GetKBError(_))));
+}
+
+fn get_params_for(key: &str, flags: RelationshipFlags) -> GetParams {
+    GetParams {
+        key: Some(key.to_string()),
+        id: None,
+        base_dir: String::new(),
+        out: None,
+        with_out_connections: flags.with_out,
+        with_in_connections: flags.with_in,
+        with_all_connections: flags.with_all,
+    }
+}
+
+#[test]
+fn handle_get_with_out_connections_only_succeeds() {
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
+    graph
+        .edges
+        .borrow_mut()
+        .push(make_kb_edge("e1", &car.id, &engine.id, "has an engine"));
+    let (svc, graph_svc) = make_get_services(vec![car, engine], graph);
+
+    let params = get_params_for(
+        "car",
+        RelationshipFlags {
+            with_out: true,
+            with_in: false,
+            with_all: false,
+        },
+    );
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_get_with_in_connections_only_succeeds() {
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
+    graph
+        .edges
+        .borrow_mut()
+        .push(make_kb_edge("e1", &car.id, &engine.id, "has an engine"));
+    let (svc, graph_svc) = make_get_services(vec![car, engine], graph);
+
+    let params = get_params_for(
+        "engine",
+        RelationshipFlags {
+            with_out: false,
+            with_in: true,
+            with_all: false,
+        },
+    );
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_get_with_all_connections_succeeds() {
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
+    graph
+        .edges
+        .borrow_mut()
+        .push(make_kb_edge("e1", &car.id, &engine.id, "has an engine"));
+    let (svc, graph_svc) = make_get_services(vec![car, engine], graph);
+
+    let params = get_params_for(
+        "car",
+        RelationshipFlags {
+            with_out: false,
+            with_in: false,
+            with_all: true,
+        },
+    );
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_get_combined_out_and_in_flags_resolves_to_both() {
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
+    graph
+        .edges
+        .borrow_mut()
+        .push(make_kb_edge("e1", &car.id, &engine.id, "has an engine"));
+    let (svc, graph_svc) = make_get_services(vec![car, engine], graph);
+
+    let params = get_params_for(
+        "car",
+        RelationshipFlags {
+            with_out: true,
+            with_in: true,
+            with_all: false,
+        },
+    );
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_get_not_found_with_relationship_flag_still_prints_not_found() {
+    let (svc, graph_svc) = make_get_services(vec![], MockKbGraph::default());
+    let params = get_params_for(
+        "missing",
+        RelationshipFlags {
+            with_out: false,
+            with_in: false,
+            with_all: true,
+        },
+    );
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    assert!(result.is_ok());
 }
 
 fn search_params(out: Option<&str>) -> SearchParams {

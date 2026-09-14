@@ -76,6 +76,75 @@ fn graph_node_from_kb_copies_the_relevant_fields() {
     assert_eq!(node.namespace, "vehicles");
 }
 
+fn make_related_result() -> RelatedResult {
+    RelatedResult {
+        node: GraphNode::from(&make_kb()),
+        outgoing: vec![OutgoingEdge {
+            edge_id: "e1".to_string(),
+            note: "has an engine".to_string(),
+            created_on: "2026-01-01T00:00:00+0000".to_string(),
+            to: GraphNode {
+                id: "engine-id".to_string(),
+                key: "engine".to_string(),
+                category: "concept".to_string(),
+                namespace: "vehicles".to_string(),
+            },
+        }],
+        incoming: vec![],
+    }
+}
+
+#[test]
+fn kb_relationships_from_related_result_drops_node() {
+    let related = KbRelationships::from(make_related_result());
+    assert_eq!(related.outgoing.len(), 1);
+    assert_eq!(related.outgoing[0].to.key, "engine");
+    assert!(related.incoming.is_empty());
+    // `KbRelationships` has no `node` field at all — this is a compile-time
+    // guarantee, not something a runtime assertion can check further.
+}
+
+#[test]
+fn kb_with_relationships_json_omits_relationships_key_when_none() {
+    let dto = KbWithRelationships {
+        kb: make_kb(),
+        relationships: None,
+    };
+    let json = serde_json::to_string(&dto).expect("serialize should succeed");
+    assert!(!json.contains("relationships"));
+    assert!(json.contains("\"key\":\"car\""));
+    assert!(!json.contains("\"kb\":"));
+}
+
+#[test]
+fn kb_with_relationships_json_includes_relationships_key_when_some() {
+    let dto = KbWithRelationships {
+        kb: make_kb(),
+        relationships: Some(KbRelationships::from(make_related_result())),
+    };
+    let json = serde_json::to_string(&dto).expect("serialize should succeed");
+    assert!(json.contains("\"relationships\""));
+    assert!(json.contains("\"outgoing\""));
+    assert!(json.contains("\"incoming\""));
+    assert!(json.contains("\"key\":\"car\""));
+    // The root entry is already flattened at the top level — `node` inside
+    // `relationships` would just repeat it, so it must not be there.
+    assert!(!json.contains("\"node\""));
+}
+
+#[test]
+fn kb_with_relationships_yaml_flattens_kb_fields() {
+    let dto = KbWithRelationships {
+        kb: make_kb(),
+        relationships: Some(KbRelationships::from(make_related_result())),
+    };
+    let yaml = serde_yaml::to_string(&dto).expect("serialize should succeed");
+    assert!(!yaml.contains("kb:"));
+    assert!(yaml.contains("key: car"));
+    assert!(yaml.contains("relationships:"));
+    assert!(!yaml.contains("node:"));
+}
+
 fn make_export_kb_item(key: &str) -> ExportKbItem {
     ExportKbItem {
         key: key.to_string(),
