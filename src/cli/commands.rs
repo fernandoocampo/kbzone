@@ -288,6 +288,9 @@ pub enum Command {
             help = "Free-text note describing the relationship"
         )]
         note: String,
+
+        #[arg(long, help = "Output format: json (optional, default: plain text)")]
+        out: Option<String>,
     },
 
     /// Remove the link between two KB entries.

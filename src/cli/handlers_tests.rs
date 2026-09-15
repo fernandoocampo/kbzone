@@ -1977,3 +1977,101 @@ fn handle_delete_not_found_json_returns_error() {
     let result = handle_delete(&svc, params);
     assert!(matches!(result, Err(Error::KBNotFound)));
 }
+
+// ---- handle_link tests ----
+
+#[test]
+fn handle_link_plain_text_success() {
+    let (_svc, graph_svc) = make_get_services(
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
+        MockKbGraph::default(),
+    );
+    let params = LinkParams {
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "to-key".to_string(),
+        note: "related".to_string(),
+        out: None,
+    };
+    let result = handle_link(&graph_svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_link_json_success() {
+    let (_svc, graph_svc) = make_get_services(
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
+        MockKbGraph::default(),
+    );
+    let params = LinkParams {
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "to-key".to_string(),
+        note: "related".to_string(),
+        out: Some("json".to_string()),
+    };
+    let result = handle_link(&graph_svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_link_invalid_out_value_returns_error() {
+    let (_svc, graph_svc) = make_get_services(
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
+        MockKbGraph::default(),
+    );
+    let params = LinkParams {
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "to-key".to_string(),
+        note: String::new(),
+        out: Some("xml".to_string()),
+    };
+    let result = handle_link(&graph_svc, params);
+    assert!(matches!(result, Err(Error::AddEdgeError(_))));
+}
+
+#[test]
+fn handle_link_not_found_returns_error() {
+    let (_svc, graph_svc) = make_get_services(
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
+        MockKbGraph::default(),
+    );
+    let params = LinkParams {
+        from_key_or_id: "unknown-key".to_string(),
+        to_key_or_id: "to-key".to_string(),
+        note: String::new(),
+        out: None,
+    };
+    let result = handle_link(&graph_svc, params);
+    assert!(matches!(result, Err(Error::KBNotFound)));
+}
+
+#[test]
+fn handle_link_self_loop_returns_error() {
+    let (_svc, graph_svc) = make_get_services(
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
+        MockKbGraph::default(),
+    );
+    let params = LinkParams {
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "from-key".to_string(),
+        note: String::new(),
+        out: None,
+    };
+    let result = handle_link(&graph_svc, params);
+    assert!(matches!(result, Err(Error::SelfLoopNotAllowed)));
+}
+
+#[test]
+fn handle_link_self_loop_json_returns_error() {
+    let (_svc, graph_svc) = make_get_services(
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
+        MockKbGraph::default(),
+    );
+    let params = LinkParams {
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "from-key".to_string(),
+        note: String::new(),
+        out: Some("json".to_string()),
+    };
+    let result = handle_link(&graph_svc, params);
+    assert!(matches!(result, Err(Error::SelfLoopNotAllowed)));
+}

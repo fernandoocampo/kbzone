@@ -21,8 +21,9 @@ pub use graph::{
     EdgeDirection, ExportDocument, ExportEdgeItem, FailedImportEdgeItem, GraphExport,
     GraphExportEdge, GraphExportNode, GraphNode, GraphViewParams, ImportDocument,
     ImportEdgeBatchResult, ImportEdgeItem, IncomingEdge, KbEdge, KbRelationships,
-    KbWithRelationships, LinkParams, NewKbEdge, OutgoingEdge, RelatedEdges, RelatedQuery,
-    RelatedResult, RemoveEdgeParams, TreeNode, TreeQuery, TreeResult, TreeRoot, TreeWalkParams,
+    KbWithRelationships, LinkConfirmation, LinkErrorResponse, LinkParams, NewKbEdge, OutgoingEdge,
+    RelatedEdges, RelatedQuery, RelatedResult, RemoveEdgeParams, TreeNode, TreeQuery, TreeResult,
+    TreeRoot, TreeWalkParams,
 };
 pub use kb::{
     AddJsonInput, DeleteConfirmation, DeleteErrorResponse, EmbeddingInput, ExportKbItem,

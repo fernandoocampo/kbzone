@@ -263,12 +263,18 @@ impl App {
 
             Command::Version => handlers::handle_version()?,
 
-            Command::Link { from, to, note } => handlers::handle_link(
+            Command::Link {
+                from,
+                to,
+                note,
+                out,
+            } => handlers::handle_link(
                 &self.graph_svc,
                 LinkParams {
                     from_key_or_id: from,
                     to_key_or_id: to,
                     note,
+                    out,
                 },
             )?,
 

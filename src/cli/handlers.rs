@@ -4,10 +4,10 @@ use crate::cli::{browser, graph_view};
 use crate::domain::{
     AddJsonInput, DeleteConfirmation, DeleteErrorResponse, EdgeDirection, ExportDocument,
     ExportMediaParams, GraphViewParams, ImportDocument, ImportEdgeItem, ImportKbItem, KbFilter,
-    KbRelationships, KbUpdate, KbWithRelationships, LinkParams, MediaPathParams, NewKb,
-    OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
-    TreeResult, TreeWalkParams, build_metadata, format_metadata, is_media_category,
-    media_file_path, parse_metadata_input, suggest_tags,
+    KbRelationships, KbUpdate, KbWithRelationships, LinkConfirmation, LinkErrorResponse,
+    LinkParams, MediaPathParams, NewKb, OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery,
+    TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, build_metadata, format_metadata,
+    is_media_category, media_file_path, parse_metadata_input, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -1249,9 +1249,40 @@ pub fn handle_link<S: KbStore, G: KbGraph>(
     graph_svc: &GraphService<S, G>,
     params: LinkParams,
 ) -> Result<(), Error> {
-    let edge = graph_svc.link(params)?;
-    println!("Linked: {} -> {} ({})", edge.from_id, edge.to_id, edge.id);
-    Ok(())
+    let json_output = match params.out.as_deref() {
+        Some("json") => true,
+        Some(other) => {
+            return Err(Error::AddEdgeError(format!(
+                "invalid output format: {other} (expected json)"
+            )));
+        }
+        None => false,
+    };
+
+    match graph_svc.link(params) {
+        Ok(edge) => {
+            if json_output {
+                let confirmation = LinkConfirmation::from(&edge);
+                let json = serde_json::to_string_pretty(&confirmation)
+                    .map_err(|e| Error::AddEdgeError(e.to_string()))?;
+                println!("{json}");
+            } else {
+                println!("Linked: {} -> {} ({})", edge.from_id, edge.to_id, edge.id);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if json_output {
+                let err_resp = LinkErrorResponse {
+                    error: e.to_string(),
+                };
+                if let Ok(json) = serde_json::to_string_pretty(&err_resp) {
+                    println!("{json}");
+                }
+            }
+            Err(e)
+        }
+    }
 }
 
 pub fn handle_unlink<S: KbStore, G: KbGraph>(

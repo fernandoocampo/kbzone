@@ -1447,7 +1447,7 @@ dependencies = [
 
 [[package]]
 name = "kbzone"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "chrono",
  "clap",

@@ -90,6 +90,7 @@ pub struct LinkParams {
     pub from_key_or_id: String,
     pub to_key_or_id: String,
     pub note: String,
+    pub out: Option<String>,
 }
 
 /// Input for `GraphService::tree`. `key_or_id` is raw CLI input.
@@ -135,6 +136,32 @@ pub struct TreeQuery {
 // Output DTOs — serde `Serialize` for `--json`; field order mirrors the
 // shapes documented for `kb related --json` / `kb tree --json`.
 // ---------------------------------------------------------------------------
+
+/// Minimal JSON response for a successful `link` operation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LinkConfirmation {
+    pub edge_id: String,
+    pub from_id: String,
+    pub to_id: String,
+    pub note: String,
+}
+
+impl From<&KbEdge> for LinkConfirmation {
+    fn from(edge: &KbEdge) -> Self {
+        LinkConfirmation {
+            edge_id: edge.id.clone(),
+            from_id: edge.from_id.clone(),
+            to_id: edge.to_id.clone(),
+            note: edge.note.clone(),
+        }
+    }
+}
+
+/// JSON error response for a failed `link` operation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LinkErrorResponse {
+    pub error: String,
+}
 
 /// Lightweight node projection embedded in edge/tree output.
 #[derive(Debug, Clone, serde::Serialize)]

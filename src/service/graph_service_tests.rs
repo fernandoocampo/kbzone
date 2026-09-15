@@ -234,6 +234,7 @@ fn link_resolves_key_and_creates_edge() {
             from_key_or_id: "car".to_string(),
             to_key_or_id: "engine".to_string(),
             note: "has an engine".to_string(),
+            out: None,
         })
         .unwrap();
     assert_eq!(edge.from_id, "car-id");
@@ -254,6 +255,7 @@ fn link_resolves_id_when_key_lookup_fails() {
             from_key_or_id: "car-id".to_string(),
             to_key_or_id: "engine-id".to_string(),
             note: String::new(),
+            out: None,
         })
         .unwrap();
     assert_eq!(edge.from_id, "car-id");
@@ -269,6 +271,7 @@ fn link_rejects_self_loop() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "car".to_string(),
         note: String::new(),
+        out: None,
     });
     assert!(matches!(result, Err(Error::SelfLoopNotAllowed)));
 }
@@ -282,6 +285,7 @@ fn link_errors_when_from_not_found() {
         from_key_or_id: "no-such".to_string(),
         to_key_or_id: "engine".to_string(),
         note: String::new(),
+        out: None,
     });
     assert!(matches!(result, Err(Error::KBNotFound)));
 }
@@ -295,6 +299,7 @@ fn link_errors_when_to_not_found() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "no-such".to_string(),
         note: String::new(),
+        out: None,
     });
     assert!(matches!(result, Err(Error::KBNotFound)));
 }
@@ -311,6 +316,7 @@ fn link_propagates_duplicate_edge_error_from_store() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
 
@@ -318,6 +324,7 @@ fn link_propagates_duplicate_edge_error_from_store() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: "again".to_string(),
+        out: None,
     });
     assert!(matches!(result, Err(Error::DuplicateEdgeError)));
 }
@@ -336,6 +343,7 @@ fn unlink_removes_existing_edge() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
 
@@ -368,6 +376,7 @@ fn related_returns_node_plus_filtered_edges_for_direction_out() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: "has an engine".to_string(),
+        out: None,
     })
     .unwrap();
 
@@ -390,6 +399,7 @@ fn related_returns_node_plus_filtered_edges_for_direction_in() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: "has an engine".to_string(),
+        out: None,
     })
     .unwrap();
 
@@ -416,12 +426,14 @@ fn related_returns_node_plus_filtered_edges_for_direction_both() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
     svc.link(LinkParams {
         from_key_or_id: "spare-parts-kit".to_string(),
         to_key_or_id: "car".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
 
@@ -485,6 +497,7 @@ fn export_graph_single_hop_out_direction_includes_root_and_target() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: "has an engine".to_string(),
+        out: None,
     })
     .unwrap();
 
@@ -524,12 +537,14 @@ fn export_graph_respects_depth_limit() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
     svc.link(LinkParams {
         from_key_or_id: "engine".to_string(),
         to_key_or_id: "piston".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
 
@@ -563,12 +578,14 @@ fn export_graph_direction_both_merges_outgoing_and_incoming() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
     svc.link(LinkParams {
         from_key_or_id: "spare-parts-kit".to_string(),
         to_key_or_id: "car".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
 
@@ -601,18 +618,21 @@ fn export_graph_dedups_node_reached_via_multiple_paths() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
     svc.link(LinkParams {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "wheel".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
     svc.link(LinkParams {
         from_key_or_id: "engine".to_string(),
         to_key_or_id: "wheel".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
 
@@ -640,6 +660,7 @@ fn export_graph_depth_zero_returns_only_root() {
         from_key_or_id: "car".to_string(),
         to_key_or_id: "engine".to_string(),
         note: String::new(),
+        out: None,
     })
     .unwrap();
 
