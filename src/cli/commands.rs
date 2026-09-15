@@ -163,6 +163,9 @@ pub enum Command {
     Delete {
         #[arg(long, required = true, help = "UUID of the entry to delete")]
         id: String,
+
+        #[arg(long, help = "Output format: json (optional, default: plain text)")]
+        out: Option<String>,
     },
 
     /// Search entries by keyword, category, namespace, tags, or reference.

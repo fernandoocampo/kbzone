@@ -10,7 +10,7 @@ local SQLite file. The binary is named `kb`.
 - `kb add`                     — Add a new entry (also indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs) and `--path` (optional Unix-style path, leading `/` auto-added)
 - `kb get`                     — Fetch a single entry by key or ID; displays `path` if set; flags: `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb update`                  — Update an entry (also re-indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs; replaces existing metadata; empty string clears all), `--path` (empty string clears the path), and `--out` (`json`\|`yaml`, optional — default is plain text)
-- `kb delete`                  — Delete an entry (also removes embedding)
+- `kb delete`                  — Delete an entry (also removes embedding); flags: `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`, `--out` (`json`\|`yaml`, optional — default is plain text); uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
 - `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded), `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb reindex`                 — Rebuild embeddings for all entries

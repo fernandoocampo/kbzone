@@ -1872,3 +1872,108 @@ fn handle_ask_invalid_out_value_returns_error() {
     let result = handle_ask(&svc, ask_params(Some("xml")));
     assert!(matches!(result, Err(Error::VectorSearchError(_))));
 }
+
+// ---- handle_delete tests ----
+
+#[test]
+fn handle_delete_plain_text_success() {
+    let svc = make_svc();
+    let kb = svc
+        .add_kb(NewKb {
+            key: "test-key".to_string(),
+            value: "test value".to_string(),
+            notes: String::new(),
+            category: "concept".to_string(),
+            namespace: "test".to_string(),
+            reference: String::new(),
+            tags: vec![],
+            metadata: std::collections::BTreeMap::new(),
+            path: None,
+            parent: None,
+            media_url: None,
+            media_extension: None,
+        })
+        .unwrap();
+    let params = DeleteParams {
+        id: kb.id.clone(),
+        out: None,
+    };
+    let result = handle_delete(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_delete_json_success() {
+    let svc = make_svc();
+    let kb = svc
+        .add_kb(NewKb {
+            key: "test-key-json".to_string(),
+            value: "test value".to_string(),
+            notes: String::new(),
+            category: "concept".to_string(),
+            namespace: "test".to_string(),
+            reference: String::new(),
+            tags: vec![],
+            metadata: std::collections::BTreeMap::new(),
+            path: None,
+            parent: None,
+            media_url: None,
+            media_extension: None,
+        })
+        .unwrap();
+    let params = DeleteParams {
+        id: kb.id.clone(),
+        out: Some("json".to_string()),
+    };
+    let result = handle_delete(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_delete_invalid_out_value() {
+    let svc = make_svc();
+    let kb = svc
+        .add_kb(NewKb {
+            key: "test-key-invalid".to_string(),
+            value: "test value".to_string(),
+            notes: String::new(),
+            category: "concept".to_string(),
+            namespace: "test".to_string(),
+            reference: String::new(),
+            tags: vec![],
+            metadata: std::collections::BTreeMap::new(),
+            path: None,
+            parent: None,
+            media_url: None,
+            media_extension: None,
+        })
+        .unwrap();
+    let params = DeleteParams {
+        id: kb.id.clone(),
+        out: Some("xml".to_string()),
+    };
+    let result = handle_delete(&svc, params);
+    assert!(matches!(result, Err(Error::DeleteKBError(_))));
+}
+
+#[test]
+fn handle_delete_not_found_returns_error() {
+    let svc = make_svc();
+    let params = DeleteParams {
+        id: "nonexistent-id".to_string(),
+        out: None,
+    };
+    let result = handle_delete(&svc, params);
+    assert!(matches!(result, Err(Error::KBNotFound)));
+}
+
+#[test]
+fn handle_delete_not_found_json_returns_error() {
+    let svc = make_svc();
+    let params = DeleteParams {
+        id: "nonexistent-id-json".to_string(),
+        out: Some("json".to_string()),
+    };
+    let result = handle_delete(&svc, params);
+    assert!(matches!(result, Err(Error::KBNotFound)));
+}

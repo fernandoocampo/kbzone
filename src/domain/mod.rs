@@ -25,10 +25,10 @@ pub use graph::{
     RelatedResult, RemoveEdgeParams, TreeNode, TreeQuery, TreeResult, TreeRoot, TreeWalkParams,
 };
 pub use kb::{
-    AddJsonInput, EmbeddingInput, ExportKbItem, ExportMediaParams, FailedImportItem,
-    ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb,
-    OutputFormat, ReindexResult, ScoredKbItem, SemanticQuery, StoreMediaParams, build_metadata,
-    file_extension, format_metadata, is_media_category, media_file_path, normalize_path,
-    parse_metadata_input,
+    AddJsonInput, DeleteConfirmation, DeleteErrorResponse, EmbeddingInput, ExportKbItem,
+    ExportMediaParams, FailedImportItem, ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem,
+    KbUpdate, MediaPathParams, NewKb, OutputFormat, ReindexResult, ScoredKbItem, SemanticQuery,
+    StoreMediaParams, build_metadata, file_extension, format_metadata, is_media_category,
+    media_file_path, normalize_path, parse_metadata_input,
 };
 pub use tag_suggestion::{TagSuggestionInput, suggest_tags};

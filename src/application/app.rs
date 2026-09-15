@@ -7,7 +7,7 @@ use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
 use crate::cli::handlers::{
-    self, AddParams, AskParams, ExportParams, ExportServices, GetParams, GetServices,
+    self, AddParams, AskParams, DeleteParams, ExportParams, ExportServices, GetParams, GetServices,
     GraphViewCliParams, ImportParams, ImportServices, RelatedParams, SearchParams, TreeParams,
     UnlinkParams, UpdateParams,
 };
@@ -171,7 +171,9 @@ impl App {
                 },
             )?,
 
-            Command::Delete { id } => handlers::handle_delete(&self.svc, id)?,
+            Command::Delete { id, out } => {
+                handlers::handle_delete(&self.svc, DeleteParams { id, out })?
+            }
 
             Command::Search {
                 keyword,

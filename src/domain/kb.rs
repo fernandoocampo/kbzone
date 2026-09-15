@@ -128,6 +128,19 @@ impl std::str::FromStr for OutputFormat {
     }
 }
 
+/// Minimal JSON response for a successful delete operation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DeleteConfirmation {
+    pub id: String,
+    pub deleted: bool,
+}
+
+/// JSON error response for a failed delete operation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DeleteErrorResponse {
+    pub error: String,
+}
+
 /// DTO for creating a new KB entry.
 #[derive(Debug, Clone)]
 pub struct NewKb {

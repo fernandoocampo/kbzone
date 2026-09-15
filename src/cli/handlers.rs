@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use crate::cli::{browser, graph_view};
 use crate::domain::{
-    AddJsonInput, EdgeDirection, ExportDocument, ExportMediaParams, GraphViewParams,
-    ImportDocument, ImportEdgeItem, ImportKbItem, KbFilter, KbRelationships, KbUpdate,
-    KbWithRelationships, LinkParams, MediaPathParams, NewKb, OutputFormat, RelatedResult,
-    ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams,
-    build_metadata, format_metadata, is_media_category, media_file_path, parse_metadata_input,
-    suggest_tags,
+    AddJsonInput, DeleteConfirmation, DeleteErrorResponse, EdgeDirection, ExportDocument,
+    ExportMediaParams, GraphViewParams, ImportDocument, ImportEdgeItem, ImportKbItem, KbFilter,
+    KbRelationships, KbUpdate, KbWithRelationships, LinkParams, MediaPathParams, NewKb,
+    OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
+    TreeResult, TreeWalkParams, build_metadata, format_metadata, is_media_category,
+    media_file_path, parse_metadata_input, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -30,6 +30,11 @@ pub struct GetParams {
 
 pub struct UpdateParams {
     pub update: KbUpdate,
+    pub out: Option<String>,
+}
+
+pub struct DeleteParams {
+    pub id: String,
     pub out: Option<String>,
 }
 
@@ -756,17 +761,47 @@ pub fn handle_delete<
     F: MediaFetcher,
 >(
     svc: &KBService<S, V, E, M, F>,
-    id: String,
+    params: DeleteParams,
 ) -> Result<(), Error> {
-    match svc.delete_kb(&id) {
-        Ok(()) => println!("Deleted: {}", id),
-        Err(e @ Error::KBHasChildrenError(_)) => {
-            eprintln!("Cannot delete: KB has children. Delete them first: {}", e);
-            return Err(e);
+    let json_output = match params.out.as_deref() {
+        Some("json") => true,
+        Some(other) => {
+            return Err(Error::DeleteKBError(format!(
+                "invalid output format: {other} (expected json)"
+            )));
         }
-        Err(e) => return Err(e),
+        None => false,
+    };
+
+    match svc.delete_kb(&params.id) {
+        Ok(()) => {
+            if json_output {
+                let confirmation = DeleteConfirmation {
+                    id: params.id.clone(),
+                    deleted: true,
+                };
+                let json = serde_json::to_string_pretty(&confirmation)
+                    .map_err(|e| Error::DeleteKBError(e.to_string()))?;
+                println!("{json}");
+            } else {
+                println!("Deleted: {}", params.id);
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if json_output {
+                let err_resp = DeleteErrorResponse {
+                    error: e.to_string(),
+                };
+                if let Ok(json) = serde_json::to_string_pretty(&err_resp) {
+                    println!("{json}");
+                }
+            } else if let Error::KBHasChildrenError(_) = &e {
+                eprintln!("Cannot delete: KB has children. Delete them first: {}", e);
+            }
+            Err(e)
+        }
     }
-    Ok(())
 }
 
 pub fn handle_search<
