@@ -7,14 +7,28 @@ description: >
   indexing its embedding), and returns the created entry as JSON. Required
   fields: key, value, category, tags (non-empty array). Use whenever the
   user wants to save/add/remember something to their knowledge base.
-argument-hint: '<json-object>'
+argument-hint: '<entry-text>'
 arguments:
   - entry
 allowed-tools:
   - Bash(kb add --json*)
 ---
 
-Build a single JSON object for the entry from the user's request, then run:
+## Before Building the JSON
+
+Before constructing the entry, **ask clarifying questions** if any of these are unclear:
+
+- **Category**: What type of entry is this? (e.g. `quote`, `concept`, `command`, `bookmark`, `article`, `idea`)
+- **Value vs. Notes**: Distinguish clearly:
+  - `value`: The **core content** — the essential idea, the main command, the key quote, the answer. Keep it concise.
+  - `notes`: **Elaboration, context, or background** — additional explanation, where you found it, why it matters, caveats.
+- **Namespace** (optional): Is this part of a topic/domain? (e.g. `rust`, `k8s`, `personal`, `work`). Only add if the user explicitly mentions one or if it's obvious from context.
+- **Reference** (optional): Where did this come from? (author, book, URL, person's name). Only add if provided.
+- **Tags**: What keywords help you find this later? Extract or infer 3-5 meaningful tags from the content.
+
+## Build and Save
+
+Once you have all required fields clearly identified, build a single JSON object and run:
 
 ```bash
 kb add --json '$ARGUMENTS'
@@ -76,12 +90,40 @@ kb add --json '{"key":"rust-ownership","value":"Each value has a single owner.",
 
 ## Output to present to the user
 
-On success, `kb add --json` prints only the created entry as pretty JSON
-(`id`, `key`, `value`, `notes`, `category`, `namespace`, `reference`,
-`tags`, `metadata`, `path`, `parent`, `created_on`). Confirm the save by
-showing the new `id` and `key` back to the user.
+On success, return the full JSON response from the CLI as-is. This gives the user the complete entry details in a structured format. The response includes:
+- `id` — UUID of the newly created entry
+- `key` — the unique key
+- `value`, `notes`, `category`, `namespace`, `reference`, `tags`, `metadata`
+- `created_on` — ISO-8601 timestamp
+- `parent`, `path`, `media_extension` — optional fields
+
+Example output:
+```json
+{
+  "id": "74ec2966-920a-4a16-8607-19568c9e396f",
+  "key": "fool-with-a-tool",
+  "value": "a fool with a tool is still a fool",
+  "notes": "Booch famously and repeatedly reminds the tech industry that engineering judgment, systems thinking, and ethical responsibility cannot be automated away",
+  "category": "quote",
+  "reference": "Grady Booch",
+  "namespace": "",
+  "tags": ["quote", "engineering", "ethics", "judgment", "tools", "systems-thinking"],
+  "metadata": {},
+  "created_on": "2026-09-15T11:29:45+0200",
+  "parent": null,
+  "path": null,
+  "media_extension": null
+}
+```
 
 On failure, surface the error message verbatim — common ones are:
 - `missing required field: key` / `value` / `category`
 - `tags must be a non-empty array`
 - `metadata keys must not be blank`
+- `InvalidJsonInput` — malformed JSON or invalid field values
+
+## When to Ask vs. When to Proceed
+
+- **Ask clarifying questions** if category, value/notes distinction, namespace, or other optional fields are ambiguous
+- **Proceed without asking** only when the user's input is complete and clear enough to build all required fields unambiguously
+- **Never infer optional fields** (namespace, reference, etc.) without the user explicitly stating them
