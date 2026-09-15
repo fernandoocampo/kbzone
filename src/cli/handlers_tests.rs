@@ -1409,6 +1409,65 @@ fn make_empty_graph_svc() -> GraphService<MockKbStore, MockKbGraph> {
     GraphService::new(MockKbStore::new(), MockKbGraph::default())
 }
 
+fn update_params_for(id: &str, out: Option<&str>) -> UpdateParams {
+    UpdateParams {
+        update: KbUpdate {
+            id: id.to_string(),
+            key: None,
+            value: Some("updated-value".to_string()),
+            notes: None,
+            category: None,
+            namespace: None,
+            reference: None,
+            tags: None,
+            parent: None,
+            path: None,
+            metadata: None,
+        },
+        out: out.map(str::to_string),
+    }
+}
+
+#[test]
+fn handle_update_no_out_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "update-test-key");
+    let id = svc.get_kb_by_key("update-test-key").unwrap().unwrap().id;
+    let result = handle_update(&svc, update_params_for(&id, None));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_update_out_json_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "update-test-json");
+    let id = svc.get_kb_by_key("update-test-json").unwrap().unwrap().id;
+    let result = handle_update(&svc, update_params_for(&id, Some("json")));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_update_out_yaml_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "update-test-yaml");
+    let id = svc.get_kb_by_key("update-test-yaml").unwrap().unwrap().id;
+    let result = handle_update(&svc, update_params_for(&id, Some("yaml")));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_update_invalid_out_value_returns_error() {
+    let svc = make_svc();
+    seed_kb(&svc, "update-test-invalid-out");
+    let id = svc
+        .get_kb_by_key("update-test-invalid-out")
+        .unwrap()
+        .unwrap()
+        .id;
+    let result = handle_update(&svc, update_params_for(&id, Some("xml")));
+    assert!(matches!(result, Err(Error::UpdateKBError(_))));
+}
+
 #[test]
 fn handle_get_found_no_out_succeeds() {
     let svc = make_svc();

@@ -28,6 +28,11 @@ pub struct GetParams {
     pub with_all_connections: bool,
 }
 
+pub struct UpdateParams {
+    pub update: KbUpdate,
+    pub out: Option<String>,
+}
+
 pub struct ImportParams {
     pub file: String,
     pub failed_items_file: String,
@@ -711,11 +716,35 @@ pub fn handle_update<
     F: MediaFetcher,
 >(
     svc: &KBService<S, V, E, M, F>,
-    update: KbUpdate,
+    params: UpdateParams,
 ) -> Result<(), Error> {
-    let id = update.id.clone();
-    svc.update_kb(update)?;
-    println!("Updated: {}", id);
+    let format: Option<OutputFormat> = params
+        .out
+        .as_deref()
+        .map(str::parse)
+        .transpose()
+        .map_err(Error::UpdateKBError)?;
+
+    let id = params.update.id.clone();
+    svc.update_kb(params.update)?;
+
+    match format {
+        Some(OutputFormat::Json) => {
+            let kb = svc.get_kb_by_id(&id)?.ok_or(Error::KBNotFound)?;
+            let json = serde_json::to_string_pretty(&kb)
+                .map_err(|e| Error::UpdateKBError(e.to_string()))?;
+            println!("{json}");
+        }
+        Some(OutputFormat::Yaml) => {
+            let kb = svc.get_kb_by_id(&id)?.ok_or(Error::KBNotFound)?;
+            let yaml =
+                serde_yaml::to_string(&kb).map_err(|e| Error::UpdateKBError(e.to_string()))?;
+            print!("{yaml}");
+        }
+        None => {
+            println!("Updated: {}", id);
+        }
+    }
     Ok(())
 }
 

@@ -9,7 +9,7 @@ use crate::cli::commands::{Cli, Command};
 use crate::cli::handlers::{
     self, AddParams, AskParams, ExportParams, ExportServices, GetParams, GetServices,
     GraphViewCliParams, ImportParams, ImportServices, RelatedParams, SearchParams, TreeParams,
-    UnlinkParams,
+    UnlinkParams, UpdateParams,
 };
 use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
 use crate::errors::AppError;
@@ -150,20 +150,24 @@ impl App {
                 parent,
                 path,
                 metadata,
+                out,
             } => handlers::handle_update(
                 &self.svc,
-                KbUpdate {
-                    id,
-                    key,
-                    value,
-                    notes,
-                    category,
-                    namespace,
-                    reference,
-                    tags,
-                    parent,
-                    path,
-                    metadata,
+                UpdateParams {
+                    update: KbUpdate {
+                        id,
+                        key,
+                        value,
+                        notes,
+                        category,
+                        namespace,
+                        reference,
+                        tags,
+                        parent,
+                        path,
+                        metadata,
+                    },
+                    out,
                 },
             )?,
 
