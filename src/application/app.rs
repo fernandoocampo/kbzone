@@ -7,9 +7,9 @@ use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
 use crate::cli::handlers::{
-    self, AddParams, AskParams, DeleteParams, ExportParams, ExportServices, GetParams, GetServices,
-    GraphViewCliParams, ImportParams, ImportServices, RelatedParams, SearchParams, TreeParams,
-    UnlinkParams, UpdateParams,
+    self, AddParams, AskParams, CategoriesParams, DeleteParams, ExportParams, ExportServices,
+    GetParams, GetServices, GraphViewCliParams, ImportParams, ImportServices, RelatedParams,
+    SearchParams, TreeParams, UnlinkParams, UpdateParams,
 };
 use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
 use crate::errors::AppError;
@@ -217,8 +217,8 @@ impl App {
 
             Command::Quote => handlers::handle_quote(&self.svc)?,
 
-            Command::Categories { namespace } => {
-                handlers::handle_categories(&self.svc, namespace.as_deref())?
+            Command::Categories { namespace, out } => {
+                handlers::handle_categories(&self.svc, CategoriesParams { namespace, out })?
             }
 
             Command::Reindex => handlers::handle_reindex(&self.svc)?,

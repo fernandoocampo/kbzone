@@ -228,6 +228,9 @@ pub enum Command {
     Categories {
         #[arg(long, help = "Only list categories used within this namespace")]
         namespace: Option<String>,
+
+        #[arg(long, help = "Output format: json (optional, default: plain text)")]
+        out: Option<String>,
     },
 
     /// Print version information (git hash, build date).

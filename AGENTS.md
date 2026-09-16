@@ -17,7 +17,7 @@ local SQLite file. The binary is named `kb`.
 - `kb export`                  — Export KB entries and their graph relationships to a single-document YAML file with `kbs`/`graph` sections; flags: `--file-name` (optional), `--folder-output` (required), `--category`, `--namespace`, `--limit`, `--offset`; parents always appear before children; `Parent` field omitted when parent is not in the filtered set; `Path` field included when set; an edge appears in `graph` only when *both* its endpoints are present in the exported `kbs` set
 - `kb import`                  — Import KB entries from a multi-document YAML file; `Path` field is validated and normalised on import
 - `kb quote`                   — Print a random quote-category entry
-- `kb categories`              — List all distinct, non-empty category values; flags: `--namespace` (optional)
+- `kb categories`              — List all distinct, non-empty category values; flags: `--namespace` (optional), `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
 - `kb link <from> <to>`        — Create a directed edge between two entries (each `from`/`to` accepts a key or an internal ID); flags: `--note`, `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
 - `kb unlink <from> <to>`      — Remove the edge between two entries (key or ID); errors if no such edge exists
 - `kb related <key-or-id>`     — Show one-hop outgoing/incoming relationships; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--json` (full NOTE text; human output truncates NOTE to 40 chars)

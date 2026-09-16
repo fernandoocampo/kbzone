@@ -357,9 +357,10 @@ Returns a random entry with `category = quote`.
 ```sh
 kb categories
 kb categories --namespace rust
+kb categories --out json
 ```
 
-Lists all distinct, non-empty category values in the knowledge base. Use `--namespace` to limit results to a specific namespace.
+Lists all distinct, non-empty category values in the knowledge base. Use `--namespace` to limit results to a specific namespace. Use `--out json` to print the result as a JSON array; on error, a JSON error object is printed instead.
 
 ### Create a relationship link between two entries
 

@@ -1978,6 +1978,138 @@ fn handle_delete_not_found_json_returns_error() {
     assert!(matches!(result, Err(Error::KBNotFound)));
 }
 
+// ---- handle_categories tests ----
+
+#[test]
+fn handle_categories_plain_text_success() {
+    let svc = make_svc();
+    svc.add_kb(NewKb {
+        key: "kb-1".to_string(),
+        value: "value 1".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        namespace: "test".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    svc.add_kb(NewKb {
+        key: "kb-2".to_string(),
+        value: "value 2".to_string(),
+        notes: String::new(),
+        category: "bookmark".to_string(),
+        namespace: "test".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    let params = CategoriesParams {
+        namespace: None,
+        out: None,
+    };
+    let result = handle_categories(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_categories_json_success() {
+    let svc = make_svc();
+    svc.add_kb(NewKb {
+        key: "kb-1".to_string(),
+        value: "value 1".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        namespace: "test".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    let params = CategoriesParams {
+        namespace: None,
+        out: Some("json".to_string()),
+    };
+    let result = handle_categories(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_categories_json_empty_success() {
+    let svc = make_svc();
+    let params = CategoriesParams {
+        namespace: None,
+        out: Some("json".to_string()),
+    };
+    let result = handle_categories(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_categories_namespace_filter_json() {
+    let svc = make_svc();
+    svc.add_kb(NewKb {
+        key: "kb-rust".to_string(),
+        value: "value".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        namespace: "rust".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    svc.add_kb(NewKb {
+        key: "kb-k8s".to_string(),
+        value: "value".to_string(),
+        notes: String::new(),
+        category: "command".to_string(),
+        namespace: "k8s".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    let params = CategoriesParams {
+        namespace: Some("rust".to_string()),
+        out: Some("json".to_string()),
+    };
+    let result = handle_categories(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_categories_invalid_out_value() {
+    let svc = make_svc();
+    let params = CategoriesParams {
+        namespace: None,
+        out: Some("xml".to_string()),
+    };
+    let result = handle_categories(&svc, params);
+    assert!(matches!(result, Err(Error::ListError(_))));
+}
+
 // ---- handle_link tests ----
 
 #[test]

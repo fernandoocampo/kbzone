@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use crate::cli::{browser, graph_view};
 use crate::domain::{
-    AddJsonInput, DeleteConfirmation, DeleteErrorResponse, EdgeDirection, ExportDocument,
-    ExportMediaParams, GraphViewParams, ImportDocument, ImportEdgeItem, ImportKbItem, KbFilter,
-    KbRelationships, KbUpdate, KbWithRelationships, LinkConfirmation, LinkErrorResponse,
-    LinkParams, MediaPathParams, NewKb, OutputFormat, RelatedResult, ScoredKbItem, SemanticQuery,
-    TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, build_metadata, format_metadata,
-    is_media_category, media_file_path, parse_metadata_input, suggest_tags,
+    AddJsonInput, CategoriesErrorResponse, DeleteConfirmation, DeleteErrorResponse, EdgeDirection,
+    ExportDocument, ExportMediaParams, GraphViewParams, ImportDocument, ImportEdgeItem,
+    ImportKbItem, KbFilter, KbRelationships, KbUpdate, KbWithRelationships, LinkConfirmation,
+    LinkErrorResponse, LinkParams, MediaPathParams, NewKb, OutputFormat, RelatedResult,
+    ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams,
+    build_metadata, format_metadata, is_media_category, media_file_path, parse_metadata_input,
+    suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -35,6 +36,11 @@ pub struct UpdateParams {
 
 pub struct DeleteParams {
     pub id: String,
+    pub out: Option<String>,
+}
+
+pub struct CategoriesParams {
+    pub namespace: Option<String>,
     pub out: Option<String>,
 }
 
@@ -991,13 +997,43 @@ pub fn handle_categories<
     F: MediaFetcher,
 >(
     svc: &KBService<S, V, E, M, F>,
-    namespace: Option<&str>,
+    params: CategoriesParams,
 ) -> Result<(), Error> {
-    let categories = svc.categories(namespace)?;
-    for category in &categories {
-        println!("{}", category);
+    let json_output = match params.out.as_deref() {
+        Some("json") => true,
+        Some(other) => {
+            return Err(Error::ListError(format!(
+                "invalid output format: {other} (expected json)"
+            )));
+        }
+        None => false,
+    };
+
+    match svc.categories(params.namespace.as_deref()) {
+        Ok(categories) => {
+            if json_output {
+                let json = serde_json::to_string_pretty(&categories)
+                    .map_err(|e| Error::ListError(e.to_string()))?;
+                println!("{json}");
+            } else {
+                for category in &categories {
+                    println!("{}", category);
+                }
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if json_output {
+                let err_resp = CategoriesErrorResponse {
+                    error: e.to_string(),
+                };
+                if let Ok(json) = serde_json::to_string_pretty(&err_resp) {
+                    println!("{json}");
+                }
+            }
+            Err(e)
+        }
     }
-    Ok(())
 }
 
 pub fn handle_reindex<

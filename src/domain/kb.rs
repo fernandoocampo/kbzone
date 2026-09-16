@@ -141,6 +141,12 @@ pub struct DeleteErrorResponse {
     pub error: String,
 }
 
+/// JSON error response for a failed `categories` operation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CategoriesErrorResponse {
+    pub error: String,
+}
+
 /// DTO for creating a new KB entry.
 #[derive(Debug, Clone)]
 pub struct NewKb {
