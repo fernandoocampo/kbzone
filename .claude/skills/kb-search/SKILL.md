@@ -31,11 +31,14 @@ Default to semantic search (`ask`) for open-ended, natural-language questions; u
 ## Semantic search — `kb ask`
 
 ```bash
-kb ask "<natural language query>" --limit 10 --threshold 0.9 --out json
+kb ask "<natural language query>" --limit 10 --threshold 0.9 --category <cat> --namespace <ns> --out json
 ```
 
 - `--threshold` (default `0.9`) is a **maximum distance** — lower is stricter. If results feel too sparse, raise it (e.g. `0.95`) rather than assuming there's nothing relevant.
 - `--limit` (default `10`).
+- `--category` and `--namespace` are both optional and combine with AND semantics when both given. Only pass them when the user actually named a category/namespace to scope to — don't invent filters they didn't ask for, since narrowing an otherwise-open-ended question can hide the answer.
+  - `--namespace` scopes the vector search itself (it's an exact-match partition filter), so it's cheap and precise — good default when the user says things like "in my rust notes" or names a project/domain.
+  - `--category` is applied after the nearest-neighbor search as a filter, so it's still exact-match but slightly less precise at very small `--limit` values — if a `--category` filter returns fewer results than expected, retry with a higher `--limit` before concluding there's nothing relevant.
 - Response is a list of `{ "item": {...}, "score": <distance> }`; lower `score` = closer match. `item` here is a lighter DTO (id, key, category, namespace, tags) — follow up with `kb-manage-entry`'s `get` if the user needs the full value/notes.
 
 ## Keyword / filter search — `kb search`
