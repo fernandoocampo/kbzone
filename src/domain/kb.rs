@@ -253,6 +253,11 @@ pub struct SemanticQuery {
     pub limit: Option<i64>,
     /// Maximum distance to include (0.0–1.0). Results with a distance above this value are excluded.
     pub threshold: Option<f32>,
+    /// Filter to entries in this category (applied as a post-filter after the KNN search).
+    pub category: Option<String>,
+    /// Filter to entries in this namespace (applied as a `vec0` partition key filter —
+    /// narrows the nearest-neighbor search itself, not just the results).
+    pub namespace: Option<String>,
 }
 
 /// Input for generating and storing an embedding for a KB entry.
@@ -260,6 +265,8 @@ pub struct SemanticQuery {
 pub struct EmbeddingInput {
     pub kb_id: String,
     pub text: String,
+    /// Stored as the `kb_embeddings` `vec0` table's partition key.
+    pub namespace: String,
 }
 
 /// YAML-serialisable representation of a KB entry produced by `kb export`.

@@ -1840,6 +1840,8 @@ fn ask_params(out: Option<&str>) -> AskParams {
             text: "test query".to_string(),
             limit: Some(10),
             threshold: Some(0.9),
+            category: None,
+            namespace: None,
         },
         out: out.map(str::to_string),
     }

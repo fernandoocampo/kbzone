@@ -12,7 +12,7 @@ local SQLite file. The binary is named `kb`.
 - `kb update`                  — Update an entry (also re-indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs; replaces existing metadata; empty string clears all), `--path` (empty string clears the path), and `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb delete`                  — Delete an entry (also removes embedding); flags: `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--limit`, `--offset`, `--out` (`json`\|`yaml`, optional — default is plain text); uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
-- `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded), `--out` (`json`\|`yaml`, optional — default is plain text)
+- `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded), `--category` (post-filter), `--namespace` (`vec0` partition filter — narrows the vector search itself), `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb reindex`                 — Rebuild embeddings for all entries
 - `kb export`                  — Export KB entries and their graph relationships to a single-document YAML file with `kbs`/`graph` sections; flags: `--file-name` (optional), `--folder-output` (required), `--category`, `--namespace`, `--limit`, `--offset`; parents always appear before children; `Parent` field omitted when parent is not in the filtered set; `Path` field included when set; an edge appears in `graph` only when *both* its endpoints are present in the exported `kbs` set
 - `kb import`                  — Import KB entries from a multi-document YAML file; `Path` field is validated and normalised on import
@@ -49,6 +49,23 @@ When indexing an entry (on `add`, `update`, or `reindex`), the text fed to the e
 Note: `metadata` is **not** included in the embedding text and does not trigger a re-index when updated (updates to only metadata are skipped).
 
 This is constructed by `Kb::embedding_text()` in `domain/kb.rs`.
+
+#### Vector storage / `kb_embeddings` schema
+
+`kb_embeddings` is a `sqlite-vec` `vec0` virtual table storing `kb_id`, `embedding`,
+and `namespace` — `namespace` is declared as a `vec0` **partition key**, which
+physically shards the index so `kb ask --namespace <ns>` only scans that
+partition instead of the whole table. `category` is not a partition key; `kb ask
+--category` is applied as an in-memory post-filter after the (namespace-scoped,
+if given) nearest-neighbor search.
+
+`vec0` tables can't be `ALTER`ed and reject `UPDATE` on a partition key column,
+so `store.initialize_vectors()` auto-migrates an old (pre-partition-key)
+`kb_embeddings` table by dropping and recreating it — **run `kb reindex` once
+after upgrading** to repopulate embeddings. Moving an entry between namespaces
+via `kb update --namespace ...` already re-indexes it (any change to
+`embedding_text()`'s inputs triggers a re-index), which correctly re-shards it
+into the new partition since `save_embedding` does delete-then-insert.
 
 ## KB Entity Fields
 

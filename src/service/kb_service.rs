@@ -68,6 +68,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         let input = EmbeddingInput {
             kb_id: kb.id.clone(),
             text: kb.embedding_text(),
+            namespace: kb.namespace.clone(),
         };
         if let Err(e) = self.index_kb(&input) {
             eprintln!("Warning: could not index embedding for '{}': {}", kb.key, e);
@@ -144,6 +145,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             let input = EmbeddingInput {
                 kb_id: updated.id.clone(),
                 text: new_embed_text,
+                namespace: updated.namespace.clone(),
             };
             if let Err(e) = self.index_kb(&input) {
                 eprintln!(
@@ -220,6 +222,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                     let input = EmbeddingInput {
                         kb_id: kb.id.clone(),
                         text: kb.embedding_text(),
+                        namespace: kb.namespace.clone(),
                     };
                     match self.index_kb(&input) {
                         Ok(_) => succeeded.push((kb.key.clone(), kb.id.clone())),
@@ -240,6 +243,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             let input = EmbeddingInput {
                 kb_id: kb.id.clone(),
                 text: kb.embedding_text(),
+                namespace: kb.namespace.clone(),
             };
             if let Err(e) = self.index_kb(&input) {
                 eprintln!("Warning: could not index embedding for '{}': {}", kb.key, e);

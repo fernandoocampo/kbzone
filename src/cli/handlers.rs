@@ -935,6 +935,8 @@ pub fn handle_ask<
     let threshold_display = query
         .threshold
         .map_or_else(|| "none".to_string(), |t| format!("{:.2}", t));
+    let category_display = query.category.clone().unwrap_or_else(|| "any".to_string());
+    let namespace_display = query.namespace.clone().unwrap_or_else(|| "any".to_string());
     let start = std::time::Instant::now();
     let results = svc.ask(&query)?;
     let elapsed = start.elapsed();
@@ -956,8 +958,8 @@ pub fn handle_ask<
     }
 
     println!(
-        "Query: \"{}\"  Limit: {}  Threshold: {}",
-        query.text, limit_display, threshold_display
+        "Query: \"{}\"  Limit: {}  Threshold: {}  Category: {}  Namespace: {}",
+        query.text, limit_display, threshold_display, category_display, namespace_display
     );
     println!("Duration: {:.2?}", elapsed);
     println!();

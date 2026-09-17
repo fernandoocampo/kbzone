@@ -199,7 +199,7 @@ pub enum Command {
         out: Option<String>,
     },
 
-    /// Semantic / vector search using natural language.
+    /// Semantic / vector search using natural language, optionally scoped by category/namespace.
     Ask {
         #[arg(help = "Natural language query (e.g. \"how do I list kubernetes pods\")")]
         query: String,
@@ -213,6 +213,12 @@ pub enum Command {
             help = "Maximum distance to include (0.0–1.0). Lower = stricter matching. Results with a distance above this threshold are excluded. Use a higher value (e.g. 0.95) to see more results."
         )]
         threshold: f32,
+
+        #[arg(long, help = "Filter by category")]
+        category: Option<String>,
+
+        #[arg(long, help = "Filter by namespace")]
+        namespace: Option<String>,
 
         #[arg(long, help = "Output format: json | yaml (default: plain text)")]
         out: Option<String>,

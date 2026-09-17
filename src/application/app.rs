@@ -202,6 +202,8 @@ impl App {
                 query,
                 limit,
                 threshold,
+                category,
+                namespace,
                 out,
             } => handlers::handle_ask(
                 &self.svc,
@@ -210,6 +212,8 @@ impl App {
                         text: query,
                         limit: Some(limit),
                         threshold: Some(threshold),
+                        category,
+                        namespace,
                     },
                     out,
                 },

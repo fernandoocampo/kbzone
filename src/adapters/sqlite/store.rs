@@ -108,10 +108,20 @@ const SEARCH_FTS_WITH_REF: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMES
 // ---------------------------------------------------------------------------
 
 /// Template for vec0 virtual table DDL — `{}` is replaced with the dimension count.
+/// `namespace` is a partition key: it physically shards the vector index so a query
+/// scoped to one namespace only scans that partition, rather than the whole table.
 const CREATE_EMBEDDINGS_TABLE_TPL: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS kb_embeddings \
-     USING vec0(kb_id TEXT PRIMARY KEY, embedding float[{}])";
+     USING vec0(kb_id TEXT PRIMARY KEY, namespace TEXT PARTITION KEY, embedding float[{}])";
 
-const INSERT_EMBEDDING: &str = "INSERT INTO kb_embeddings(kb_id, embedding) VALUES (?1, ?2)";
+/// Detects the pre-partition-key `kb_embeddings` schema so `initialize_vectors` can
+/// migrate it. `vec0` tables can't be `ALTER`ed to add a partition key column.
+const GET_EMBEDDINGS_TABLE_SQL: &str =
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'kb_embeddings'";
+
+const DROP_EMBEDDINGS_TABLE: &str = "DROP TABLE kb_embeddings";
+
+const INSERT_EMBEDDING: &str =
+    "INSERT INTO kb_embeddings(kb_id, namespace, embedding) VALUES (?1, ?2, ?3)";
 
 const DELETE_EMBEDDING: &str = "DELETE FROM kb_embeddings WHERE kb_id = ?1";
 
@@ -120,9 +130,19 @@ const DELETE_EMBEDDING: &str = "DELETE FROM kb_embeddings WHERE kb_id = ?1";
 const SEARCH_KNN: &str =
     "SELECT kb_id, distance FROM kb_embeddings WHERE embedding MATCH ?1 ORDER BY distance LIMIT ?2";
 
+/// Same as `SEARCH_KNN` but scoped to one `namespace` partition — narrows the KNN
+/// scan itself rather than filtering results afterward.
+const SEARCH_KNN_BY_NAMESPACE: &str = "SELECT kb_id, distance FROM kb_embeddings \
+     WHERE namespace = ?1 AND embedding MATCH ?2 ORDER BY distance LIMIT ?3";
+
 /// Step 2 of semantic search: fetch KB item metadata by ID.
 const GET_KB_ITEM_BY_ID: &str =
     "SELECT KB_ID, KB_KEY, CATEGORY, NAMESPACE, TAG_VALUES FROM kbs WHERE KB_ID = ?1";
+
+/// `category` is not a partition key (see `SEARCH_KNN`'s doc comment on why), so
+/// candidates are over-fetched by this multiplier, capped, before post-filtering.
+const CATEGORY_FILTER_OVERFETCH_MULTIPLIER: i64 = 5;
+const CATEGORY_FILTER_OVERFETCH_CAP: i64 = 200;
 
 // ---------------------------------------------------------------------------
 // Graph DDL constants
@@ -271,6 +291,13 @@ fn row_to_kb_item(row: &rusqlite::Row) -> rusqlite::Result<KbItem> {
             tag_values.split_whitespace().map(str::to_string).collect()
         },
     })
+}
+
+/// Parses one `SEARCH_KNN`/`SEARCH_KNN_BY_NAMESPACE` row into a `(kb_id, distance)` pair.
+fn row_to_knn_match(row: &rusqlite::Row) -> rusqlite::Result<(String, f32)> {
+    let kb_id: String = row.get(0)?;
+    let distance: f64 = row.get(1)?;
+    Ok((kb_id, distance as f32))
 }
 
 // ---------------------------------------------------------------------------
@@ -691,8 +718,22 @@ fn build_list_filters(filter: &KbFilter) -> (Vec<String>, Vec<String>) {
 
 impl VectorStore for SqliteStore {
     fn initialize_vectors(&self, dimensions: usize) -> Result<(), Error> {
-        let ddl = CREATE_EMBEDDINGS_TABLE_TPL.replace("{}", &dimensions.to_string());
         let conn = self.conn.lock().expect("mutex poisoned");
+        let existing_sql: Option<String> = conn
+            .query_row(GET_EMBEDDINGS_TABLE_SQL, [], |row| row.get(0))
+            .ok();
+        if let Some(sql) = existing_sql
+            && !sql.to_lowercase().contains("partition key")
+        {
+            eprintln!(
+                "Migrating kb_embeddings to the new namespace-partitioned schema — \
+                 run `kb reindex` afterward to rebuild embeddings."
+            );
+            conn.execute(DROP_EMBEDDINGS_TABLE, [])
+                .map_err(|e| Error::VectorStoreInitError(e.to_string()))?;
+        }
+
+        let ddl = CREATE_EMBEDDINGS_TABLE_TPL.replace("{}", &dimensions.to_string());
         conn.execute_batch(&ddl)
             .map_err(|e| Error::VectorStoreInitError(e.to_string()))?;
         Ok(())
@@ -703,8 +744,11 @@ impl VectorStore for SqliteStore {
         let conn = self.conn.lock().expect("mutex poisoned");
         conn.execute(DELETE_EMBEDDING, params![input.kb_id])
             .map_err(|e| Error::VectorSearchError(e.to_string()))?;
-        conn.execute(INSERT_EMBEDDING, params![input.kb_id, bytes])
-            .map_err(|e| Error::VectorStoreInitError(e.to_string()))?;
+        conn.execute(
+            INSERT_EMBEDDING,
+            params![input.kb_id, input.namespace, bytes],
+        )
+        .map_err(|e| Error::VectorStoreInitError(e.to_string()))?;
         Ok(())
     }
 
@@ -720,29 +764,48 @@ impl VectorStore for SqliteStore {
         query: &SemanticQuery,
         embedding: &[f32],
     ) -> Result<Vec<ScoredKbItem>, Error> {
-        let limit = query.limit.unwrap_or(10);
+        let requested_limit = query.limit.unwrap_or(10);
+        // `category` is a post-filter (not a partition key), so over-fetch candidates
+        // to avoid under-returning; `namespace` is a real partition filter and needs no
+        // over-fetch — it already narrows the KNN scan itself.
+        let knn_limit = if query.category.is_some() {
+            (requested_limit * CATEGORY_FILTER_OVERFETCH_MULTIPLIER)
+                .min(CATEGORY_FILTER_OVERFETCH_CAP)
+        } else {
+            requested_limit
+        };
         let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
         let conn = self.conn.lock().expect("mutex poisoned");
 
         // Step 1: KNN search — vec0 MATCH queries do not support JOINs
-        let mut knn_stmt = conn
-            .prepare(SEARCH_KNN)
-            .map_err(|e| Error::VectorSearchError(e.to_string()))?;
-        let knn_rows: Vec<(String, f32)> = knn_stmt
-            .query_map(params![bytes, limit], |row| {
-                let kb_id: String = row.get(0)?;
-                let distance: f64 = row.get(1)?;
-                Ok((kb_id, distance as f32))
-            })
-            .map_err(|e| Error::VectorSearchError(e.to_string()))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Error::VectorSearchError(e.to_string()))?;
+        let knn_rows: Vec<(String, f32)> = match &query.namespace {
+            Some(namespace) => {
+                let mut knn_stmt = conn
+                    .prepare(SEARCH_KNN_BY_NAMESPACE)
+                    .map_err(|e| Error::VectorSearchError(e.to_string()))?;
+                knn_stmt
+                    .query_map(params![namespace, bytes, knn_limit], row_to_knn_match)
+                    .map_err(|e| Error::VectorSearchError(e.to_string()))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| Error::VectorSearchError(e.to_string()))?
+            }
+            None => {
+                let mut knn_stmt = conn
+                    .prepare(SEARCH_KNN)
+                    .map_err(|e| Error::VectorSearchError(e.to_string()))?;
+                knn_stmt
+                    .query_map(params![bytes, knn_limit], row_to_knn_match)
+                    .map_err(|e| Error::VectorSearchError(e.to_string()))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| Error::VectorSearchError(e.to_string()))?
+            }
+        };
 
         if knn_rows.is_empty() {
             return Ok(vec![]);
         }
 
-        // Step 2: Fetch KB item metadata for each matched id, applying threshold filter
+        // Step 2: Fetch KB item metadata for each matched id, applying threshold/category filters
         let mut results = Vec::with_capacity(knn_rows.len());
         for (kb_id, score) in knn_rows {
             if let Some(threshold) = query.threshold
@@ -755,9 +818,15 @@ impl VectorStore for SqliteStore {
                 .map_err(|e| Error::VectorSearchError(e.to_string()))?;
             let item = item_stmt.query_row(params![kb_id], row_to_kb_item).ok();
             if let Some(item) = item {
+                if let Some(category) = &query.category
+                    && &item.category != category
+                {
+                    continue;
+                }
                 results.push(ScoredKbItem { item, score });
             }
         }
+        results.truncate(requested_limit as usize);
 
         Ok(results)
     }

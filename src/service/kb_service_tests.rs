@@ -233,7 +233,7 @@ impl KbStore for GhostItemKbStore {
 
 #[derive(Debug, Clone)]
 struct MockVectorStore {
-    indexed: Rc<RefCell<Vec<String>>>,
+    indexed: Rc<RefCell<Vec<(String, String)>>>,
     deleted: Rc<RefCell<Vec<String>>>,
 }
 
@@ -252,7 +252,9 @@ impl VectorStore for MockVectorStore {
     }
 
     fn save_embedding(&self, input: &EmbeddingInput, _embedding: &[f32]) -> Result<(), Error> {
-        self.indexed.borrow_mut().push(input.kb_id.clone());
+        self.indexed
+            .borrow_mut()
+            .push((input.kb_id.clone(), input.namespace.clone()));
         Ok(())
     }
 
@@ -635,6 +637,45 @@ fn update_kb_reindexes_when_embedding_text_changes() {
     };
     assert!(svc.update_kb(update).is_ok());
     assert_eq!(vector.indexed.borrow().len(), 1);
+}
+
+#[test]
+fn update_kb_changing_namespace_reindexes_with_new_namespace() {
+    let mut original = make_kb("id-1", "rust-ownership");
+    original.namespace = "work".to_string();
+    let store = MockKbStore::with(vec![original]);
+    let vector = MockVectorStore::default();
+    let svc = KBService::new(
+        store,
+        ServiceDeps {
+            vector_store: vector.clone(),
+            embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    );
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
+        value: None,
+        notes: None,
+        category: None,
+        namespace: Some("personal".to_string()),
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: None,
+    };
+    assert!(svc.update_kb(update).is_ok());
+    // The vector store is re-indexed with the *new* namespace, so the entry is
+    // correctly re-sharded into the new vec0 partition (see save_embedding's
+    // delete-then-insert, which is what a partition-key move requires).
+    assert_eq!(
+        vector.indexed.borrow().as_slice(),
+        &[("id-1".to_string(), "personal".to_string())]
+    );
 }
 
 #[test]
@@ -1388,6 +1429,8 @@ fn ask_returns_results_without_error() {
         text: "rust memory".to_string(),
         limit: Some(5),
         threshold: None,
+        category: None,
+        namespace: None,
     };
     assert!(make_svc().ask(&query).is_ok());
 }
@@ -1408,6 +1451,8 @@ fn ask_fails_when_embedding_provider_fails() {
         text: "rust".to_string(),
         limit: Some(5),
         threshold: None,
+        category: None,
+        namespace: None,
     };
     assert!(matches!(svc.ask(&query), Err(Error::EmbeddingError(_))));
 }

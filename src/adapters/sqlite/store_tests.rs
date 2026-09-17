@@ -280,6 +280,7 @@ fn save_and_delete_embedding() {
     let input = EmbeddingInput {
         kb_id: "id-1".to_string(),
         text: "rust ownership concept".to_string(),
+        namespace: "default".to_string(),
     };
     let embedding = vec![0.1f32, 0.2, 0.3, 0.4];
     store.save_embedding(&input, &embedding).unwrap();
@@ -295,6 +296,7 @@ fn search_similar_returns_closest_entry() {
     let input = EmbeddingInput {
         kb_id: "id-1".to_string(),
         text: "rust ownership".to_string(),
+        namespace: "default".to_string(),
     };
     let embedding = vec![1.0f32, 0.0, 0.0, 0.0];
     store.save_embedding(&input, &embedding).unwrap();
@@ -304,6 +306,8 @@ fn search_similar_returns_closest_entry() {
         text: "rust ownership".to_string(),
         limit: Some(5),
         threshold: None,
+        category: None,
+        namespace: None,
     };
     let results = store.search_similar(&query, &query_embedding).unwrap();
     assert_eq!(results.len(), 1);
@@ -365,6 +369,7 @@ fn search_similar_threshold_excludes_distant_entries() {
             &EmbeddingInput {
                 kb_id: "id-1".to_string(),
                 text: "rust ownership".to_string(),
+                namespace: "default".to_string(),
             },
             &[1.0f32, 0.0, 0.0, 0.0],
         )
@@ -375,6 +380,7 @@ fn search_similar_threshold_excludes_distant_entries() {
             &EmbeddingInput {
                 kb_id: "id-2".to_string(),
                 text: "go channels".to_string(),
+                namespace: "default".to_string(),
             },
             &[0.0f32, 1.0, 0.0, 0.0],
         )
@@ -386,10 +392,185 @@ fn search_similar_threshold_excludes_distant_entries() {
         text: "rust ownership".to_string(),
         limit: Some(10),
         threshold: Some(0.5),
+        category: None,
+        namespace: None,
     };
     let results = store.search_similar(&query, &query_embedding).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].item.key, "rust-ownership");
+}
+
+#[test]
+fn search_similar_filters_by_namespace_partition() {
+    let store = initialized_store_with_vectors(4);
+    let mut kb1 = make_kb("id-1", "work-note");
+    kb1.namespace = "work".to_string();
+    let mut kb2 = make_kb("id-2", "personal-note");
+    kb2.namespace = "personal".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    // Both entries embed identically close to the query vector.
+    store
+        .save_embedding(
+            &EmbeddingInput {
+                kb_id: "id-1".to_string(),
+                text: "note".to_string(),
+                namespace: "work".to_string(),
+            },
+            &[1.0f32, 0.0, 0.0, 0.0],
+        )
+        .unwrap();
+    store
+        .save_embedding(
+            &EmbeddingInput {
+                kb_id: "id-2".to_string(),
+                text: "note".to_string(),
+                namespace: "personal".to_string(),
+            },
+            &[1.0f32, 0.0, 0.0, 0.0],
+        )
+        .unwrap();
+
+    let query = SemanticQuery {
+        text: "note".to_string(),
+        limit: Some(10),
+        threshold: None,
+        category: None,
+        namespace: Some("work".to_string()),
+    };
+    let results = store
+        .search_similar(&query, &[1.0f32, 0.0, 0.0, 0.0])
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].item.key, "work-note");
+}
+
+#[test]
+fn search_similar_filters_by_category_post_filter() {
+    let store = initialized_store_with_vectors(4);
+    let mut kb1 = make_kb("id-1", "concept-note");
+    kb1.category = "concept".to_string();
+    let mut kb2 = make_kb("id-2", "quote-note");
+    kb2.category = "quote".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    for id in ["id-1", "id-2"] {
+        store
+            .save_embedding(
+                &EmbeddingInput {
+                    kb_id: id.to_string(),
+                    text: "note".to_string(),
+                    namespace: "default".to_string(),
+                },
+                &[1.0f32, 0.0, 0.0, 0.0],
+            )
+            .unwrap();
+    }
+
+    let query = SemanticQuery {
+        text: "note".to_string(),
+        limit: Some(10),
+        threshold: None,
+        category: Some("quote".to_string()),
+        namespace: None,
+    };
+    let results = store
+        .search_similar(&query, &[1.0f32, 0.0, 0.0, 0.0])
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].item.key, "quote-note");
+}
+
+#[test]
+fn search_similar_combines_namespace_and_category_with_and_semantics() {
+    let store = initialized_store_with_vectors(4);
+    let mut work_concept = make_kb("id-1", "work-concept");
+    work_concept.namespace = "work".to_string();
+    work_concept.category = "concept".to_string();
+    let mut work_quote = make_kb("id-2", "work-quote");
+    work_quote.namespace = "work".to_string();
+    work_quote.category = "quote".to_string();
+    let mut personal_concept = make_kb("id-3", "personal-concept");
+    personal_concept.namespace = "personal".to_string();
+    personal_concept.category = "concept".to_string();
+    store.save_kb(&work_concept).unwrap();
+    store.save_kb(&work_quote).unwrap();
+    store.save_kb(&personal_concept).unwrap();
+
+    for (id, ns) in [("id-1", "work"), ("id-2", "work"), ("id-3", "personal")] {
+        store
+            .save_embedding(
+                &EmbeddingInput {
+                    kb_id: id.to_string(),
+                    text: "note".to_string(),
+                    namespace: ns.to_string(),
+                },
+                &[1.0f32, 0.0, 0.0, 0.0],
+            )
+            .unwrap();
+    }
+
+    let query = SemanticQuery {
+        text: "note".to_string(),
+        limit: Some(10),
+        threshold: None,
+        category: Some("concept".to_string()),
+        namespace: Some("work".to_string()),
+    };
+    let results = store
+        .search_similar(&query, &[1.0f32, 0.0, 0.0, 0.0])
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].item.key, "work-concept");
+}
+
+#[test]
+fn initialize_vectors_migrates_pre_partition_key_schema() {
+    let store = in_memory_store();
+    store.initialize().unwrap();
+    {
+        // Simulate a pre-upgrade DB: the old 2-column kb_embeddings shape.
+        let conn = store.conn.lock().unwrap();
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS kb_embeddings \
+             USING vec0(kb_id TEXT PRIMARY KEY, embedding float[4])",
+        )
+        .unwrap();
+        let bytes: Vec<u8> = [0.0f32; 4].iter().flat_map(|f| f.to_le_bytes()).collect();
+        conn.execute(
+            "INSERT INTO kb_embeddings(kb_id, embedding) VALUES (?1, ?2)",
+            params!["old-id", bytes],
+        )
+        .unwrap();
+    }
+
+    store
+        .initialize_vectors(4)
+        .expect("should migrate the old schema instead of erroring");
+
+    let kb = make_kb("id-1", "rust-ownership");
+    store.save_kb(&kb).unwrap();
+    let input = EmbeddingInput {
+        kb_id: "id-1".to_string(),
+        text: "rust ownership".to_string(),
+        namespace: "default".to_string(),
+    };
+    store
+        .save_embedding(&input, &[1.0f32, 0.0, 0.0, 0.0])
+        .expect("save_embedding should succeed against the migrated (partitioned) schema");
+
+    // The migration recreates the table (can't ALTER a vec0 table), so old rows are gone.
+    let conn = store.conn.lock().unwrap();
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM kb_embeddings WHERE kb_id = 'old-id'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
 }
 
 #[test]
