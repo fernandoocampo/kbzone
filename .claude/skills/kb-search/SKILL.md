@@ -4,17 +4,17 @@ description: >
   Information retrieval across the kbzone knowledge base (SQLite-backed
   personal KB, binary `kb`): semantic natural-language search (`ask`),
   structured keyword/filter search (`search`), listing distinct categories
-  (`categories`), and a random quote (`quote`). Use whenever the user wants
-  to find, search, look up, recall, browse, or discover entries — "what do I
-  have on X", "find my notes about Y", "show me everything tagged docker",
-  "what categories do I use", "give me a random quote" — not just when they
-  say the word "search". Always requests JSON output (`--out json`) and
-  parses it rather than scraping plain text.
+  (`categories`), and a random entry from any category (`random`). Use whenever
+  the user wants to find, search, look up, recall, browse, or discover entries
+  — "what do I have on X", "find my notes about Y", "show me everything tagged
+  docker", "what categories do I use", "give me a random quote/idiom/concept" —
+  not just when they say the word "search". Always requests JSON output
+  (`--out json`) and parses it rather than scraping plain text.
 allowed-tools:
   - Bash(kb ask *)
   - Bash(kb search *)
   - Bash(kb categories*)
-  - Bash(kb quote*)
+  - Bash(kb random *)
 ---
 
 ## Picking a mode
@@ -24,7 +24,7 @@ allowed-tools:
 | Open-ended / conceptual question ("what do I know about X", "how do I do Y") | semantic | `kb ask` |
 | Exact filter by keyword, category, namespace, tags, or reference | keyword | `kb search` |
 | "what categories exist" / "what kinds of things have I saved" | categories | `kb categories` |
-| "give me a random quote" | quote | `kb quote` |
+| "give me a random quote/idiom/concept" | random | `kb random` |
 
 Default to semantic search (`ask`) for open-ended, natural-language questions; use `search` when the user names specific filters (a category, a tag, a reference). They're complementary, not interchangeable — `ask` ranks by meaning, `search` matches exactly.
 
@@ -60,13 +60,18 @@ kb categories --namespace <ns> --out json
 
 `--namespace` is optional (scopes the list to one namespace). Returns a flat JSON array of distinct category strings.
 
-## Quote — `kb quote`
+## Random entry from a category — `kb random`
 
 ```bash
-kb quote
+kb random --category <category> [--namespace <ns>] [--include-notes] [--out json]
 ```
 
-No `--out` flag exists on this command — it always prints plain text (one random `quote`-category entry). Present it as-is.
+- `--category` is required; specifies which category to sample from (e.g. `quote`, `english-idioms`, `concept`).
+- `--namespace` is optional; narrows to a specific namespace if given.
+- `--include-notes` is optional; when passed, appends the entry's notes field (if present) to the output.
+- `--out json` is optional; returns the full entry as JSON. Without it, plain-text output shows value, reference, and (if `--include-notes`) notes.
+
+Unlike the earlier `kb quote` command (which only worked for the `quote` category), this is generic — use it to sample any category you have entries in.
 
 ## Output to present
 

@@ -8,8 +8,8 @@ use crate::application::config::Config;
 use crate::cli::commands::{Cli, Command};
 use crate::cli::handlers::{
     self, AddParams, AskParams, CategoriesParams, DeleteParams, ExportParams, ExportServices,
-    GetParams, GetServices, GraphViewCliParams, ImportParams, ImportServices, RelatedParams,
-    SearchParams, TreeParams, UnlinkParams, UpdateParams,
+    GetParams, GetServices, GraphViewCliParams, ImportParams, ImportServices, RandomParams,
+    RelatedParams, SearchParams, TreeParams, UnlinkParams, UpdateParams,
 };
 use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
 use crate::errors::AppError;
@@ -219,7 +219,20 @@ impl App {
                 },
             )?,
 
-            Command::Quote => handlers::handle_quote(&self.svc)?,
+            Command::Random {
+                category,
+                namespace,
+                include_notes,
+                out,
+            } => handlers::handle_random(
+                &self.svc,
+                RandomParams {
+                    category,
+                    namespace,
+                    include_notes,
+                    out,
+                },
+            )?,
 
             Command::Categories { namespace, out } => {
                 handlers::handle_categories(&self.svc, CategoriesParams { namespace, out })?

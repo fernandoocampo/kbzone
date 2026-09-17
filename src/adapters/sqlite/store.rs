@@ -74,10 +74,15 @@ const UPDATE_KB: &str = "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGO
 
 const DELETE_KB: &str = "DELETE FROM kbs WHERE KB_ID=?1";
 
-const GET_RANDOM_QUOTE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                 REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
-                                 FROM kbs WHERE LOWER(CATEGORY) = 'quote' \
-                                 ORDER BY RANDOM() LIMIT 1";
+const GET_RANDOM_BY_CATEGORY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+                                      REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
+                                      FROM kbs WHERE LOWER(CATEGORY) = LOWER(?1) \
+                                      ORDER BY RANDOM() LIMIT 1";
+
+const GET_RANDOM_BY_CATEGORY_AND_NAMESPACE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+                                                     REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
+                                                     FROM kbs WHERE LOWER(CATEGORY) = LOWER(?1) AND NAMESPACE = ?2 \
+                                                     ORDER BY RANDOM() LIMIT 1";
 
 const GET_CHILDREN_IDS: &str = "SELECT KB_ID FROM kbs WHERE PARENT_KB_ID = ?1";
 
@@ -447,17 +452,29 @@ impl KbStore for SqliteStore {
         Ok(rows > 0)
     }
 
-    fn random_quote(&self) -> Result<Kb, Error> {
+    fn random_by_category(&self, category: &str, namespace: Option<&str>) -> Result<Kb, Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
-        let mut stmt = conn
-            .prepare(GET_RANDOM_QUOTE)
-            .map_err(|e| Error::QuoteError(e.to_string()))?;
-        let mut rows = stmt
-            .query([])
-            .map_err(|e| Error::QuoteError(e.to_string()))?;
-        match rows.next().map_err(|e| Error::QuoteError(e.to_string()))? {
+        let mut stmt = match namespace {
+            Some(_) => conn
+                .prepare(GET_RANDOM_BY_CATEGORY_AND_NAMESPACE)
+                .map_err(|e| Error::RandomError(e.to_string()))?,
+            None => conn
+                .prepare(GET_RANDOM_BY_CATEGORY)
+                .map_err(|e| Error::RandomError(e.to_string()))?,
+        };
+
+        let mut rows = match namespace {
+            Some(ns) => stmt
+                .query(rusqlite::params![category, ns])
+                .map_err(|e| Error::RandomError(e.to_string()))?,
+            None => stmt
+                .query(rusqlite::params![category])
+                .map_err(|e| Error::RandomError(e.to_string()))?,
+        };
+
+        match rows.next().map_err(|e| Error::RandomError(e.to_string()))? {
             Some(row) => row_to_kb(row),
-            None => Err(Error::QuoteNotFound),
+            None => Err(Error::RandomNotFound(category.to_string())),
         }
     }
 

@@ -16,7 +16,7 @@ A personal knowledge base CLI tool with semantic search, built in Rust. Store no
 - **Export** entries and their relationships to a YAML file, with optional filters and pagination
 - **Import** entries in bulk from a YAML file
 - **Reindex** — rebuild embeddings for all entries at any time
-- **Quote** — print a random entry from the `quote` category
+- **Random** — print a random entry from any category (e.g., `quote`, `english-idioms`)
 
 All data is stored locally in a SQLite file. Embeddings are generated on-device using [FastEmbed](https://github.com/Anush008/fastembed-rs) (BAAI/bge-small-en-v1.5, 384 dimensions). No internet connection is required.
 
@@ -344,13 +344,15 @@ kb reindex
 
 Use this after an import or if embedding generation failed during `add`/`update`. Embedding failures are non-fatal — entries are always saved; only the vector index may be missing.
 
-### Print a random quote
+### Print a random entry from a category
 
 ```sh
-kb quote
+kb random --category quote
+kb random --category english-idioms --include-notes
+kb random --category concept --namespace rust --out json
 ```
 
-Returns a random entry with `category = quote`.
+Returns a random entry matching the specified `category` (required). Use `--namespace` to narrow further, `--include-notes` to append the entry's notes (if any), and `--out json` for JSON output.
 
 ### List all categories
 

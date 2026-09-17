@@ -39,10 +39,10 @@ pub enum Error {
     WriteFailedItemsError(String),
     #[error("export failed: {0}")]
     ExportError(String),
-    #[error("no quotes found in the knowledge base")]
-    QuoteNotFound,
-    #[error("quote error: {0}")]
-    QuoteError(String),
+    #[error("no entries found for category: {0}")]
+    RandomNotFound(String),
+    #[error("random lookup failed: {0}")]
+    RandomError(String),
     #[error("missing required field: {0}")]
     MissingRequiredField(String),
     #[error("invalid --json payload: {0}")]

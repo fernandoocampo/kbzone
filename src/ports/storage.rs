@@ -26,8 +26,9 @@ pub trait KbStore: Debug + Clone {
     /// Returns `true` if a row was deleted.
     fn delete_kb(&self, id: &str) -> Result<bool, Error>;
 
-    /// Returns a random KB entry whose category is `"quote"`.
-    fn random_quote(&self) -> Result<Kb, Error>;
+    /// Returns a random KB entry matching `category` (case-insensitive),
+    /// optionally scoped to `namespace`.
+    fn random_by_category(&self, category: &str, namespace: Option<&str>) -> Result<Kb, Error>;
 
     /// Returns the IDs of all KB items whose parent is `parent_id`.
     fn get_children_ids(&self, parent_id: &str) -> Result<Vec<String>, Error>;

@@ -63,8 +63,8 @@ impl KbStore for MockKbStore {
         Ok(self.data.borrow_mut().remove(id).is_some())
     }
 
-    fn random_quote(&self) -> Result<Kb, Error> {
-        Err(Error::QuoteNotFound)
+    fn random_by_category(&self, category: &str, _namespace: Option<&str>) -> Result<Kb, Error> {
+        Err(Error::RandomNotFound(category.to_string()))
     }
 
     fn get_children_ids(&self, _parent_id: &str) -> Result<Vec<String>, Error> {

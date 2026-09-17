@@ -232,7 +232,7 @@ fn get_kbs_with_keyword_and_limit() {
 }
 
 #[test]
-fn random_quote_returns_a_quote_category_entry() {
+fn random_by_category_returns_matching_entry() {
     let store = initialized_store();
     let mut kb1 = make_kb("id-q1", "stoic-quote");
     kb1.category = "quote".to_string();
@@ -243,17 +243,45 @@ fn random_quote_returns_a_quote_category_entry() {
     store.save_kb(&kb2).unwrap();
     store.save_kb(&kb3).unwrap();
 
-    let result = store.random_quote().unwrap();
+    let result = store.random_by_category("quote", None).unwrap();
     assert_eq!(result.category.to_lowercase(), "quote");
 }
 
 #[test]
-fn random_quote_returns_not_found_when_no_quotes_exist() {
+fn random_by_category_is_case_insensitive() {
+    let store = initialized_store();
+    let mut kb = make_kb("id-q1", "stoic-quote");
+    kb.category = "QUOTE".to_string();
+    store.save_kb(&kb).unwrap();
+
+    let result = store.random_by_category("quote", None).unwrap();
+    assert_eq!(result.id, "id-q1");
+}
+
+#[test]
+fn random_by_category_returns_not_found_when_category_absent() {
     let store = initialized_store();
     store.save_kb(&make_kb("id-c1", "rust-concept")).unwrap();
 
-    let result = store.random_quote();
-    assert!(matches!(result, Err(Error::QuoteNotFound)));
+    let result = store.random_by_category("nonexistent", None);
+    assert!(matches!(result, Err(Error::RandomNotFound(_))));
+}
+
+#[test]
+fn random_by_category_respects_namespace_filter() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-q1", "stoic-quote");
+    kb1.category = "quote".to_string();
+    kb1.namespace = "ns1".to_string();
+    let mut kb2 = make_kb("id-q2", "zen-quote");
+    kb2.category = "quote".to_string();
+    kb2.namespace = "ns2".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let result = store.random_by_category("quote", Some("ns1")).unwrap();
+    assert_eq!(result.id, "id-q1");
+    assert_eq!(result.namespace, "ns1");
 }
 
 fn initialized_store_with_vectors(dims: usize) -> SqliteStore {

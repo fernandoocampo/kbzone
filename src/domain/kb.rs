@@ -147,6 +147,12 @@ pub struct CategoriesErrorResponse {
     pub error: String,
 }
 
+/// JSON error response for a failed `random` operation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RandomErrorResponse {
+    pub error: String,
+}
+
 /// DTO for creating a new KB entry.
 #[derive(Debug, Clone)]
 pub struct NewKb {

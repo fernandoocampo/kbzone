@@ -227,8 +227,20 @@ pub enum Command {
     /// Re-generate embeddings for all existing KB entries.
     Reindex,
 
-    /// Print a random quote from the knowledge base.
-    Quote,
+    /// Print a random entry from a category (e.g. quote, english-idioms).
+    Random {
+        #[arg(long, help = "Category to pick a random entry from")]
+        category: String,
+
+        #[arg(long, help = "Restrict to this namespace")]
+        namespace: Option<String>,
+
+        #[arg(long, help = "Also print the entry's notes")]
+        include_notes: bool,
+
+        #[arg(long, help = "Output format: json (optional, default: plain text)")]
+        out: Option<String>,
+    },
 
     /// List all distinct category values in the knowledge base.
     Categories {

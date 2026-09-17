@@ -75,13 +75,20 @@ impl crate::ports::KbStore for MockKbStore {
         Ok(self.data.borrow_mut().remove(id).is_some())
     }
 
-    fn random_quote(&self) -> Result<crate::domain::Kb, Error> {
+    fn random_by_category(
+        &self,
+        category: &str,
+        namespace: Option<&str>,
+    ) -> Result<crate::domain::Kb, Error> {
         self.data
             .borrow()
             .values()
-            .find(|kb| kb.category.to_lowercase() == "quote")
+            .find(|kb| {
+                kb.category.to_lowercase() == category.to_lowercase()
+                    && namespace.map_or(true, |ns| kb.namespace == ns)
+            })
             .cloned()
-            .ok_or(Error::QuoteNotFound)
+            .ok_or_else(|| Error::RandomNotFound(category.to_string()))
     }
 
     fn get_children_ids(&self, _parent_id: &str) -> Result<Vec<String>, Error> {

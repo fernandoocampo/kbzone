@@ -190,8 +190,8 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         Ok(())
     }
 
-    pub fn quote(&self) -> Result<Kb, Error> {
-        self.store.random_quote()
+    pub fn random(&self, category: &str, namespace: Option<&str>) -> Result<Kb, Error> {
+        self.store.random_by_category(category, namespace)
     }
 
     /// Returns all distinct, non-empty category values, optionally scoped to a

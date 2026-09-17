@@ -5,10 +5,10 @@ use crate::domain::{
     AddJsonInput, CategoriesErrorResponse, DeleteConfirmation, DeleteErrorResponse, EdgeDirection,
     ExportDocument, ExportMediaParams, GraphViewParams, ImportDocument, ImportEdgeItem,
     ImportKbItem, KbFilter, KbRelationships, KbUpdate, KbWithRelationships, LinkConfirmation,
-    LinkErrorResponse, LinkParams, MediaPathParams, NewKb, OutputFormat, RelatedResult,
-    ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams,
-    build_metadata, format_metadata, is_media_category, media_file_path, parse_metadata_input,
-    suggest_tags,
+    LinkErrorResponse, LinkParams, MediaPathParams, NewKb, OutputFormat, RandomErrorResponse,
+    RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode, TreeResult,
+    TreeWalkParams, build_metadata, format_metadata, is_media_category, media_file_path,
+    parse_metadata_input, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -41,6 +41,13 @@ pub struct DeleteParams {
 
 pub struct CategoriesParams {
     pub namespace: Option<String>,
+    pub out: Option<String>,
+}
+
+pub struct RandomParams {
+    pub category: String,
+    pub namespace: Option<String>,
+    pub include_notes: bool,
     pub out: Option<String>,
 }
 
@@ -974,7 +981,7 @@ pub fn handle_ask<
     Ok(())
 }
 
-pub fn handle_quote<
+pub fn handle_random<
     S: KbStore,
     V: VectorStore,
     E: EmbeddingProvider,
@@ -982,13 +989,47 @@ pub fn handle_quote<
     F: MediaFetcher,
 >(
     svc: &KBService<S, V, E, M, F>,
+    params: RandomParams,
 ) -> Result<(), Error> {
-    let kb = svc.quote()?;
-    println!("\"{}\"", kb.value);
-    if !kb.reference.is_empty() {
-        println!("  — {}", kb.reference);
+    let json_output = match params.out.as_deref() {
+        Some("json") => true,
+        Some(other) => {
+            return Err(Error::RandomError(format!(
+                "invalid output format: {other} (expected json)"
+            )));
+        }
+        None => false,
+    };
+
+    match svc.random(&params.category, params.namespace.as_deref()) {
+        Ok(kb) => {
+            if json_output {
+                let json = serde_json::to_string_pretty(&kb)
+                    .map_err(|e| Error::RandomError(e.to_string()))?;
+                println!("{json}");
+            } else {
+                println!("\"{}\"", kb.value);
+                if !kb.reference.is_empty() {
+                    println!("  — {}", kb.reference);
+                }
+                if params.include_notes && !kb.notes.is_empty() {
+                    println!("{}", kb.notes);
+                }
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if json_output {
+                let err_resp = RandomErrorResponse {
+                    error: e.to_string(),
+                };
+                if let Ok(json) = serde_json::to_string_pretty(&err_resp) {
+                    println!("{json}");
+                }
+            }
+            Err(e)
+        }
     }
-    Ok(())
 }
 
 pub fn handle_categories<

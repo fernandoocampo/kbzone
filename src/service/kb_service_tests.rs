@@ -117,13 +117,16 @@ impl KbStore for MockKbStore {
         Ok(self.data.borrow_mut().remove(id).is_some())
     }
 
-    fn random_quote(&self) -> Result<Kb, Error> {
+    fn random_by_category(&self, category: &str, namespace: Option<&str>) -> Result<Kb, Error> {
         self.data
             .borrow()
             .values()
-            .find(|kb| kb.category.to_lowercase() == "quote")
+            .find(|kb| {
+                kb.category.to_lowercase() == category.to_lowercase()
+                    && namespace.map_or(true, |ns| kb.namespace == ns)
+            })
             .cloned()
-            .ok_or(Error::QuoteNotFound)
+            .ok_or_else(|| Error::RandomNotFound(category.to_string()))
     }
 
     fn get_children_ids(&self, parent_id: &str) -> Result<Vec<String>, Error> {
@@ -212,8 +215,8 @@ impl KbStore for GhostItemKbStore {
         Ok(false)
     }
 
-    fn random_quote(&self) -> Result<Kb, Error> {
-        Err(Error::QuoteNotFound)
+    fn random_by_category(&self, category: &str, _namespace: Option<&str>) -> Result<Kb, Error> {
+        Err(Error::RandomNotFound(category.to_string()))
     }
 
     fn get_children_ids(&self, _parent_id: &str) -> Result<Vec<String>, Error> {
@@ -1355,22 +1358,39 @@ fn add_kbs_empty_input_returns_empty_result() {
     assert!(result.failed.is_empty());
 }
 
-// ---- quote tests ----
+// ---- random tests ----
 
 #[test]
-fn quote_returns_quote_category_entry() {
+fn random_returns_entry_for_category() {
     let mut kb = make_kb("id-1", "stoic-wisdom");
     kb.category = "quote".to_string();
     let store = MockKbStore::with(vec![kb]);
     let svc = make_svc_with_store(store);
-    let result = svc.quote().unwrap();
+    let result = svc.random("quote", None).unwrap();
     assert_eq!(result.category, "quote");
 }
 
 #[test]
-fn quote_propagates_not_found_when_no_quotes_exist() {
+fn random_propagates_not_found_when_category_absent() {
     let svc = make_svc();
-    assert!(matches!(svc.quote(), Err(Error::QuoteNotFound)));
+    assert!(matches!(
+        svc.random("quote", None),
+        Err(Error::RandomNotFound(_))
+    ));
+}
+
+#[test]
+fn random_respects_namespace_filter() {
+    let mut kb1 = make_kb("id-1", "stoic-wisdom");
+    kb1.category = "quote".to_string();
+    kb1.namespace = "ns1".to_string();
+    let mut kb2 = make_kb("id-2", "zen-wisdom");
+    kb2.category = "quote".to_string();
+    kb2.namespace = "ns2".to_string();
+    let store = MockKbStore::with(vec![kb1, kb2]);
+    let svc = make_svc_with_store(store);
+    let result = svc.random("quote", Some("ns1")).unwrap();
+    assert_eq!(result.id, "id-1");
 }
 
 // ---- categories tests ----
