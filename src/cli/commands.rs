@@ -251,6 +251,12 @@ pub enum Command {
         out: Option<String>,
     },
 
+    /// List all distinct namespace values in the knowledge base.
+    Namespaces {
+        #[arg(long, help = "Output format: json (optional, default: plain text)")]
+        out: Option<String>,
+    },
+
     /// Print version information (git hash, build date).
     Version,
 

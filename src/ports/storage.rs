@@ -40,4 +40,7 @@ pub trait KbStore: Debug + Clone {
     /// Returns all distinct, non-empty category values, optionally scoped to a
     /// namespace, sorted alphabetically.
     fn get_categories(&self, namespace: Option<&str>) -> Result<Vec<String>, Error>;
+
+    /// Returns all distinct, non-empty namespace values, sorted alphabetically.
+    fn get_namespaces(&self) -> Result<Vec<String>, Error>;
 }

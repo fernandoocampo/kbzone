@@ -200,6 +200,11 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         self.store.get_categories(namespace)
     }
 
+    /// Returns all distinct, non-empty namespace values, sorted alphabetically.
+    pub fn namespaces(&self) -> Result<Vec<String>, Error> {
+        self.store.get_namespaces()
+    }
+
     pub fn ask(&self, query: &SemanticQuery) -> Result<Vec<ScoredKbItem>, Error> {
         let embedding = self.embedder.embed(&query.text)?;
         self.vector_store.search_similar(query, &embedding)

@@ -78,6 +78,10 @@ impl KbStore for MockKbStore {
     fn get_categories(&self, _namespace: Option<&str>) -> Result<Vec<String>, Error> {
         Ok(vec![])
     }
+
+    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
+        Ok(vec![])
+    }
 }
 
 // ---- MockKbGraph ----

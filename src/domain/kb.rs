@@ -147,6 +147,12 @@ pub struct CategoriesErrorResponse {
     pub error: String,
 }
 
+/// JSON error response for a failed `namespaces` operation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NamespacesErrorResponse {
+    pub error: String,
+}
+
 /// JSON error response for a failed `random` operation.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RandomErrorResponse {

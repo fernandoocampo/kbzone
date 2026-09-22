@@ -105,6 +105,10 @@ impl crate::ports::KbStore for MockKbStore {
     fn get_categories(&self, _namespace: Option<&str>) -> Result<Vec<String>, Error> {
         Ok(Vec::new())
     }
+
+    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2116,6 +2120,91 @@ fn handle_categories_invalid_out_value() {
         out: Some("xml".to_string()),
     };
     let result = handle_categories(&svc, params);
+    assert!(matches!(result, Err(Error::ListError(_))));
+}
+
+// ---- handle_namespaces tests ----
+
+#[test]
+fn handle_namespaces_plain_text_success() {
+    let svc = make_svc();
+    svc.add_kb(NewKb {
+        key: "kb-1".to_string(),
+        value: "value 1".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        namespace: "rust".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    svc.add_kb(NewKb {
+        key: "kb-2".to_string(),
+        value: "value 2".to_string(),
+        notes: String::new(),
+        category: "bookmark".to_string(),
+        namespace: "k8s".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    let params = NamespacesParams { out: None };
+    let result = handle_namespaces(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_namespaces_json_success() {
+    let svc = make_svc();
+    svc.add_kb(NewKb {
+        key: "kb-1".to_string(),
+        value: "value 1".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        namespace: "rust".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    let params = NamespacesParams {
+        out: Some("json".to_string()),
+    };
+    let result = handle_namespaces(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_namespaces_json_empty_success() {
+    let svc = make_svc();
+    let params = NamespacesParams {
+        out: Some("json".to_string()),
+    };
+    let result = handle_namespaces(&svc, params);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_namespaces_invalid_out_value() {
+    let svc = make_svc();
+    let params = NamespacesParams {
+        out: Some("xml".to_string()),
+    };
+    let result = handle_namespaces(&svc, params);
     assert!(matches!(result, Err(Error::ListError(_))));
 }
 

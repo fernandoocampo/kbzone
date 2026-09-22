@@ -92,6 +92,9 @@ const GET_DISTINCT_CATEGORIES: &str =
 const GET_DISTINCT_CATEGORIES_BY_NAMESPACE: &str = "SELECT DISTINCT CATEGORY FROM kbs WHERE CATEGORY != '' AND NAMESPACE = ?1 \
      ORDER BY CATEGORY ASC";
 
+const GET_DISTINCT_NAMESPACES: &str =
+    "SELECT DISTINCT NAMESPACE FROM kbs WHERE NAMESPACE != '' ORDER BY NAMESPACE ASC";
+
 const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
                                    REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA FROM kbs";
 
@@ -514,6 +517,19 @@ impl KbStore for SqliteStore {
             }
         };
         Ok(categories)
+    }
+
+    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut stmt = conn
+            .prepare(GET_DISTINCT_NAMESPACES)
+            .map_err(|e| Error::ListError(e.to_string()))?;
+        let namespaces = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| Error::ListError(e.to_string()))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|e| Error::ListError(e.to_string()))?;
+        Ok(namespaces)
     }
 
     fn get_kbs_full(&self, filter: &KbFilter) -> Result<Vec<Kb>, Error> {

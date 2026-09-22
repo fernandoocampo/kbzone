@@ -702,6 +702,41 @@ fn get_categories_returns_empty_vec_when_no_entries() {
     assert!(categories.is_empty());
 }
 
+#[test]
+fn get_namespaces_returns_distinct_sorted_namespaces() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "zebra".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "apple".to_string();
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.namespace = "apple".to_string(); // duplicate
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let namespaces = store.get_namespaces().unwrap();
+    assert_eq!(namespaces, vec!["apple".to_string(), "zebra".to_string()]);
+}
+
+#[test]
+fn get_namespaces_excludes_empty_namespace() {
+    let store = initialized_store();
+    let mut kb = make_kb("id-1", "key-a");
+    kb.namespace = String::new();
+    store.save_kb(&kb).unwrap();
+
+    let namespaces = store.get_namespaces().unwrap();
+    assert!(namespaces.is_empty());
+}
+
+#[test]
+fn get_namespaces_returns_empty_vec_when_no_entries() {
+    let store = initialized_store();
+    let namespaces = store.get_namespaces().unwrap();
+    assert!(namespaces.is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // KbGraph tests
 // ---------------------------------------------------------------------------

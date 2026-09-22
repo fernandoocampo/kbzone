@@ -167,6 +167,18 @@ impl KbStore for MockKbStore {
             .into_iter()
             .collect())
     }
+
+    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
+        Ok(self
+            .data
+            .borrow()
+            .values()
+            .map(|kb| kb.namespace.clone())
+            .filter(|n| !n.is_empty())
+            .collect::<std::collections::BTreeSet<String>>()
+            .into_iter()
+            .collect())
+    }
 }
 
 // ---- GhostItemKbStore: list_kbs returns items but get_kb_by_id returns None ----
@@ -228,6 +240,10 @@ impl KbStore for GhostItemKbStore {
     }
 
     fn get_categories(&self, _namespace: Option<&str>) -> Result<Vec<String>, Error> {
+        Ok(vec![])
+    }
+
+    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
         Ok(vec![])
     }
 }
@@ -1439,6 +1455,39 @@ fn categories_filters_by_namespace_when_given() {
 fn categories_returns_empty_vec_when_no_entries() {
     let svc = make_svc();
     assert!(svc.categories(None).unwrap().is_empty());
+}
+
+// ---- namespaces tests ----
+
+#[test]
+fn namespaces_returns_distinct_sorted_namespaces() {
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "zebra".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "apple".to_string();
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.namespace = "apple".to_string(); // duplicate
+    let store = MockKbStore::with(vec![kb1, kb2, kb3]);
+    let svc = make_svc_with_store(store);
+
+    let result = svc.namespaces().unwrap();
+    assert_eq!(result, vec!["apple".to_string(), "zebra".to_string()]);
+}
+
+#[test]
+fn namespaces_excludes_empty_namespace() {
+    let mut kb = make_kb("id-1", "key-a");
+    kb.namespace = String::new();
+    let store = MockKbStore::with(vec![kb]);
+    let svc = make_svc_with_store(store);
+
+    assert!(svc.namespaces().unwrap().is_empty());
+}
+
+#[test]
+fn namespaces_returns_empty_vec_when_no_entries() {
+    let svc = make_svc();
+    assert!(svc.namespaces().unwrap().is_empty());
 }
 
 // ---- ask / get delegation smoke tests ----

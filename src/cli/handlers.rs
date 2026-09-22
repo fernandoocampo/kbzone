@@ -5,10 +5,10 @@ use crate::domain::{
     AddJsonInput, CategoriesErrorResponse, DeleteConfirmation, DeleteErrorResponse, EdgeDirection,
     ExportDocument, ExportMediaParams, GraphViewParams, ImportDocument, ImportEdgeItem,
     ImportKbItem, KbFilter, KbRelationships, KbUpdate, KbWithRelationships, LinkConfirmation,
-    LinkErrorResponse, LinkParams, MediaPathParams, NewKb, OutputFormat, RandomErrorResponse,
-    RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode, TreeResult,
-    TreeWalkParams, build_metadata, format_metadata, is_media_category, media_file_path,
-    parse_metadata_input, suggest_tags,
+    LinkErrorResponse, LinkParams, MediaPathParams, NamespacesErrorResponse, NewKb, OutputFormat,
+    RandomErrorResponse, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
+    TreeResult, TreeWalkParams, build_metadata, format_metadata, is_media_category,
+    media_file_path, parse_metadata_input, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -41,6 +41,10 @@ pub struct DeleteParams {
 
 pub struct CategoriesParams {
     pub namespace: Option<String>,
+    pub out: Option<String>,
+}
+
+pub struct NamespacesParams {
     pub out: Option<String>,
 }
 
@@ -1068,6 +1072,53 @@ pub fn handle_categories<
         Err(e) => {
             if json_output {
                 let err_resp = CategoriesErrorResponse {
+                    error: e.to_string(),
+                };
+                if let Ok(json) = serde_json::to_string_pretty(&err_resp) {
+                    println!("{json}");
+                }
+            }
+            Err(e)
+        }
+    }
+}
+
+pub fn handle_namespaces<
+    S: KbStore,
+    V: VectorStore,
+    E: EmbeddingProvider,
+    M: MediaStore,
+    F: MediaFetcher,
+>(
+    svc: &KBService<S, V, E, M, F>,
+    params: NamespacesParams,
+) -> Result<(), Error> {
+    let json_output = match params.out.as_deref() {
+        Some("json") => true,
+        Some(other) => {
+            return Err(Error::ListError(format!(
+                "invalid output format: {other} (expected json)"
+            )));
+        }
+        None => false,
+    };
+
+    match svc.namespaces() {
+        Ok(namespaces) => {
+            if json_output {
+                let json = serde_json::to_string_pretty(&namespaces)
+                    .map_err(|e| Error::ListError(e.to_string()))?;
+                println!("{json}");
+            } else {
+                for namespace in &namespaces {
+                    println!("{}", namespace);
+                }
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if json_output {
+                let err_resp = NamespacesErrorResponse {
                     error: e.to_string(),
                 };
                 if let Ok(json) = serde_json::to_string_pretty(&err_resp) {
