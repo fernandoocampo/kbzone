@@ -168,13 +168,14 @@ impl KbStore for MockKbStore {
             .collect())
     }
 
-    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
+    fn get_namespaces(&self, filter: Option<&str>) -> Result<Vec<String>, Error> {
         Ok(self
             .data
             .borrow()
             .values()
             .map(|kb| kb.namespace.clone())
             .filter(|n| !n.is_empty())
+            .filter(|n| filter.is_none_or(|f| n.to_lowercase().contains(&f.to_lowercase())))
             .collect::<std::collections::BTreeSet<String>>()
             .into_iter()
             .collect())
@@ -243,7 +244,7 @@ impl KbStore for GhostItemKbStore {
         Ok(vec![])
     }
 
-    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
+    fn get_namespaces(&self, _filter: Option<&str>) -> Result<Vec<String>, Error> {
         Ok(vec![])
     }
 }
@@ -1470,7 +1471,7 @@ fn namespaces_returns_distinct_sorted_namespaces() {
     let store = MockKbStore::with(vec![kb1, kb2, kb3]);
     let svc = make_svc_with_store(store);
 
-    let result = svc.namespaces().unwrap();
+    let result = svc.namespaces(None).unwrap();
     assert_eq!(result, vec!["apple".to_string(), "zebra".to_string()]);
 }
 
@@ -1481,13 +1482,37 @@ fn namespaces_excludes_empty_namespace() {
     let store = MockKbStore::with(vec![kb]);
     let svc = make_svc_with_store(store);
 
-    assert!(svc.namespaces().unwrap().is_empty());
+    assert!(svc.namespaces(None).unwrap().is_empty());
 }
 
 #[test]
 fn namespaces_returns_empty_vec_when_no_entries() {
     let svc = make_svc();
-    assert!(svc.namespaces().unwrap().is_empty());
+    assert!(svc.namespaces(None).unwrap().is_empty());
+}
+
+#[test]
+fn namespaces_filters_by_substring_when_given() {
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "com.cubita.com".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "cubita.subdomain.service".to_string();
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.namespace = "com.sura.cubita".to_string();
+    let mut kb4 = make_kb("id-4", "key-d");
+    kb4.namespace = "unrelated.namespace".to_string();
+    let store = MockKbStore::with(vec![kb1, kb2, kb3, kb4]);
+    let svc = make_svc_with_store(store);
+
+    let result = svc.namespaces(Some("cubita")).unwrap();
+    assert_eq!(
+        result,
+        vec![
+            "com.cubita.com".to_string(),
+            "com.sura.cubita".to_string(),
+            "cubita.subdomain.service".to_string()
+        ]
+    );
 }
 
 // ---- ask / get delegation smoke tests ----

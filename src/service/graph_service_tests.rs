@@ -79,7 +79,7 @@ impl KbStore for MockKbStore {
         Ok(vec![])
     }
 
-    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
+    fn get_namespaces(&self, _filter: Option<&str>) -> Result<Vec<String>, Error> {
         Ok(vec![])
     }
 }

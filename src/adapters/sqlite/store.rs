@@ -95,6 +95,9 @@ const GET_DISTINCT_CATEGORIES_BY_NAMESPACE: &str = "SELECT DISTINCT CATEGORY FRO
 const GET_DISTINCT_NAMESPACES: &str =
     "SELECT DISTINCT NAMESPACE FROM kbs WHERE NAMESPACE != '' ORDER BY NAMESPACE ASC";
 
+const GET_DISTINCT_NAMESPACES_FILTERED: &str = "SELECT DISTINCT NAMESPACE FROM kbs WHERE NAMESPACE != '' AND LOWER(NAMESPACE) LIKE ?1 \
+     ORDER BY NAMESPACE ASC";
+
 const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
                                    REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA FROM kbs";
 
@@ -519,16 +522,31 @@ impl KbStore for SqliteStore {
         Ok(categories)
     }
 
-    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
+    fn get_namespaces(&self, filter: Option<&str>) -> Result<Vec<String>, Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
-        let mut stmt = conn
-            .prepare(GET_DISTINCT_NAMESPACES)
-            .map_err(|e| Error::ListError(e.to_string()))?;
-        let namespaces = stmt
-            .query_map([], |row| row.get(0))
-            .map_err(|e| Error::ListError(e.to_string()))?
-            .collect::<Result<Vec<String>, _>>()
-            .map_err(|e| Error::ListError(e.to_string()))?;
+        let namespaces = match filter {
+            Some(f) if !f.is_empty() => {
+                let mut stmt = conn
+                    .prepare(GET_DISTINCT_NAMESPACES_FILTERED)
+                    .map_err(|e| Error::ListError(e.to_string()))?;
+                stmt.query_map(
+                    rusqlite::params![format!("%{}%", f.to_lowercase())],
+                    |row| row.get(0),
+                )
+                .map_err(|e| Error::ListError(e.to_string()))?
+                .collect::<Result<Vec<String>, _>>()
+                .map_err(|e| Error::ListError(e.to_string()))?
+            }
+            _ => {
+                let mut stmt = conn
+                    .prepare(GET_DISTINCT_NAMESPACES)
+                    .map_err(|e| Error::ListError(e.to_string()))?;
+                stmt.query_map([], |row| row.get(0))
+                    .map_err(|e| Error::ListError(e.to_string()))?
+                    .collect::<Result<Vec<String>, _>>()
+                    .map_err(|e| Error::ListError(e.to_string()))?
+            }
+        };
         Ok(namespaces)
     }
 

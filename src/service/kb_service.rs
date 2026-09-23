@@ -200,9 +200,10 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         self.store.get_categories(namespace)
     }
 
-    /// Returns all distinct, non-empty namespace values, sorted alphabetically.
-    pub fn namespaces(&self) -> Result<Vec<String>, Error> {
-        self.store.get_namespaces()
+    /// Returns all distinct, non-empty namespace values, sorted alphabetically,
+    /// optionally filtered by substring (case-insensitive).
+    pub fn namespaces(&self, filter: Option<&str>) -> Result<Vec<String>, Error> {
+        self.store.get_namespaces(filter)
     }
 
     pub fn ask(&self, query: &SemanticQuery) -> Result<Vec<ScoredKbItem>, Error> {

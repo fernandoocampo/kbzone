@@ -238,8 +238,8 @@ impl App {
                 handlers::handle_categories(&self.svc, CategoriesParams { namespace, out })?
             }
 
-            Command::Namespaces { out } => {
-                handlers::handle_namespaces(&self.svc, NamespacesParams { out })?
+            Command::Namespaces { filter, out } => {
+                handlers::handle_namespaces(&self.svc, NamespacesParams { filter, out })?
             }
 
             Command::Reindex => handlers::handle_reindex(&self.svc)?,

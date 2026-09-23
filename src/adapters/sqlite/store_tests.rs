@@ -715,7 +715,7 @@ fn get_namespaces_returns_distinct_sorted_namespaces() {
     store.save_kb(&kb2).unwrap();
     store.save_kb(&kb3).unwrap();
 
-    let namespaces = store.get_namespaces().unwrap();
+    let namespaces = store.get_namespaces(None).unwrap();
     assert_eq!(namespaces, vec!["apple".to_string(), "zebra".to_string()]);
 }
 
@@ -726,15 +726,42 @@ fn get_namespaces_excludes_empty_namespace() {
     kb.namespace = String::new();
     store.save_kb(&kb).unwrap();
 
-    let namespaces = store.get_namespaces().unwrap();
+    let namespaces = store.get_namespaces(None).unwrap();
     assert!(namespaces.is_empty());
 }
 
 #[test]
 fn get_namespaces_returns_empty_vec_when_no_entries() {
     let store = initialized_store();
-    let namespaces = store.get_namespaces().unwrap();
+    let namespaces = store.get_namespaces(None).unwrap();
     assert!(namespaces.is_empty());
+}
+
+#[test]
+fn get_namespaces_filters_by_substring_when_given() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "com.cubita.com".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "cubita.subdomain.service".to_string();
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.namespace = "com.sura.cubita".to_string();
+    let mut kb4 = make_kb("id-4", "key-d");
+    kb4.namespace = "unrelated.namespace".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+    store.save_kb(&kb4).unwrap();
+
+    let namespaces = store.get_namespaces(Some("cubita")).unwrap();
+    assert_eq!(
+        namespaces,
+        vec![
+            "com.cubita.com".to_string(),
+            "com.sura.cubita".to_string(),
+            "cubita.subdomain.service".to_string()
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------

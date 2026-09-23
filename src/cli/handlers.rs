@@ -45,6 +45,7 @@ pub struct CategoriesParams {
 }
 
 pub struct NamespacesParams {
+    pub filter: Option<String>,
     pub out: Option<String>,
 }
 
@@ -1103,7 +1104,7 @@ pub fn handle_namespaces<
         None => false,
     };
 
-    match svc.namespaces() {
+    match svc.namespaces(params.filter.as_deref()) {
         Ok(namespaces) => {
             if json_output {
                 let json = serde_json::to_string_pretty(&namespaces)

@@ -253,6 +253,9 @@ pub enum Command {
 
     /// List all distinct namespace values in the knowledge base.
     Namespaces {
+        #[arg(long, help = "Only list namespaces containing this substring")]
+        filter: Option<String>,
+
         #[arg(long, help = "Output format: json (optional, default: plain text)")]
         out: Option<String>,
     },

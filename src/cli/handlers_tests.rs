@@ -106,7 +106,7 @@ impl crate::ports::KbStore for MockKbStore {
         Ok(Vec::new())
     }
 
-    fn get_namespaces(&self) -> Result<Vec<String>, Error> {
+    fn get_namespaces(&self, _filter: Option<&str>) -> Result<Vec<String>, Error> {
         Ok(Vec::new())
     }
 }
@@ -2158,7 +2158,10 @@ fn handle_namespaces_plain_text_success() {
         media_extension: None,
     })
     .unwrap();
-    let params = NamespacesParams { out: None };
+    let params = NamespacesParams {
+        filter: None,
+        out: None,
+    };
     let result = handle_namespaces(&svc, params);
     assert!(result.is_ok());
 }
@@ -2182,6 +2185,7 @@ fn handle_namespaces_json_success() {
     })
     .unwrap();
     let params = NamespacesParams {
+        filter: None,
         out: Some("json".to_string()),
     };
     let result = handle_namespaces(&svc, params);
@@ -2192,6 +2196,7 @@ fn handle_namespaces_json_success() {
 fn handle_namespaces_json_empty_success() {
     let svc = make_svc();
     let params = NamespacesParams {
+        filter: None,
         out: Some("json".to_string()),
     };
     let result = handle_namespaces(&svc, params);
@@ -2202,10 +2207,52 @@ fn handle_namespaces_json_empty_success() {
 fn handle_namespaces_invalid_out_value() {
     let svc = make_svc();
     let params = NamespacesParams {
+        filter: None,
         out: Some("xml".to_string()),
     };
     let result = handle_namespaces(&svc, params);
     assert!(matches!(result, Err(Error::ListError(_))));
+}
+
+#[test]
+fn handle_namespaces_filter_json() {
+    let svc = make_svc();
+    svc.add_kb(NewKb {
+        key: "kb-1".to_string(),
+        value: "value 1".to_string(),
+        notes: String::new(),
+        category: "concept".to_string(),
+        namespace: "com.cubita.com".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    svc.add_kb(NewKb {
+        key: "kb-2".to_string(),
+        value: "value 2".to_string(),
+        notes: String::new(),
+        category: "bookmark".to_string(),
+        namespace: "unrelated.namespace".to_string(),
+        reference: String::new(),
+        tags: vec![],
+        metadata: std::collections::BTreeMap::new(),
+        path: None,
+        parent: None,
+        media_url: None,
+        media_extension: None,
+    })
+    .unwrap();
+    let params = NamespacesParams {
+        filter: Some("cubita".to_string()),
+        out: Some("json".to_string()),
+    };
+    let result = handle_namespaces(&svc, params);
+    assert!(result.is_ok());
 }
 
 // ---- handle_link tests ----
