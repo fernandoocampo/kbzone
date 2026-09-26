@@ -42,6 +42,53 @@ kb version
 
 No flags, plain text (git hash + build date). Report it as printed.
 
+## Best Practices: Value vs. Notes Pattern
+
+When adding or updating KB entries via `kb-manage-entry` skill, follow this pattern to optimize for both readability and semantic search:
+
+### For concept/quote/command entries:
+- **`value`** = **core content, concise** (the essential idea, key command, main answer — 1–2 sentences max)
+- **`notes`** = elaboration, context, implementation details, assumptions
+
+**Example (concept):**
+```json
+{
+  "key": "rust-ownership",
+  "value": "Each value has a single owner, transfers on assignment",
+  "notes": "Ownership is Rust's memory safety mechanism. When a value is assigned to a new variable, the previous binding is invalidated (move semantics). Cloning creates a deep copy; borrowing (references) allows temporary access without transfer.",
+  "category": "concept"
+}
+```
+
+**Example (command):**
+```json
+{
+  "key": "git-rebase-interactive",
+  "value": "Interactively reorder, squash, or edit commits: git rebase -i <base>",
+  "notes": "Interactive rebase opens an editor listing all commits between HEAD and <base>. Each line starts with a command: pick (keep), reword (edit message), squash (combine with previous), drop (remove). Useful for cleaning up PR history before merge.",
+  "category": "command"
+}
+```
+
+### For bookmarks:
+- **`value`** = **the URL** (required by category convention)
+- **`notes`** = description, what to find there, why it's useful
+
+**Example:**
+```json
+{
+  "key": "rust-book",
+  "value": "https://doc.rust-lang.org/book/",
+  "notes": "Official Rust Book: comprehensive guide covering ownership, types, error handling, testing, and Cargo. Go-to reference for Rust fundamentals.",
+  "category": "bookmark"
+}
+```
+
+This pattern ensures:
+1. **Readability**: `kb get` shows concise value first; details in notes on demand
+2. **Search**: semantic search on `kb ask` ranks concise, focused value text higher
+3. **Consistency**: all entries follow the same structure across the KB
+
 ## Output to present
 
 For `reindex`, confirm completion. For `export`, confirm completion and give the resulting file path. For `version`, relay the printed info directly.

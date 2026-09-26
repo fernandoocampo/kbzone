@@ -33,9 +33,15 @@ allowed-tools:
 Ask clarifying questions if any of these are unclear:
 
 - **Category**: What type of entry is this? (e.g. `quote`, `concept`, `command`, `bookmark`, `article`, `idea`)
-- **Value vs. notes**: 
-  - For `bookmark`: `value` **must be the URL**, `notes` is the description/elaboration
-  - For other categories: `value` is the core content — the essential idea, the main command, the key quote, the answer; keep it concise. `notes` is elaboration, context, or background.
+- **Value vs. notes** (critical for readability + semantic search optimization):
+  - For `bookmark`: `value` **must be the URL**, `notes` is the description/what-to-find/why-useful
+  - For other categories: 
+    - `value` = **core content, concise** (1–2 sentences max: essential idea, main command, key insight, direct answer)
+    - `notes` = elaboration, context, implementation details, assumptions, background
+  - **Why**: `value` is what `kb get` shows first and what semantic search (`kb ask`) ranks on; `notes` are there for context on-demand.
+  - **Examples**: 
+    - Concept: value="Rust ownership transfers on assignment" | notes="Ownership is memory safety. When a value is assigned to a new variable, the previous binding is invalidated (move). Cloning creates a deep copy; borrowing allows temporary access."
+    - Command: value="Reorder/squash commits interactively: git rebase -i <base>" | notes="Interactive rebase opens editor with each commit. Commands: pick (keep), reword (edit message), squash (combine), drop (remove). Clean up PR history before merge."
 - **Namespace** (optional): a topic/domain (e.g. `rust`, `k8s`, `personal`, `work`). Only add if the user explicitly mentions one or it's obvious from context.
 - **Reference** (optional): where this came from (author, company, book title, person). For bookmarks, use the author/organization name, not the URL.
 - **Tags**: keywords for later retrieval. Extract or infer 3-5 meaningful tags from the content.
