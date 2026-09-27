@@ -114,6 +114,15 @@ const SEARCH_FTS_WITH_REF: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMES
                                     AND LOWER(k.REFERENCE) LIKE ?2 \
                                     ORDER BY k.CREATED_ON DESC";
 
+const COUNT_FTS: &str = "SELECT COUNT(*) FROM kbs k \
+                         JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
+                         WHERE tags_idx MATCH ?1";
+
+const COUNT_FTS_WITH_REF: &str = "SELECT COUNT(*) FROM kbs k \
+                                   JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
+                                   WHERE tags_idx MATCH ?1 \
+                                   AND LOWER(k.REFERENCE) LIKE ?2";
+
 // ---------------------------------------------------------------------------
 // Vector DDL / DML constants
 // ---------------------------------------------------------------------------
@@ -398,6 +407,13 @@ impl KbStore for SqliteStore {
         }
     }
 
+    fn count_kbs(&self, filter: &KbFilter) -> Result<i64, Error> {
+        match &filter.keyword {
+            Some(k) if !k.is_empty() => self.count_kbs_fts(filter),
+            _ => self.count_kbs_list(filter),
+        }
+    }
+
     fn save_kb(&self, kb: &Kb) -> Result<(), Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
         let metadata_json =
@@ -653,6 +669,49 @@ impl SqliteStore {
             .map_err(|e| Error::ListError(e.to_string()))?;
 
         Ok(items)
+    }
+
+    fn count_kbs_fts(&self, filter: &KbFilter) -> Result<i64, Error> {
+        let keyword = format!("{}*", filter.keyword.as_deref().unwrap_or(""));
+        let ref_pattern = filter
+            .reference
+            .as_deref()
+            .filter(|r| !r.is_empty())
+            .map(|r| format!("%{}%", r.to_lowercase()));
+
+        let sql = if ref_pattern.is_some() {
+            COUNT_FTS_WITH_REF.to_string()
+        } else {
+            COUNT_FTS.to_string()
+        };
+
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut sql_params: Vec<&dyn rusqlite::types::ToSql> = vec![&keyword];
+        if let Some(ref r) = ref_pattern {
+            sql_params.push(r);
+        }
+
+        let count: i64 = conn
+            .query_row(sql.as_str(), sql_params.as_slice(), |row| row.get(0))
+            .map_err(|e| Error::SearchError(e.to_string()))?;
+        Ok(count)
+    }
+
+    fn count_kbs_list(&self, filter: &KbFilter) -> Result<i64, Error> {
+        let (where_clause, _, _, bound_params) = build_filter_clauses(filter);
+
+        let sql = format!("SELECT COUNT(*) FROM kbs{}", where_clause);
+
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let sql_params: Vec<&dyn rusqlite::types::ToSql> = bound_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let count: i64 = conn
+            .query_row(sql.as_str(), sql_params.as_slice(), |row| row.get(0))
+            .map_err(|e| Error::ListError(e.to_string()))?;
+        Ok(count)
     }
 }
 

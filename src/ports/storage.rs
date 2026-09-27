@@ -18,6 +18,9 @@ pub trait KbStore: Debug + Clone {
 
     fn get_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error>;
 
+    /// Returns the total count of KB entries matching `filter`, ignoring LIMIT/OFFSET.
+    fn count_kbs(&self, filter: &KbFilter) -> Result<i64, Error>;
+
     fn save_kb(&self, kb: &Kb) -> Result<(), Error>;
 
     /// Returns `true` if a row was updated.

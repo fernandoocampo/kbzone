@@ -258,6 +258,15 @@ pub struct ScoredKbItem {
     pub score: f32,
 }
 
+/// Wrapper for `kb search` output when `--out json`/`--out yaml` is used —
+/// bundles the page of results with the total match count and query duration.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct KbSearchResult {
+    pub results: Vec<KbItem>,
+    pub total: i64,
+    pub duration_ms: u128,
+}
+
 /// Parameters for a semantic / vector search query.
 #[derive(Debug, Clone)]
 pub struct SemanticQuery {

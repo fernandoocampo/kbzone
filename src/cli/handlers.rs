@@ -4,11 +4,11 @@ use crate::cli::{browser, graph_view};
 use crate::domain::{
     AddJsonInput, CategoriesErrorResponse, DeleteConfirmation, DeleteErrorResponse, EdgeDirection,
     ExportDocument, ExportMediaParams, GraphViewParams, ImportDocument, ImportEdgeItem,
-    ImportKbItem, KbFilter, KbRelationships, KbUpdate, KbWithRelationships, LinkConfirmation,
-    LinkErrorResponse, LinkParams, MediaPathParams, NamespacesErrorResponse, NewKb, OutputFormat,
-    RandomErrorResponse, RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode,
-    TreeResult, TreeWalkParams, build_metadata, format_metadata, is_media_category,
-    media_file_path, parse_metadata_input, suggest_tags,
+    ImportKbItem, KbFilter, KbRelationships, KbSearchResult, KbUpdate, KbWithRelationships,
+    LinkConfirmation, LinkErrorResponse, LinkParams, MediaPathParams, NamespacesErrorResponse,
+    NewKb, OutputFormat, RandomErrorResponse, RelatedResult, ScoredKbItem, SemanticQuery,
+    TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, build_metadata, format_metadata,
+    is_media_category, media_file_path, parse_metadata_input, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -875,19 +875,30 @@ pub fn handle_search<
         offset: Some(params.offset),
     };
     let start = std::time::Instant::now();
-    let items = svc.get_kbs(filter)?;
+    let items = svc.get_kbs(filter.clone())?;
+    let total = svc.count_kbs(&filter)?;
     let elapsed = start.elapsed();
 
     match format {
         Some(OutputFormat::Json) => {
-            let json = serde_json::to_string_pretty(&items)
+            let result = KbSearchResult {
+                results: items,
+                total,
+                duration_ms: elapsed.as_millis(),
+            };
+            let json = serde_json::to_string_pretty(&result)
                 .map_err(|e| Error::SearchError(e.to_string()))?;
             println!("{json}");
             return Ok(());
         }
         Some(OutputFormat::Yaml) => {
+            let result = KbSearchResult {
+                results: items,
+                total,
+                duration_ms: elapsed.as_millis(),
+            };
             let yaml =
-                serde_yaml::to_string(&items).map_err(|e| Error::SearchError(e.to_string()))?;
+                serde_yaml::to_string(&result).map_err(|e| Error::SearchError(e.to_string()))?;
             print!("{yaml}");
             return Ok(());
         }
@@ -898,6 +909,7 @@ pub fn handle_search<
         "Offset: {}  Limit: {}  Filters: {}",
         params.offset, params.limit, filters
     );
+    println!("Total: {}", total);
     println!("Duration: {:.2?}", elapsed);
     println!();
     if items.is_empty() {

@@ -88,6 +88,10 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         self.store.get_kbs(&filter)
     }
 
+    pub fn count_kbs(&self, filter: &KbFilter) -> Result<i64, Error> {
+        self.store.count_kbs(filter)
+    }
+
     /// Merges `update` into the existing entry, persists, and re-indexes only if the
     /// embedding text changed. Embedding failures are non-fatal.
     /// Returns `MediaPathUpdateNotAllowed` if the entry is a media item and `path` is set.

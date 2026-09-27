@@ -1079,3 +1079,90 @@ fn get_edges_among_ids_returns_multiple_edges_within_the_set() {
     let edges = store.get_edges_among_ids(&ids).unwrap();
     assert_eq!(edges.len(), 2);
 }
+
+#[test]
+fn count_kbs_returns_total_matches_ignoring_limit() {
+    let store = initialized_store();
+    store.save_kb(&make_kb("id-1", "key-a")).unwrap();
+    store.save_kb(&make_kb("id-2", "key-b")).unwrap();
+    store.save_kb(&make_kb("id-3", "key-c")).unwrap();
+
+    let filter = KbFilter {
+        limit: Some(1),
+        offset: Some(0),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 3);
+}
+
+#[test]
+fn count_kbs_filters_by_category() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.category = "bookmark".to_string();
+    let kb2 = make_kb("id-2", "key-b"); // category = "concept"
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        category: Some("bookmark".to_string()),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn count_kbs_returns_zero_when_no_matches() {
+    let store = initialized_store();
+    store.save_kb(&make_kb("id-1", "key-a")).unwrap();
+
+    let filter = KbFilter {
+        category: Some("nonexistent".to_string()),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn count_kbs_via_fts5_keyword() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["memory".to_string(), "rust".to_string()];
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        limit: Some(1),
+        offset: Some(0),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn count_kbs_with_keyword_and_reference_filter() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.reference = "The Rust Book".to_string();
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.reference = "other source".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        reference: Some("The Rust Book".to_string()),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 1);
+}

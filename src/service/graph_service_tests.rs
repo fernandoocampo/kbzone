@@ -50,6 +50,10 @@ impl KbStore for MockKbStore {
         Ok(vec![])
     }
 
+    fn count_kbs(&self, _filter: &KbFilter) -> Result<i64, Error> {
+        Ok(0)
+    }
+
     fn save_kb(&self, kb: &Kb) -> Result<(), Error> {
         self.data.borrow_mut().insert(kb.id.clone(), kb.clone());
         Ok(())

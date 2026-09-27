@@ -56,6 +56,10 @@ impl crate::ports::KbStore for MockKbStore {
         Ok(Vec::new())
     }
 
+    fn count_kbs(&self, _filter: &crate::domain::KbFilter) -> Result<i64, Error> {
+        Ok(0)
+    }
+
     fn save_kb(&self, kb: &crate::domain::Kb) -> Result<(), Error> {
         self.data.borrow_mut().insert(kb.id.clone(), kb.clone());
         Ok(())

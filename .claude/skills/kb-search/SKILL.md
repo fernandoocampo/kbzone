@@ -50,7 +50,9 @@ kb search --keyword <kw> --category <cat> --namespace <ns> --tags <t1,t2> --refe
 - `--keyword` runs an FTS5 full-text match; the other flags are exact/contains filters and combine with it (AND semantics).
 - Only pass flags the user actually specified — don't invent filters they didn't ask for.
 - `--limit` default `20`, `--offset` default `0` for pagination.
-- Response items use the same lighter DTO shape as `ask` (id, key, category, namespace, tags) — no value/notes/reference/metadata; use `get` for full detail.
+- JSON response has the structure: `{ "results": [...], "total": <count>, "duration_ms": <ms> }`. Each result item uses the lighter DTO shape (id, key, category, namespace, tags) — no value/notes/reference/metadata; use `get` for full detail.
+- `total` is the count of **all matching entries** (ignoring limit/offset), useful for pagination awareness.
+- `duration_ms` is the query execution time in milliseconds.
 
 ## Categories — `kb categories`
 

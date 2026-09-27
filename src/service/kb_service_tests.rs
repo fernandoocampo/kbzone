@@ -98,6 +98,45 @@ impl KbStore for MockKbStore {
             .collect())
     }
 
+    fn count_kbs(&self, filter: &KbFilter) -> Result<i64, Error> {
+        let keyword = filter.keyword.as_deref().unwrap_or("");
+        let ref_filter = filter.reference.as_deref().unwrap_or("");
+        let count = if keyword.is_empty() {
+            self.data
+                .borrow()
+                .values()
+                .filter(|kb| filter.category.as_deref().is_none_or(|c| kb.category == c))
+                .filter(|kb| {
+                    filter
+                        .namespace
+                        .as_deref()
+                        .is_none_or(|n| kb.namespace == n)
+                })
+                .filter(|kb| {
+                    ref_filter.is_empty()
+                        || kb
+                            .reference
+                            .to_lowercase()
+                            .contains(&ref_filter.to_lowercase())
+                })
+                .count()
+        } else {
+            self.data
+                .borrow()
+                .values()
+                .filter(|kb| kb.tags.iter().any(|t| t.contains(keyword)))
+                .filter(|kb| {
+                    ref_filter.is_empty()
+                        || kb
+                            .reference
+                            .to_lowercase()
+                            .contains(&ref_filter.to_lowercase())
+                })
+                .count()
+        };
+        Ok(count as i64)
+    }
+
     fn save_kb(&self, kb: &Kb) -> Result<(), Error> {
         self.data.borrow_mut().insert(kb.id.clone(), kb.clone());
         Ok(())
@@ -214,6 +253,14 @@ impl KbStore for GhostItemKbStore {
             }]);
         }
         Ok(vec![])
+    }
+
+    fn count_kbs(&self, filter: &KbFilter) -> Result<i64, Error> {
+        if filter.keyword.as_deref().is_none_or(|k| k.is_empty()) {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn save_kb(&self, _kb: &Kb) -> Result<(), Error> {
