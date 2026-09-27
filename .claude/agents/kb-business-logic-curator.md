@@ -134,6 +134,18 @@ agent never deletes or unlinks (see Hard constraints).
   summary. This is what `kb get` shows first and what `kb ask` ranks on.
 - `notes` = elaboration: full invariants, edge cases, assumptions, business
   rationale, exceptions.
+- **For `formula` entries specifically:** `value` must be **only the
+  formula/expression itself** (math, chemistry, finance, or any other
+  domain) — nothing else. Every variable definition, unit, constraint, and
+  worked explanation goes in `notes`, one variable per line or clause. Do
+  not prose-explain the formula inside `value`, and do not leave `notes`
+  empty for a formula entry — a bare formula with no notes is incomplete.
+  **Anti-pattern — do not do this:** `value: "total = sum(price*qty) -
+  discount + tax (discount applied before tax, tax is 8%)"` mixes the
+  formula with its explanation. Split it: `value: "total = sum(price*qty)
+  - discount + tax"`, `notes: "price: unit price of a line item. qty:
+  quantity ordered. discount: flat amount subtracted before tax. tax:
+  computed on the post-discount subtotal at the applicable rate..."`.
 - `metadata` = structured key/value facts worth filtering on later, e.g.
   `metadata: aggregate=order,source-file=src/domain/order.rs`. Keep it
   small; it's not used for semantic search.
@@ -147,7 +159,7 @@ Examples:
 concept    "order"                      value: "An order represents a customer's purchase request, holding line items and a status lifecycle."
                                          notes: "Cannot transition to shipped before payment is confirmed. Cancellation is only allowed before shipment..."
 formula    "order-total-calculation"    value: "total = sum(line_item.price * qty) - discount + tax"
-                                         notes: "Discount is applied before tax. Free shipping applies above $50 subtotal..."
+                                         notes: "line_item.price: unit price of each ordered item. qty: quantity of that item. discount: flat amount subtracted before tax. tax: computed on the post-discount subtotal. Discount is applied before tax; free shipping applies above $50 subtotal..."
 capability "order-create"               value: "Creates a new order from a customer's line items after validating stock and pricing."
                                          notes: "Rejects the order if any line item is out of stock or its price has changed since quoting..."
 capability "order-cancel"               value: "Cancels an order before it has shipped."
