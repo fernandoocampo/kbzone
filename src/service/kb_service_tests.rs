@@ -67,6 +67,18 @@ impl KbStore for MockKbStore {
                             .to_lowercase()
                             .contains(&ref_filter.to_lowercase())
                 })
+                .filter(|kb| {
+                    filter
+                        .start_date
+                        .as_deref()
+                        .is_none_or(|s| &kb.created_on[..10] >= s)
+                })
+                .filter(|kb| {
+                    filter
+                        .end_date
+                        .as_deref()
+                        .is_none_or(|e| &kb.created_on[..10] <= e)
+                })
                 .map(|kb| KbItem {
                     id: kb.id.clone(),
                     key: kb.key.clone(),
@@ -87,6 +99,18 @@ impl KbStore for MockKbStore {
                         .reference
                         .to_lowercase()
                         .contains(&ref_filter.to_lowercase())
+            })
+            .filter(|kb| {
+                filter
+                    .start_date
+                    .as_deref()
+                    .is_none_or(|s| &kb.created_on[..10] >= s)
+            })
+            .filter(|kb| {
+                filter
+                    .end_date
+                    .as_deref()
+                    .is_none_or(|e| &kb.created_on[..10] <= e)
             })
             .map(|kb| KbItem {
                 id: kb.id.clone(),
@@ -119,6 +143,18 @@ impl KbStore for MockKbStore {
                             .to_lowercase()
                             .contains(&ref_filter.to_lowercase())
                 })
+                .filter(|kb| {
+                    filter
+                        .start_date
+                        .as_deref()
+                        .is_none_or(|s| &kb.created_on[..10] >= s)
+                })
+                .filter(|kb| {
+                    filter
+                        .end_date
+                        .as_deref()
+                        .is_none_or(|e| &kb.created_on[..10] <= e)
+                })
                 .count()
         } else {
             self.data
@@ -131,6 +167,18 @@ impl KbStore for MockKbStore {
                             .reference
                             .to_lowercase()
                             .contains(&ref_filter.to_lowercase())
+                })
+                .filter(|kb| {
+                    filter
+                        .start_date
+                        .as_deref()
+                        .is_none_or(|s| &kb.created_on[..10] >= s)
+                })
+                .filter(|kb| {
+                    filter
+                        .end_date
+                        .as_deref()
+                        .is_none_or(|e| &kb.created_on[..10] <= e)
                 })
                 .count()
         };
@@ -2142,4 +2190,90 @@ fn export_media_skips_non_media_items_in_item_by_item() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
     assert!(media_store.stored.borrow().is_empty());
+}
+
+#[test]
+fn get_kbs_without_keyword_filters_by_date_range() {
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "key-2");
+    kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
+    let store = MockKbStore::with(vec![kb1, kb2]);
+    let svc = KBService::new(
+        store,
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    );
+
+    let filter = KbFilter {
+        start_date: Some("2026-01-05".to_string()),
+        ..Default::default()
+    };
+    let results = svc.get_kbs(filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "key-2");
+}
+
+#[test]
+fn get_kbs_with_keyword_and_date_range_filter_returns_matching_entries() {
+    let mut kb1 = make_kb("id-1", "rust-memory");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "rust-ownership");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.created_on = "2026-01-10T00:00:00+0000".to_string();
+    let store = MockKbStore::with(vec![kb1, kb2]);
+    let svc = KBService::new(
+        store,
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    );
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        start_date: Some("2026-01-05".to_string()),
+        ..Default::default()
+    };
+    let results = svc.get_kbs(filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "rust-ownership");
+}
+
+#[test]
+fn count_kbs_filters_by_date_range() {
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "key-2");
+    kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
+    let mut kb3 = make_kb("id-3", "key-3");
+    kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
+    let store = MockKbStore::with(vec![kb1, kb2, kb3]);
+    let svc = KBService::new(
+        store,
+        ServiceDeps {
+            vector_store: MockVectorStore::default(),
+            embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    );
+
+    let filter = KbFilter {
+        start_date: Some("2026-01-02".to_string()),
+        end_date: Some("2026-01-09".to_string()),
+        ..Default::default()
+    };
+    let count = svc.count_kbs(&filter).unwrap();
+    assert_eq!(count, 1);
 }

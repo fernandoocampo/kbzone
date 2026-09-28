@@ -189,6 +189,18 @@ pub enum Command {
         )]
         reference: Option<String>,
 
+        #[arg(
+            long,
+            help = "Filter to entries created on or after this date (YYYY-MM-DD, inclusive)"
+        )]
+        start_date: Option<String>,
+
+        #[arg(
+            long,
+            help = "Filter to entries created on or before this date (YYYY-MM-DD, inclusive)"
+        )]
+        end_date: Option<String>,
+
         #[arg(long, default_value = "20", help = "Maximum rows to return")]
         limit: i64,
 

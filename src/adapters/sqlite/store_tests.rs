@@ -1166,3 +1166,207 @@ fn count_kbs_with_keyword_and_reference_filter() {
     let count = store.count_kbs(&filter).unwrap();
     assert_eq!(count, 1);
 }
+
+#[test]
+fn get_kbs_filters_by_start_date_inclusive() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "key-2");
+    kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
+    let mut kb3 = make_kb("id-3", "key-3");
+    kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        start_date: Some("2026-01-05".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs(&filter).unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().any(|r| r.key == "key-2"));
+    assert!(results.iter().any(|r| r.key == "key-3"));
+}
+
+#[test]
+fn get_kbs_filters_by_end_date_inclusive() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "key-2");
+    kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
+    let mut kb3 = make_kb("id-3", "key-3");
+    kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        end_date: Some("2026-01-05".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs(&filter).unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().any(|r| r.key == "key-1"));
+    assert!(results.iter().any(|r| r.key == "key-2"));
+}
+
+#[test]
+fn get_kbs_filters_by_start_and_end_date_range() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "key-2");
+    kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
+    let mut kb3 = make_kb("id-3", "key-3");
+    kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        start_date: Some("2026-01-02".to_string()),
+        end_date: Some("2026-01-09".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs(&filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "key-2");
+}
+
+#[test]
+fn get_kbs_date_range_excludes_entries_outside_range() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.created_on = "2025-12-31T00:00:00+0000".to_string();
+    store.save_kb(&kb1).unwrap();
+
+    let filter = KbFilter {
+        start_date: Some("2026-01-01".to_string()),
+        end_date: Some("2026-01-31".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs(&filter).unwrap();
+    assert!(results.is_empty());
+}
+
+#[test]
+fn get_kbs_via_fts5_keyword_filters_by_date_range() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "key-2");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.created_on = "2026-01-10T00:00:00+0000".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        start_date: Some("2026-01-05".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs(&filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "key-2");
+}
+
+#[test]
+fn count_kbs_filters_by_date_range() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "key-2");
+    kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
+    let mut kb3 = make_kb("id-3", "key-3");
+    kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        start_date: Some("2026-01-02".to_string()),
+        end_date: Some("2026-01-09".to_string()),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn count_kbs_via_fts5_keyword_filters_by_date_range() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.created_on = "2026-01-10T00:00:00+0000".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        start_date: Some("2026-01-05".to_string()),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn get_kbs_full_filters_by_date_range() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "key-2");
+    kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
+    let mut kb3 = make_kb("id-3", "key-3");
+    kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        start_date: Some("2026-01-02".to_string()),
+        end_date: Some("2026-01-09".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs_full(&filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "key-2");
+}
+
+#[test]
+fn get_kbs_date_range_combined_with_category_and_reference() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-1");
+    kb1.category = "concept".to_string();
+    kb1.reference = "Book A".to_string();
+    kb1.created_on = "2026-01-05T00:00:00+0000".to_string();
+    let mut kb2 = make_kb("id-2", "key-2");
+    kb2.category = "quote".to_string();
+    kb2.reference = "Book A".to_string();
+    kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
+    let mut kb3 = make_kb("id-3", "key-3");
+    kb3.category = "concept".to_string();
+    kb3.reference = "Book B".to_string();
+    kb3.created_on = "2026-01-05T00:00:00+0000".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        category: Some("concept".to_string()),
+        reference: Some("Book A".to_string()),
+        start_date: Some("2026-01-01".to_string()),
+        end_date: Some("2026-01-10".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs(&filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "key-1");
+}

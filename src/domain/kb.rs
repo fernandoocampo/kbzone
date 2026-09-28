@@ -237,6 +237,8 @@ pub struct KbFilter {
     pub tags: Option<Vec<String>>,
     pub keyword: Option<String>,
     pub reference: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

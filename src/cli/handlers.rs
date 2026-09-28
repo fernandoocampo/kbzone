@@ -68,6 +68,8 @@ pub struct SearchParams {
     pub namespace: Option<String>,
     pub tags: Vec<String>,
     pub reference: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
     pub limit: i64,
     pub offset: i64,
     pub out: Option<String>,
@@ -839,6 +841,28 @@ pub fn handle_search<
         .transpose()
         .map_err(Error::SearchError)?;
 
+    let start_date = params
+        .start_date
+        .as_deref()
+        .map(|s| {
+            chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                .map(|_| s.to_string())
+                .map_err(|_| format!("invalid start-date: {s} (expected YYYY-MM-DD)"))
+        })
+        .transpose()
+        .map_err(Error::SearchError)?;
+
+    let end_date = params
+        .end_date
+        .as_deref()
+        .map(|e| {
+            chrono::NaiveDate::parse_from_str(e, "%Y-%m-%d")
+                .map(|_| e.to_string())
+                .map_err(|_| format!("invalid end-date: {e} (expected YYYY-MM-DD)"))
+        })
+        .transpose()
+        .map_err(Error::SearchError)?;
+
     let mut parts: Vec<String> = Vec::new();
     if let Some(ref k) = params.keyword {
         parts.push(format!("keyword={k}"));
@@ -854,6 +878,12 @@ pub fn handle_search<
     }
     if let Some(ref r) = params.reference {
         parts.push(format!("reference={r}"));
+    }
+    if let Some(ref s) = start_date {
+        parts.push(format!("start_date={s}"));
+    }
+    if let Some(ref e) = end_date {
+        parts.push(format!("end_date={e}"));
     }
     let filters = if parts.is_empty() {
         "none".to_string()
@@ -871,6 +901,8 @@ pub fn handle_search<
             Some(params.tags)
         },
         reference: params.reference,
+        start_date,
+        end_date,
         limit: Some(params.limit),
         offset: Some(params.offset),
     };

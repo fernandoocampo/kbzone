@@ -101,27 +101,14 @@ const GET_DISTINCT_NAMESPACES_FILTERED: &str = "SELECT DISTINCT NAMESPACE FROM k
 const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
                                    REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA FROM kbs";
 
-const SEARCH_FTS: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
-                           FROM kbs k \
-                           JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
-                           WHERE tags_idx MATCH ?1 \
-                           ORDER BY k.CREATED_ON DESC";
+const SEARCH_FTS_BASE: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
+                                FROM kbs k \
+                                JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
+                                WHERE tags_idx MATCH ?1";
 
-const SEARCH_FTS_WITH_REF: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
-                                    FROM kbs k \
-                                    JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
-                                    WHERE tags_idx MATCH ?1 \
-                                    AND LOWER(k.REFERENCE) LIKE ?2 \
-                                    ORDER BY k.CREATED_ON DESC";
-
-const COUNT_FTS: &str = "SELECT COUNT(*) FROM kbs k \
-                         JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
-                         WHERE tags_idx MATCH ?1";
-
-const COUNT_FTS_WITH_REF: &str = "SELECT COUNT(*) FROM kbs k \
-                                   JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
-                                   WHERE tags_idx MATCH ?1 \
-                                   AND LOWER(k.REFERENCE) LIKE ?2";
+const COUNT_FTS_BASE: &str = "SELECT COUNT(*) FROM kbs k \
+                               JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
+                               WHERE tags_idx MATCH ?1";
 
 // ---------------------------------------------------------------------------
 // Vector DDL / DML constants
@@ -605,17 +592,12 @@ impl KbStore for SqliteStore {
 impl SqliteStore {
     fn get_kbs_fts(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
         let keyword = format!("{}*", filter.keyword.as_deref().unwrap_or(""));
-        let ref_pattern = filter
-            .reference
-            .as_deref()
-            .filter(|r| !r.is_empty())
-            .map(|r| format!("%{}%", r.to_lowercase()));
+        let (extra_where, extra_params) = build_fts_extra_filters(filter);
 
-        let mut sql = if ref_pattern.is_some() {
-            SEARCH_FTS_WITH_REF.to_string()
-        } else {
-            SEARCH_FTS.to_string()
-        };
+        let mut sql = format!(
+            "{}{} ORDER BY k.CREATED_ON DESC",
+            SEARCH_FTS_BASE, extra_where
+        );
 
         if let Some(l) = filter.limit {
             sql.push_str(&format!(" LIMIT {}", l));
@@ -630,9 +612,11 @@ impl SqliteStore {
             .map_err(|e| Error::SearchError(e.to_string()))?;
 
         let mut sql_params: Vec<&dyn rusqlite::types::ToSql> = vec![&keyword];
-        if let Some(ref r) = ref_pattern {
-            sql_params.push(r);
-        }
+        sql_params.extend(
+            extra_params
+                .iter()
+                .map(|p| p as &dyn rusqlite::types::ToSql),
+        );
 
         let items = stmt
             .query_map(sql_params.as_slice(), row_to_kb_item)
@@ -673,23 +657,17 @@ impl SqliteStore {
 
     fn count_kbs_fts(&self, filter: &KbFilter) -> Result<i64, Error> {
         let keyword = format!("{}*", filter.keyword.as_deref().unwrap_or(""));
-        let ref_pattern = filter
-            .reference
-            .as_deref()
-            .filter(|r| !r.is_empty())
-            .map(|r| format!("%{}%", r.to_lowercase()));
+        let (extra_where, extra_params) = build_fts_extra_filters(filter);
 
-        let sql = if ref_pattern.is_some() {
-            COUNT_FTS_WITH_REF.to_string()
-        } else {
-            COUNT_FTS.to_string()
-        };
+        let sql = format!("{}{}", COUNT_FTS_BASE, extra_where);
 
         let conn = self.conn.lock().expect("mutex poisoned");
         let mut sql_params: Vec<&dyn rusqlite::types::ToSql> = vec![&keyword];
-        if let Some(ref r) = ref_pattern {
-            sql_params.push(r);
-        }
+        sql_params.extend(
+            extra_params
+                .iter()
+                .map(|p| p as &dyn rusqlite::types::ToSql),
+        );
 
         let count: i64 = conn
             .query_row(sql.as_str(), sql_params.as_slice(), |row| row.get(0))
@@ -755,6 +733,30 @@ fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
     })
 }
 
+/// Appends inclusive `>=`/`<=` conditions comparing the date-only prefix
+/// (`YYYY-MM-DD`) of `created_on_col` against `filter.start_date`/`end_date`,
+/// pushing bind params in the same order. `created_on_col` lets callers pass
+/// an aliased column reference (e.g. `"k.CREATED_ON"` for the FTS join).
+fn push_date_range_conditions(
+    conditions: &mut Vec<String>,
+    params: &mut Vec<String>,
+    mut idx: usize,
+    filter: &KbFilter,
+    created_on_col: &str,
+) {
+    if let Some(start) = &filter.start_date {
+        conditions.push(format!("substr({created_on_col},1,10) >= ?{idx}"));
+        params.push(start.clone());
+        idx += 1;
+    }
+    if let Some(end) = &filter.end_date {
+        conditions.push(format!("substr({created_on_col},1,10) <= ?{idx}"));
+        params.push(end.clone());
+        idx += 1;
+    }
+    let _ = idx;
+}
+
 /// Builds the WHERE clause string, LIMIT clause, OFFSET clause, and bound parameters
 /// for a filtered list query. Returns `(where_clause, limit_clause, offset_clause, params)`.
 fn build_filter_clauses(filter: &KbFilter) -> (String, String, String, Vec<String>) {
@@ -817,9 +819,35 @@ fn build_list_filters(filter: &KbFilter) -> (Vec<String>, Vec<String>) {
     {
         conditions.push(format!("LOWER(REFERENCE) LIKE ?{}", idx));
         params.push(format!("%{}%", r.to_lowercase()));
+        idx += 1;
     }
 
+    push_date_range_conditions(&mut conditions, &mut params, idx, filter, "CREATED_ON");
+
     (conditions, params)
+}
+
+/// Builds the `AND ...` fragment (reference + date-range) appended after the
+/// mandatory `tags_idx MATCH ?1` clause in FTS search/count queries, plus its
+/// bound parameters. Bind indices start at 2 (`?1` is reserved for MATCH).
+fn build_fts_extra_filters(filter: &KbFilter) -> (String, Vec<String>) {
+    let mut conditions: Vec<String> = Vec::new();
+    let mut params: Vec<String> = Vec::new();
+    let mut idx = 2usize;
+
+    if let Some(r) = filter.reference.as_deref().filter(|r| !r.is_empty()) {
+        conditions.push(format!("LOWER(k.REFERENCE) LIKE ?{idx}"));
+        params.push(format!("%{}%", r.to_lowercase()));
+        idx += 1;
+    }
+
+    push_date_range_conditions(&mut conditions, &mut params, idx, filter, "k.CREATED_ON");
+
+    let fragment = conditions
+        .iter()
+        .map(|c| format!(" AND {c}"))
+        .collect::<String>();
+    (fragment, params)
 }
 
 // ---------------------------------------------------------------------------

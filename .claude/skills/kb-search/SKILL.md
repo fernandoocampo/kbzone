@@ -44,10 +44,11 @@ kb ask "<natural language query>" --limit 10 --threshold 0.9 --category <cat> --
 ## Keyword / filter search — `kb search`
 
 ```bash
-kb search --keyword <kw> --category <cat> --namespace <ns> --tags <t1,t2> --reference <ref> --limit 20 --offset 0 --out json
+kb search --keyword <kw> --category <cat> --namespace <ns> --tags <t1,t2> --reference <ref> --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> --limit 20 --offset 0 --out json
 ```
 
 - `--keyword` runs an FTS5 full-text match; the other flags are exact/contains filters and combine with it (AND semantics).
+- `--start-date`/`--end-date` (`YYYY-MM-DD`) filter by the entry's `created_on` creation timestamp, inclusive on both ends. Only pass the ones the user actually asked for (e.g. "created this month", "since March 1st").
 - Only pass flags the user actually specified — don't invent filters they didn't ask for.
 - `--limit` default `20`, `--offset` default `0` for pagination.
 - JSON response has the structure: `{ "results": [...], "total": <count>, "duration_ms": <ms> }`. Each result item uses the lighter DTO shape (id, key, category, namespace, tags) — no value/notes/reference/metadata; use `get` for full detail.

@@ -1804,6 +1804,8 @@ fn search_params(out: Option<&str>) -> SearchParams {
         namespace: None,
         tags: Vec::new(),
         reference: None,
+        start_date: None,
+        end_date: None,
         limit: 20,
         offset: 0,
         out: out.map(str::to_string),
@@ -1847,6 +1849,84 @@ fn handle_search_invalid_out_value_returns_error() {
     seed_kb(&svc, "search-test-invalid-out");
     let result = handle_search(&svc, search_params(Some("xml")));
     assert!(matches!(result, Err(Error::SearchError(_))));
+}
+
+fn search_params_with_dates(
+    out: Option<&str>,
+    start_date: Option<&str>,
+    end_date: Option<&str>,
+) -> SearchParams {
+    SearchParams {
+        start_date: start_date.map(str::to_string),
+        end_date: end_date.map(str::to_string),
+        ..search_params(out)
+    }
+}
+
+#[test]
+fn handle_search_valid_start_date_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-date");
+    let result = handle_search(
+        &svc,
+        search_params_with_dates(None, Some("2026-01-01"), None),
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_search_valid_end_date_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-date");
+    let result = handle_search(
+        &svc,
+        search_params_with_dates(None, None, Some("2026-12-31")),
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_search_valid_date_range_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-date");
+    let result = handle_search(
+        &svc,
+        search_params_with_dates(None, Some("2026-01-01"), Some("2026-12-31")),
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn handle_search_invalid_start_date_returns_error() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-date");
+    let result = handle_search(
+        &svc,
+        search_params_with_dates(None, Some("01-01-2026"), None),
+    );
+    assert!(matches!(result, Err(Error::SearchError(_))));
+}
+
+#[test]
+fn handle_search_invalid_end_date_returns_error() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-date");
+    let result = handle_search(
+        &svc,
+        search_params_with_dates(None, None, Some("2026-13-40")),
+    );
+    assert!(matches!(result, Err(Error::SearchError(_))));
+}
+
+#[test]
+fn handle_search_inverted_date_range_returns_ok_with_no_error() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-date");
+    let result = handle_search(
+        &svc,
+        search_params_with_dates(None, Some("2026-12-31"), Some("2026-01-01")),
+    );
+    assert!(result.is_ok());
 }
 
 fn ask_params(out: Option<&str>) -> AskParams {

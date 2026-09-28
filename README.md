@@ -204,9 +204,10 @@ kb search --keyword kubernetes                                # Full-text search
 kb search --reference "Kubernetes Official"                   # Filter by reference
 kb search --keyword pod --out json                            # Output as JSON
 kb search --category concept --limit 10 --offset 20           # Pagination
+kb search --start-date 2026-01-01 --end-date 2026-01-31        # Entries created in January 2026
 ```
 
-Filters are cumulative — multiple filters are combined with AND logic. Use `--keyword` for full-text tag search (powered by SQLite FTS5). Use `--out` to format results as `json` or `yaml` (default: plain text).
+Filters are cumulative — multiple filters are combined with AND logic. Use `--keyword` for full-text tag search (powered by SQLite FTS5). Use `--start-date`/`--end-date` (`YYYY-MM-DD`) to filter by creation date, inclusive on both ends. Use `--out` to format results as `json` or `yaml` (default: plain text).
 
 ### Semantic / natural language search
 
