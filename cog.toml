@@ -1,0 +1,27 @@
+tag_prefix = "v"
+branch_whitelist = ["main"]
+ignore_merge_commits = true
+skip_ci = "[skip ci]"
+from_latest_tag = true
+
+pre_bump_hooks = [
+    "cargo set-version {{version}}",
+    "cargo check",
+    "git add :/Cargo.lock",
+]
+
+post_bump_hooks = [
+    "git push",
+    "git push origin {{version_tag}}",
+]
+
+[commit_types]
+doc = { changelog_title = "Documentation" }
+docs = { changelog_title = "Documentation" }
+
+[changelog]
+path = "CHANGELOG.md"
+template = "remote"
+remote = "github.com"
+repository = "kbzone"
+owner = "fernandoocampo"
