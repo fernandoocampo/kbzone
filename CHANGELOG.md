@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.13.0](https://github.com/fernandoocampo/kbzone/compare/de3783324fc8be31cc95df6982c0101f512e6530..v0.13.0) - 2026-09-29
+#### Features
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) delete parent field - ([de37833](https://github.com/fernandoocampo/kbzone/commit/de3783324fc8be31cc95df6982c0101f512e6530)) - Fernando Ocampo
+
+- - -
+
 ## [v0.12.0](https://github.com/fernandoocampo/kbzone/compare/bfbeab15176e3c1f675a91395f620bafdfb4aa15..v0.12.0) - 2026-09-29
 
 - - -
