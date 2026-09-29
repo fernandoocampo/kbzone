@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex, Once};
 
+use chrono;
 use rusqlite::{Connection, params};
 
 use crate::domain::{
@@ -57,34 +58,32 @@ END";
 // ---------------------------------------------------------------------------
 
 const GET_KB_BY_ID: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                             REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
+                             REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA \
                              FROM kbs WHERE KB_ID = ?1";
 
 const GET_KB_BY_KEY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                              REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
+                              REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA \
                               FROM kbs WHERE KB_KEY = ?1";
 
 const INSERT_KB: &str = "INSERT INTO kbs \
-                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA) \
-                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
+                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA) \
+                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 
 const UPDATE_KB: &str = "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGORY=?4, \
-                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, PARENT_KB_ID=?8, KB_PATH=?9, MEDIA_EXTENSION=?10, METADATA=?11 \
-                          WHERE KB_ID=?12";
+                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, KB_PATH=?8, MEDIA_EXTENSION=?9, METADATA=?10 \
+                          WHERE KB_ID=?11";
 
 const DELETE_KB: &str = "DELETE FROM kbs WHERE KB_ID=?1";
 
 const GET_RANDOM_BY_CATEGORY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                      REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
+                                      REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA \
                                       FROM kbs WHERE LOWER(CATEGORY) = LOWER(?1) \
                                       ORDER BY RANDOM() LIMIT 1";
 
 const GET_RANDOM_BY_CATEGORY_AND_NAMESPACE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                                     REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
+                                                     REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA \
                                                      FROM kbs WHERE LOWER(CATEGORY) = LOWER(?1) AND NAMESPACE = ?2 \
                                                      ORDER BY RANDOM() LIMIT 1";
-
-const GET_CHILDREN_IDS: &str = "SELECT KB_ID FROM kbs WHERE PARENT_KB_ID = ?1";
 
 const GET_DISTINCT_CATEGORIES: &str =
     "SELECT DISTINCT CATEGORY FROM kbs WHERE CATEGORY != '' ORDER BY CATEGORY ASC";
@@ -99,7 +98,7 @@ const GET_DISTINCT_NAMESPACES_FILTERED: &str = "SELECT DISTINCT NAMESPACE FROM k
      ORDER BY NAMESPACE ASC";
 
 const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                   REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA FROM kbs";
+                                   REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA FROM kbs";
 
 const SEARCH_FTS_BASE: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
                                 FROM kbs k \
@@ -254,6 +253,90 @@ fn register_vec_extension() {
 }
 
 // ---------------------------------------------------------------------------
+// Migration helpers
+// ---------------------------------------------------------------------------
+
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, Error> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({})", table))
+        .map_err(|e| Error::StorageInitError(e.to_string()))?;
+
+    let mut rows = stmt
+        .query([])
+        .map_err(|e| Error::StorageInitError(e.to_string()))?;
+
+    while let Some(row) = rows
+        .next()
+        .map_err(|e| Error::StorageInitError(e.to_string()))?
+    {
+        let col_name: String = row
+            .get(1)
+            .map_err(|e| Error::StorageInitError(e.to_string()))?;
+        if col_name.eq_ignore_ascii_case(column) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn backup_database_file(db_path: &str, conn: &Connection) -> Result<(), Error> {
+    if db_path == ":memory:" {
+        return Ok(());
+    }
+    let timestamp = chrono::Local::now().format("%Y%m%d%H%M%S");
+    let backup_path = format!("{db_path}.bak-{timestamp}");
+    conn.execute("VACUUM INTO ?1", params![&backup_path])
+        .map_err(|e| Error::StorageInitError(e.to_string()))?;
+    eprintln!("Backup written to {backup_path}");
+    Ok(())
+}
+
+const REBUILD_KBS_TABLE_WITHOUT_PARENT: &str = "
+CREATE TABLE kbs_new (
+    INTERNAL_ID  INTEGER PRIMARY KEY AUTOINCREMENT,
+    KB_ID        TEXT NOT NULL UNIQUE,
+    KB_KEY       TEXT NOT NULL UNIQUE,
+    KB_VALUE     TEXT NOT NULL,
+    NOTES        TEXT NOT NULL DEFAULT '',
+    CATEGORY     TEXT NOT NULL DEFAULT '',
+    NAMESPACE    TEXT NOT NULL DEFAULT '',
+    REFERENCE    TEXT NOT NULL DEFAULT '',
+    TAG_VALUES   TEXT NOT NULL DEFAULT '',
+    CREATED_ON   TEXT NOT NULL,
+    KB_PATH      TEXT DEFAULT NULL,
+    MEDIA_EXTENSION TEXT DEFAULT NULL,
+    METADATA     TEXT DEFAULT NULL
+);
+INSERT INTO kbs_new (INTERNAL_ID, KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE,
+    TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA)
+SELECT INTERNAL_ID, KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE,
+    TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA
+FROM kbs;
+DROP TABLE kbs;
+ALTER TABLE kbs_new RENAME TO kbs;
+";
+
+fn migrate_drop_parent_column(db_path: &str, conn: &Connection) -> Result<(), Error> {
+    if !table_has_column(conn, "kbs", "PARENT_KB_ID")? {
+        return Ok(());
+    }
+    eprintln!(
+        "Migrating kbs table to remove the PARENT_KB_ID column — backing up database first..."
+    );
+    backup_database_file(db_path, conn)?;
+    conn.execute_batch(REBUILD_KBS_TABLE_WITHOUT_PARENT)
+        .map_err(|e| Error::StorageInitError(e.to_string()))?;
+    conn.execute_batch(CREATE_TRIGGER_AI)
+        .map_err(|e| Error::StorageInitError(e.to_string()))?;
+    conn.execute_batch(CREATE_TRIGGER_AD)
+        .map_err(|e| Error::StorageInitError(e.to_string()))?;
+    conn.execute_batch(CREATE_TRIGGER_AU)
+        .map_err(|e| Error::StorageInitError(e.to_string()))?;
+    eprintln!("Migration complete.");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // SqliteStore
 // ---------------------------------------------------------------------------
 
@@ -263,6 +346,7 @@ fn register_vec_extension() {
 #[derive(Debug, Clone)]
 pub struct SqliteStore {
     conn: Arc<Mutex<Connection>>,
+    db_path: String,
 }
 
 impl SqliteStore {
@@ -277,6 +361,7 @@ impl SqliteStore {
         let conn = Connection::open(path).map_err(|e| Error::StorageInitError(e.to_string()))?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            db_path: db_path.to_string(),
         })
     }
 }
@@ -350,6 +435,8 @@ impl KbStore for SqliteStore {
         {
             return Err(Error::StorageInitError(e.to_string()));
         }
+        drop(conn);
+        migrate_drop_parent_column(&self.db_path, &self.conn.lock().expect("mutex poisoned"))?;
         Ok(())
     }
 
@@ -417,7 +504,6 @@ impl KbStore for SqliteStore {
                 kb.reference,
                 kb.tags_as_string(),
                 kb.created_on,
-                kb.parent,
                 kb.path,
                 kb.media_extension,
                 metadata_json,
@@ -442,7 +528,6 @@ impl KbStore for SqliteStore {
                     kb.namespace,
                     kb.reference,
                     kb.tags_as_string(),
-                    kb.parent,
                     kb.path,
                     kb.media_extension,
                     metadata_json,
@@ -485,19 +570,6 @@ impl KbStore for SqliteStore {
             Some(row) => row_to_kb(row),
             None => Err(Error::RandomNotFound(category.to_string())),
         }
-    }
-
-    fn get_children_ids(&self, parent_id: &str) -> Result<Vec<String>, Error> {
-        let conn = self.conn.lock().expect("mutex poisoned");
-        let mut stmt = conn
-            .prepare(GET_CHILDREN_IDS)
-            .map_err(|e| Error::GetKBError(e.to_string()))?;
-        let ids = stmt
-            .query_map(params![parent_id], |row| row.get(0))
-            .map_err(|e| Error::GetKBError(e.to_string()))?
-            .collect::<Result<Vec<String>, _>>()
-            .map_err(|e| Error::GetKBError(e.to_string()))?;
-        Ok(ids)
     }
 
     fn get_categories(&self, namespace: Option<&str>) -> Result<Vec<String>, Error> {
@@ -699,7 +771,7 @@ impl SqliteStore {
 
 fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
     let tag_values: String = row.get(7).map_err(|e| Error::GetKBError(e.to_string()))?;
-    let metadata_raw: Option<String> = row.get(12).map_err(|e| Error::GetKBError(e.to_string()))?;
+    let metadata_raw: Option<String> = row.get(11).map_err(|e| Error::GetKBError(e.to_string()))?;
     let metadata: std::collections::BTreeMap<String, String> = match metadata_raw {
         Some(s) if !s.trim().is_empty() => {
             serde_json::from_str(&s).map_err(|e| Error::GetKBError(e.to_string()))?
@@ -721,14 +793,11 @@ fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
         },
         metadata,
         created_on: row.get(8).map_err(|e| Error::GetKBError(e.to_string()))?,
-        parent: row
+        path: row
             .get::<_, Option<String>>(9)
             .map_err(|e| Error::GetKBError(e.to_string()))?,
-        path: row
-            .get::<_, Option<String>>(10)
-            .map_err(|e| Error::GetKBError(e.to_string()))?,
         media_extension: row
-            .get::<_, Option<String>>(11)
+            .get::<_, Option<String>>(10)
             .map_err(|e| Error::GetKBError(e.to_string()))?,
     })
 }

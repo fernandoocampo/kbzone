@@ -71,10 +71,6 @@ impl KbStore for MockKbStore {
         Err(Error::RandomNotFound(category.to_string()))
     }
 
-    fn get_children_ids(&self, _parent_id: &str) -> Result<Vec<String>, Error> {
-        Ok(vec![])
-    }
-
     fn get_kbs_full(&self, _filter: &KbFilter) -> Result<Vec<Kb>, Error> {
         Ok(self.data.borrow().values().cloned().collect())
     }
@@ -211,7 +207,6 @@ fn make_kb(id: &str, key: &str) -> Kb {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         created_on: "2026-01-01T00:00:00+0000".to_string(),
-        parent: None,
         path: None,
         media_extension: None,
     }

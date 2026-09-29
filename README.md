@@ -6,10 +6,10 @@ A personal knowledge base CLI tool with semantic search, built in Rust. Store no
 
 `kbzone` (binary: `kb`) lets you:
 
-- **Add** entries with a key, value, notes, category, namespace, tags, a reference source, and an optional parent entry
+- **Add** entries with a key, value, notes, category, namespace, tags, and a reference source
 - **Search** entries by tag keywords (full-text search via SQLite FTS5)
 - **Ask** questions in natural language — finds semantically similar entries using local vector embeddings (no external API calls)
-- **Organize** entries with hierarchical paths and parent-child relationships
+- **Organize** entries with hierarchical paths
 - **Link** entries together with semantic relationships (edges with optional notes)
 - **Explore** relationships with one-hop queries, transitive trees, and interactive graph visualization
 - **List, get, update, delete** entries with flexible filters
@@ -75,7 +75,6 @@ Each entry in your knowledge base has the following fields:
 | `tags` | string[] | No | Comma-separated keywords for full-text search and semantic matching (e.g. `["rust", "memory", "ownership"]`) |
 | `metadata` | string[] | No | Comma-separated key=value metadata pairs (e.g. author=me,priority=high) |
 | `path` | string | No | Optional Unix-style hierarchical path for filing (e.g. `/learning/rust`, `/work/projects`). Leading `/` is added automatically. |
-| `parent` | UUID string | No | UUID of another KB entry to create a hierarchical parent-child relationship |
 | `created_on` | ISO-8601 timestamp | Auto-generated | Creation timestamp (set automatically, not editable) |
 
 ### Graph Relationships
@@ -105,18 +104,6 @@ kb add --key rust-ownership \
 ```
 
 The `--path` flag is optional. It accepts Unix-style hierarchical paths like `/personal/rust` or `/work/projects`. The leading `/` is added automatically if omitted — `personal/rust` becomes `/personal/rust`. Invalid paths (e.g. containing `..` or `//`) are rejected with an error message.
-
-To attach an entry to a parent, pass its UUID with `--parent`:
-
-```sh
-kb add --key rust-borrowing \
-       --value "You can have many immutable references, or one mutable reference — not both." \
-       --category concept \
-       --namespace rust \
-       --parent <parent-uuid>
-```
-
-The parent must already exist; the command fails with an error if the ID is not found.
 
 ### Metadata (custom key-value pairs)
 
@@ -260,14 +247,13 @@ To get the best recall:
 
 ```sh
 kb update --id <uuid> --value "Updated value" --tags rust,ownership,borrow
-kb update --id <uuid> --parent <parent-uuid>
 kb update --id <uuid> --path /learning/rust
 kb update --id <uuid> --path ""   # clears the path
 kb update --id <uuid> --metadata "priority=high"
 kb update --id <uuid> --metadata ""   # clears all metadata
 ```
 
-Only the fields you pass are changed. Pass `--parent` to set or change the parent; the parent must already exist. Pass `--path` to set or change the path; pass an empty string to clear it. Pass `--metadata` to replace the entire metadata map (comma-separated `key=value` pairs); pass an empty string to clear all metadata. Metadata replaces entirely — to change one key you must retype all keys.
+Only the fields you pass are changed. Pass `--path` to set or change the path; pass an empty string to clear it. Pass `--metadata` to replace the entire metadata map (comma-separated `key=value` pairs); pass an empty string to clear all metadata. Metadata replaces entirely — to change one key you must retype all keys.
 
 > **Note:** `--path` cannot be changed for entries with `category = media`. Delete and re-create the entry to change the storage path.
 
@@ -276,8 +262,6 @@ Only the fields you pass are changed. Pass `--parent` to set or change the paren
 ```sh
 kb delete --id <uuid>
 ```
-
-If the entry has children, the delete is rejected and the child IDs are printed. Delete the children first, then retry.
 
 For `media` category entries, the associated media file is deleted **before** the DB record is removed. If the file cannot be deleted, the operation is aborted so the record is not left without its file.
 
@@ -298,12 +282,11 @@ Category: concept
 Namespace: rust
 Tags: [rust, memory, ownership]
 Reference: "The Rust Programming Language"
-ParentKey: rust-ownership   # optional: kb key of the parent entry
 Path: /learning/rust        # optional: Unix-style path; leading / auto-added if omitted
 MediaExtension: jpg         # optional: file extension for media entries (e.g. jpg, png, pdf)
 ```
 
-`ParentKey` is resolved to an internal UUID at import time. If the referenced key does not exist, that item is recorded as a failure and the rest of the batch continues. Items that fail validation or import are written to the failed items file (default: `wrong-kb-items.yaml`). Relationships (edges) that fail to import are written to the failed edges file (default: `wrong-kb-edges.yaml`).
+Items that fail validation or import are written to the failed items file (default: `wrong-kb-items.yaml`). Relationships (edges) that fail to import are written to the failed edges file (default: `wrong-kb-edges.yaml`).
 
 ### Export entries
 
@@ -318,8 +301,6 @@ kb export --folder-output ./backup --limit 100 --offset 0
 
 Exports matching entries to a multi-document YAML file in the same format accepted by `kb import`. Filters are cumulative — `--category` and `--namespace` are combined with AND. Use `--limit` and `--offset` for pagination. The `--folder-output` directory is required and is where the YAML file will be written; `--file-name` is optional and defaults to `exported-kb-<yyyy-mm-dd-hh-mi-ss>.yaml`.
 
-Parent–child relationships are preserved: an entry's `Parent` field is only written when its parent is also included in the export set. Parents always appear before their children in the output file so the file can be re-imported directly with `kb import`.
-
 ```yaml
 Key: motogp-twitter
 Value: https://x.com/MotoGP
@@ -327,7 +308,6 @@ Notes: First on the throttle, last on the brakes
 Category: bookmark
 Reference: motogp twitter
 Namespace: default
-Parent: any-parent-key
 Path: /sports/motorsport
 Tags:
     - account

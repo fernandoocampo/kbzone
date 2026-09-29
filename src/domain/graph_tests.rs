@@ -14,7 +14,6 @@ fn make_kb() -> Kb {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         created_on: "2026-01-01T00:00:00+0000".to_string(),
-        parent: None,
         path: None,
         media_extension: None,
     }
@@ -154,7 +153,6 @@ fn make_export_kb_item(key: &str) -> ExportKbItem {
         reference: String::new(),
         namespace: "vehicles".to_string(),
         tags: vec![],
-        parent_key: None,
         path: None,
         media_extension: None,
     }

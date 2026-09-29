@@ -95,10 +95,6 @@ impl crate::ports::KbStore for MockKbStore {
             .ok_or_else(|| Error::RandomNotFound(category.to_string()))
     }
 
-    fn get_children_ids(&self, _parent_id: &str) -> Result<Vec<String>, Error> {
-        Ok(vec![])
-    }
-
     fn get_kbs_full(
         &self,
         _filter: &crate::domain::KbFilter,
@@ -367,7 +363,6 @@ fn make_kb(id: &str, key: &str) -> crate::domain::Kb {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         created_on: "2026-01-01T00:00:00+0000".to_string(),
-        parent: None,
         path: None,
         media_extension: None,
     }
@@ -621,7 +616,6 @@ fn make_new_kb(key: &str) -> crate::domain::NewKb {
         reference: String::new(),
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
-        parent: None,
         path: None,
         media_url: None,
         media_extension: None,
@@ -777,7 +771,6 @@ fn build_new_kb_non_interactive_all_fields_provided_no_prompt() {
         tags: vec!["rust".to_string()],
         metadata: vec![],
         interactive: false,
-        parent: None,
         path: None,
         media_url: None,
         json: None,
@@ -804,7 +797,6 @@ fn handle_add_non_interactive_fails_without_key() {
         tags: Vec::new(),
         metadata: vec![],
         interactive: false,
-        parent: None,
         path: None,
         media_url: None,
         json: None,
@@ -826,7 +818,6 @@ fn handle_add_non_interactive_fails_without_value() {
         tags: Vec::new(),
         metadata: vec![],
         interactive: false,
-        parent: None,
         path: None,
         media_url: None,
         json: None,
@@ -847,7 +838,6 @@ fn build_new_kb_non_interactive_builds_correctly() {
         tags: vec!["rust".to_string()],
         metadata: vec![],
         interactive: false,
-        parent: None,
         path: None,
         media_url: None,
         json: None,
@@ -927,7 +917,6 @@ fn format_preview_includes_all_fields() {
         reference: "the book".to_string(),
         tags: vec!["rust".to_string(), "memory".to_string()],
         metadata: std::collections::BTreeMap::new(),
-        parent: None,
         path: None,
         media_url: None,
         media_extension: None,
@@ -953,7 +942,6 @@ fn format_preview_shows_tags_joined_with_comma() {
         reference: String::new(),
         tags: vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
         metadata: std::collections::BTreeMap::new(),
-        parent: None,
         path: None,
         media_url: None,
         media_extension: None,
@@ -978,7 +966,6 @@ fn build_new_kb_non_interactive_uses_provided_reference() {
         tags: vec!["tag1".to_string()],
         metadata: vec![],
         interactive: false,
-        parent: None,
         path: None,
         media_url: None,
         json: None,
@@ -1001,7 +988,6 @@ fn build_new_kb_non_interactive_uses_provided_tags() {
         tags: vec!["rust".to_string(), "memory".to_string()],
         metadata: vec![],
         interactive: false,
-        parent: None,
         path: None,
         media_url: None,
         json: None,
@@ -1027,7 +1013,6 @@ fn add_params_with_json(json: Option<&str>) -> AddParams {
         tags: Vec::new(),
         metadata: vec![],
         interactive: false,
-        parent: None,
         path: None,
         media_url: None,
         json: json.map(str::to_string),
@@ -1147,7 +1132,6 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
             reference: String::new(),
             namespace: String::new(),
             tags: Vec::new(),
-            parent_key: None,
             path: None,
             media_extension: None,
         },
@@ -1159,7 +1143,6 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
             reference: String::new(),
             namespace: String::new(),
             tags: Vec::new(),
-            parent_key: None,
             path: None,
             media_extension: None,
         },
@@ -1409,7 +1392,6 @@ fn seed_kb(
         namespace: "rust".to_string(),
         tags: Vec::new(),
         metadata: std::collections::BTreeMap::new(),
-        parent: None,
         path: None,
         media_url: None,
         media_extension: None,
@@ -1435,7 +1417,6 @@ fn update_params_for(id: &str, out: Option<&str>) -> UpdateParams {
             namespace: None,
             reference: None,
             tags: None,
-            parent: None,
             path: None,
             metadata: None,
         },
@@ -1986,7 +1967,6 @@ fn handle_delete_plain_text_success() {
             tags: vec![],
             metadata: std::collections::BTreeMap::new(),
             path: None,
-            parent: None,
             media_url: None,
             media_extension: None,
         })
@@ -2013,7 +1993,6 @@ fn handle_delete_json_success() {
             tags: vec![],
             metadata: std::collections::BTreeMap::new(),
             path: None,
-            parent: None,
             media_url: None,
             media_extension: None,
         })
@@ -2040,7 +2019,6 @@ fn handle_delete_invalid_out_value() {
             tags: vec![],
             metadata: std::collections::BTreeMap::new(),
             path: None,
-            parent: None,
             media_url: None,
             media_extension: None,
         })
@@ -2090,7 +2068,6 @@ fn handle_categories_plain_text_success() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })
@@ -2105,7 +2082,6 @@ fn handle_categories_plain_text_success() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })
@@ -2131,7 +2107,6 @@ fn handle_categories_json_success() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })
@@ -2168,7 +2143,6 @@ fn handle_categories_namespace_filter_json() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })
@@ -2183,7 +2157,6 @@ fn handle_categories_namespace_filter_json() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })
@@ -2222,7 +2195,6 @@ fn handle_namespaces_plain_text_success() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })
@@ -2237,7 +2209,6 @@ fn handle_namespaces_plain_text_success() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })
@@ -2263,7 +2234,6 @@ fn handle_namespaces_json_success() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })
@@ -2311,7 +2281,6 @@ fn handle_namespaces_filter_json() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })
@@ -2326,7 +2295,6 @@ fn handle_namespaces_filter_json() {
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
         path: None,
-        parent: None,
         media_url: None,
         media_extension: None,
     })

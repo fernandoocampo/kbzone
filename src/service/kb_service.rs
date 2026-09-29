@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::domain::{
     EmbeddingInput, ExportKbItem, ExportMediaParams, FailedImportItem, ImportBatchResult,
     ImportKbItem, Kb, KbFilter, KbItem, KbUpdate, MediaPathParams, NewKb, ReindexResult,
@@ -105,8 +103,6 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             return Err(Error::MediaPathUpdateNotAllowed(existing.key.clone()));
         }
 
-        self.validate_parent_exists(&update.parent)?;
-
         let old_embed_text = existing.embedding_text();
 
         let path = match update.path {
@@ -138,7 +134,6 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             tags: update.tags.unwrap_or(existing.tags),
             metadata,
             created_on: existing.created_on,
-            parent: update.parent.or(existing.parent),
             path,
             media_extension: existing.media_extension,
         };
@@ -165,12 +160,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
     /// Deletes an entry and removes its embedding. Embedding removal failure is non-fatal.
     /// For `media` category entries the media file is deleted FIRST; failure aborts the
     /// operation so the DB row is not left without its file.
-    /// Returns `KBHasChildrenError` if the entry has children — delete them first.
     pub fn delete_kb(&self, id: &str) -> Result<(), Error> {
-        let children = self.store.get_children_ids(id)?;
-        if !children.is_empty() {
-            return Err(Error::KBHasChildrenError(children.join(", ")));
-        }
         let existing = self.store.get_kb_by_id(id)?.ok_or(Error::KBNotFound)?;
         if is_media_category(&existing.category)
             && let Some(ref ext) = existing.media_extension
@@ -272,43 +262,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             return Ok(vec![]);
         }
 
-        let id_to_key: std::collections::HashMap<&str, &str> = kbs
-            .iter()
-            .map(|kb| (kb.id.as_str(), kb.key.as_str()))
-            .collect();
-
-        let mut emitted: HashSet<&str> = HashSet::new();
-        let mut ordered: Vec<&Kb> = Vec::with_capacity(kbs.len());
-        let mut remaining: Vec<&Kb> = kbs.iter().collect();
-
-        while !remaining.is_empty() {
-            let before = remaining.len();
-            remaining.retain(|kb| {
-                let parent_in_set = kb
-                    .parent
-                    .as_ref()
-                    .is_some_and(|pid| id_to_key.contains_key(pid.as_str()));
-                let parent_emitted = kb
-                    .parent
-                    .as_ref()
-                    .is_none_or(|pid| emitted.contains(pid.as_str()));
-
-                if !parent_in_set || parent_emitted {
-                    emitted.insert(kb.id.as_str());
-                    ordered.push(kb);
-                    false
-                } else {
-                    true
-                }
-            });
-            if remaining.len() == before {
-                for kb in remaining.drain(..) {
-                    ordered.push(kb);
-                }
-            }
-        }
-
-        let items = ordered
+        let items = kbs
             .into_iter()
             .map(|kb| ExportKbItem {
                 key: kb.key.clone(),
@@ -318,11 +272,6 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                 reference: kb.reference.clone(),
                 namespace: kb.namespace.clone(),
                 tags: kb.tags.clone(),
-                parent_key: kb
-                    .parent
-                    .as_ref()
-                    .and_then(|pid| id_to_key.get(pid.as_str()))
-                    .map(|s| s.to_string()),
                 path: kb.path.clone(),
                 media_extension: kb.media_extension.clone(),
             })
@@ -393,13 +342,12 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
     // Private helpers
     // ---------------------------------------------------------------------------
 
-    /// Low-level CRUD add: duplicate-key check, parent existence check, convert to `Kb`, persist.
+    /// Low-level CRUD add: duplicate-key check, convert to `Kb`, persist.
     fn add_kb_crud(&self, mut new_kb: NewKb) -> Result<Kb, Error> {
         let key = new_kb.key.to_lowercase();
         if self.store.get_kb_by_key(&key)?.is_some() {
             return Err(Error::DuplicateKBError);
         }
-        self.validate_parent_exists(&new_kb.parent)?;
         new_kb.path = match new_kb.path.take() {
             Some(p) if !p.is_empty() => Some(normalize_path(&p)?),
             _ => None,
@@ -423,7 +371,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         Ok(())
     }
 
-    /// Batch CRUD add: validates, resolves parent_key to parent_id, calls `add_kb_crud`, collects failures.
+    /// Batch CRUD add: validates, calls `add_kb_crud`, collects failures.
     fn add_kbs_crud(&self, items: Vec<ImportKbItem>) -> ImportBatchResult {
         let mut saved = Vec::new();
         let mut failed = Vec::new();
@@ -433,30 +381,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                 failed.push(FailedImportItem { item, reason });
                 continue;
             }
-            let parent_key = item.parent_key.clone();
-            let parent_id = if let Some(pk) = parent_key {
-                match self.store.get_kb_by_key(&pk) {
-                    Ok(Some(parent_kb)) => Some(parent_kb.id),
-                    Ok(None) => {
-                        failed.push(FailedImportItem {
-                            item,
-                            reason: format!("parent key not found: {}", pk),
-                        });
-                        continue;
-                    }
-                    Err(e) => {
-                        failed.push(FailedImportItem {
-                            item,
-                            reason: e.to_string(),
-                        });
-                        continue;
-                    }
-                }
-            } else {
-                None
-            };
-            let mut new_kb = NewKb::from(item.clone());
-            new_kb.parent = parent_id;
+            let new_kb = NewKb::from(item.clone());
             match self.add_kb_crud(new_kb) {
                 Ok(kb) => saved.push(kb),
                 Err(e) => failed.push(FailedImportItem {
@@ -505,15 +430,6 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         }
 
         result.map(|_| ())
-    }
-
-    fn validate_parent_exists(&self, parent: &Option<String>) -> Result<(), Error> {
-        if let Some(pid) = parent {
-            self.store
-                .get_kb_by_id(pid)?
-                .ok_or(Error::ParentKBNotFound)?;
-        }
-        Ok(())
     }
 
     /// Embeds the text in `input` and stores the resulting vector.

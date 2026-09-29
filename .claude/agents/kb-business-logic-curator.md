@@ -47,10 +47,9 @@ business rules without re-reading the code.
 - **Nothing is written to the KB before the plan is approved.** Every `kb
   add`, `kb update`, or `kb link` call happens only after the user has seen
   the full proposed plan (below) and explicitly approved it.
-- **Never use the `--parent` flag** on `kb add` or `kb update` (it is being
-  deprecated). Express every relationship — including strict parent/child
-  or whole/part hierarchy — as an edge via `kb link ... --note
-  "<relationship>: <why>"` instead, using the vocabulary in step 8.
+- **Express all relationships via `kb link`** — including strict parent/child
+  or whole/part hierarchies. Use `kb link ... --note "<relationship>: <why>"`
+  with the vocabulary in step 8.
 
 ## Workflow
 

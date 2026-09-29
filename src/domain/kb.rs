@@ -44,8 +44,6 @@ pub struct Kb {
     pub metadata: BTreeMap<String, String>,
     /// ISO-8601 creation timestamp.
     pub created_on: String,
-    /// Internal UUID of the parent KB item, if any.
-    pub parent: Option<String>,
     /// Optional Unix-style hierarchical path (e.g. `/personal/cars/engines`).
     pub path: Option<String>,
     /// File extension of the stored media file (e.g. `"jpg"`, `"pdf"`). Only set for category `media`.
@@ -95,9 +93,6 @@ impl std::fmt::Display for Kb {
         writeln!(f, "Created   : {}", self.created_on)?;
         if let Some(ref p) = self.path {
             writeln!(f, "Path      : {}", p)?;
-        }
-        if let Some(ref p) = self.parent {
-            writeln!(f, "Parent    : {}", p)?;
         }
         if !self.notes.is_empty() {
             writeln!(f, "Notes     :\n{}", self.notes)?;
@@ -171,8 +166,6 @@ pub struct NewKb {
     pub tags: Vec<String>,
     /// Freeform key-value metadata pairs, unique by key.
     pub metadata: BTreeMap<String, String>,
-    /// Internal UUID of the parent KB item, if any.
-    pub parent: Option<String>,
     /// Optional Unix-style hierarchical path (e.g. `/personal/rust`).
     pub path: Option<String>,
     /// Original media source (URL or local file path). Required when category is `media`.
@@ -201,7 +194,6 @@ impl From<NewKb> for Kb {
             tags: new.tags,
             metadata: new.metadata,
             created_on: Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string(),
-            parent: new.parent,
             path: new.path,
             media_extension,
         }
@@ -219,8 +211,6 @@ pub struct KbUpdate {
     pub namespace: Option<String>,
     pub reference: Option<String>,
     pub tags: Option<Vec<String>>,
-    /// Set a new parent (by internal UUID). `None` = keep existing.
-    pub parent: Option<String>,
     /// Set a new path. `None` = keep existing. Empty string = clear path.
     pub path: Option<String>,
     /// New metadata as `key=value,key=value` pairs. `None` = keep existing.
@@ -309,9 +299,6 @@ pub struct ExportKbItem {
     pub namespace: String,
     #[serde(rename = "Tags")]
     pub tags: Vec<String>,
-    /// Only present when the parent is also in the exported set.
-    #[serde(rename = "Parent", skip_serializing_if = "Option::is_none")]
-    pub parent_key: Option<String>,
     #[serde(rename = "Path", skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(rename = "MediaExtension", skip_serializing_if = "Option::is_none")]
@@ -343,12 +330,6 @@ pub struct ImportKbItem {
     pub namespace: String,
     #[serde(rename = "Tags", default)]
     pub tags: Vec<String>,
-    /// Key of the parent KB item. Resolved to internal UUID at import time.
-    /// Accepts `Parent` too — the field name `kb export`'s `ExportKbItem`
-    /// writes it under — while still serializing back out as `ParentKey`
-    /// (used by the failed-items file format).
-    #[serde(rename = "ParentKey", alias = "Parent", default)]
-    pub parent_key: Option<String>,
     #[serde(rename = "Path", default)]
     pub path: Option<String>,
     #[serde(rename = "MediaExtension", default)]
@@ -385,7 +366,6 @@ impl From<ImportKbItem> for NewKb {
             namespace: item.namespace,
             tags: item.tags,
             metadata: BTreeMap::new(),
-            parent: None, // parent_key is resolved to UUID in the service layer
             path: item.path,
             media_url: None,
             media_extension: item.media_extension,
@@ -410,8 +390,6 @@ pub struct AddJsonInput {
     pub namespace: String,
     #[serde(default)]
     pub path: Option<String>,
-    #[serde(default)]
-    pub parent: Option<String>,
     #[serde(default)]
     pub media_url: Option<String>,
     #[serde(default)]
@@ -520,7 +498,6 @@ impl TryFrom<AddJsonInput> for NewKb {
             namespace: input.namespace,
             tags,
             metadata: input.metadata,
-            parent: input.parent,
             path,
             media_url: input.media_url,
             media_extension: None,

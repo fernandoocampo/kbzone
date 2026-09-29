@@ -90,7 +90,6 @@ pub struct AddParams {
     pub tags: Vec<String>,
     pub metadata: Vec<(String, String)>,
     pub interactive: bool,
-    pub parent: Option<String>,
     pub path: Option<String>,
     pub media_url: Option<String>,
     pub json: Option<String>,
@@ -294,13 +293,12 @@ fn assert_no_conflicting_add_flags(params: &AddParams) -> Result<(), Error> {
         || !params.tags.is_empty()
         || !params.metadata.is_empty()
         || params.interactive
-        || params.parent.is_some()
         || params.path.is_some()
         || params.media_url.is_some();
     if conflicts {
         return Err(Error::ConflictingAddFlags(
             "--json cannot be combined with --key/--value/--notes/--category/--namespace/\
-             --reference/--tags/--metadata/--interactive/--parent/--path/--media-url"
+             --reference/--tags/--metadata/--interactive/--path/--media-url"
                 .to_string(),
         ));
     }
@@ -388,7 +386,6 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
         namespace: params.namespace,
         tags,
         metadata,
-        parent: params.parent,
         path,
         media_url,
         media_extension: None,
@@ -467,7 +464,6 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         namespace,
         tags,
         metadata,
-        parent: params.parent,
         path,
         media_url,
         media_extension: None,
@@ -503,7 +499,7 @@ fn suggested_tags_for(fields: &[&str], existing_tags: &[String]) -> Vec<String> 
 
 fn format_preview(kb: &NewKb) -> String {
     let mut s = format!(
-        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  metadata  : {}\n  path      : {}\n  parent    : {}",
+        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  metadata  : {}\n  path      : {}",
         kb.key,
         kb.value,
         kb.notes,
@@ -513,7 +509,6 @@ fn format_preview(kb: &NewKb) -> String {
         kb.tags.join(", "),
         format_metadata(&kb.metadata),
         kb.path.as_deref().unwrap_or("-"),
-        kb.parent.as_deref().unwrap_or("(none)"),
     );
     if let Some(ref url) = kb.media_url {
         s.push_str(&format!("\n  media_url : {}", url));
@@ -566,13 +561,6 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
     } else {
         Some(path_input)
     };
-    let parent_current = kb.parent.as_deref().unwrap_or("");
-    let parent_input = prompt_adjust("parent UUID (optional)", parent_current)?;
-    let parent = if parent_input.is_empty() {
-        None
-    } else {
-        Some(parent_input)
-    };
     let media_url = if is_media_category(&category) {
         let current = kb.media_url.as_deref().unwrap_or("");
         let input = prompt_adjust("media URL or file path", current)?;
@@ -590,7 +578,6 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
         tags,
         metadata,
         path,
-        parent,
         media_url,
         media_extension: kb.media_extension,
     })
@@ -816,8 +803,6 @@ pub fn handle_delete<
                 if let Ok(json) = serde_json::to_string_pretty(&err_resp) {
                     println!("{json}");
                 }
-            } else if let Error::KBHasChildrenError(_) = &e {
-                eprintln!("Cannot delete: KB has children. Delete them first: {}", e);
             }
             Err(e)
         }

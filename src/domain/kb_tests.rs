@@ -11,7 +11,6 @@ fn make_kb(value: &str) -> Kb {
         namespace: "k8s".to_string(),
         tags: vec!["kubernetes".to_string(), "pods".to_string()],
         created_on: "2026-01-01T00:00:00+0000".to_string(),
-        parent: None,
         path: None,
         media_extension: None,
         metadata: std::collections::BTreeMap::new(),
@@ -60,7 +59,6 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
         reference: String::new(),
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
-        parent_key: None,
         path: None,
         media_extension: None,
     }
@@ -154,29 +152,6 @@ fn import_kb_item_optional_fields_default_when_absent() {
     assert!(item.category.is_empty());
     assert!(item.namespace.is_empty());
     assert!(item.tags.is_empty());
-}
-
-#[test]
-fn import_kb_item_deserializes_parent_alias_from_yaml() {
-    let yaml = "Key: engine\nValue: v\nParent: car\n";
-    let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(item.parent_key, Some("car".to_string()));
-}
-
-#[test]
-fn import_kb_item_still_deserializes_parent_key_field() {
-    let yaml = "Key: engine\nValue: v\nParentKey: car\n";
-    let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(item.parent_key, Some("car".to_string()));
-}
-
-#[test]
-fn import_kb_item_still_serializes_as_parent_key() {
-    let mut item = make_import_item("engine", "v");
-    item.parent_key = Some("car".to_string());
-    let yaml = serde_yaml::to_string(&item).unwrap();
-    assert!(yaml.contains("ParentKey: car"));
-    assert!(!yaml.contains("Parent:"));
 }
 
 // ---------------------------------------------------------------------------
@@ -382,7 +357,6 @@ fn make_add_json_input() -> AddJsonInput {
         notes: String::new(),
         namespace: String::new(),
         path: None,
-        parent: None,
         media_url: None,
         metadata: std::collections::BTreeMap::new(),
     }
@@ -615,7 +589,6 @@ fn try_from_add_json_input_defaults_optional_fields() {
         notes: String::new(),
         namespace: String::new(),
         path: None,
-        parent: None,
         media_url: None,
         metadata: std::collections::BTreeMap::new(),
     };
@@ -623,7 +596,6 @@ fn try_from_add_json_input_defaults_optional_fields() {
     assert_eq!(new_kb.reference, "");
     assert_eq!(new_kb.notes, "");
     assert_eq!(new_kb.namespace, "");
-    assert_eq!(new_kb.parent, None);
     assert_eq!(new_kb.path, None);
     assert_eq!(new_kb.media_url, None);
 }

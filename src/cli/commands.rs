@@ -52,9 +52,6 @@ pub enum Command {
         #[arg(long, help = "Prompt for missing required fields interactively")]
         interactive: bool,
 
-        #[arg(long, help = "UUID of the parent KB entry")]
-        parent: Option<String>,
-
         #[arg(
             long,
             default_value = "",
@@ -139,9 +136,6 @@ pub enum Command {
             help = "New tags (comma-separated); replaces existing"
         )]
         tags: Option<Vec<String>>,
-
-        #[arg(long, help = "UUID of the new parent KB entry")]
-        parent: Option<String>,
 
         #[arg(
             long,

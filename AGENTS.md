@@ -14,7 +14,7 @@ local SQLite file. The binary is named `kb`.
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--start-date`, `--end-date` (both `YYYY-MM-DD`, filter on `created_on`, inclusive), `--limit`, `--offset`, `--out` (`json`\|`yaml`, optional — default is plain text); uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
 - `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded), `--category` (post-filter), `--namespace` (`vec0` partition filter — narrows the vector search itself), `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb reindex`                 — Rebuild embeddings for all entries
-- `kb export`                  — Export KB entries and their graph relationships to a single-document YAML file with `kbs`/`graph` sections; flags: `--file-name` (optional), `--folder-output` (required), `--category`, `--namespace`, `--limit`, `--offset`; parents always appear before children; `Parent` field omitted when parent is not in the filtered set; `Path` field included when set; an edge appears in `graph` only when *both* its endpoints are present in the exported `kbs` set
+- `kb export`                  — Export KB entries and their graph relationships to a single-document YAML file with `kbs`/`graph` sections; flags: `--file-name` (optional), `--folder-output` (required), `--category`, `--namespace`, `--limit`, `--offset`; `Path` field included when set; an edge appears in `graph` only when *both* its endpoints are present in the exported `kbs` set
 - `kb import`                  — Import KB entries from a multi-document YAML file; `Path` field is validated and normalised on import
 - `kb random`                  — Print a random entry from a category; flags: `--category` (required), `--namespace` (optional), `--include-notes` (optional — append notes if present), `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
 - `kb categories`              — List all distinct, non-empty category values; flags: `--namespace` (optional), `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
@@ -93,18 +93,15 @@ metadata: BTreeMap<String, String>
 // Optional Unix-style path (e.g. /personal/cars/engines).
 // Leading `/` is auto-added if omitted. Validated on add/update/import.
 path: Option<String>
-// UUID of parent Kb entry — enables hierarchical relationships
-parent: Option<String>
 // ISO-8601 creation timestamp — set once on save
 created_on: String
 ```
 
 ## Graph Relationships
 
-`kb_edges` is a separate, additive table expressing a directed semantic
-relationship between two `kbs` records — distinct from the `parent`/`path`
-hierarchy (filing/organisation) and from each other (many-to-many, can be
-cyclic). The `KbEdge` struct in `domain/graph.rs` is the canonical entity:
+`kb_edges` is a table expressing directed semantic relationships between two
+`kbs` records (many-to-many, can be cyclic). The `KbEdge` struct in
+`domain/graph.rs` is the canonical entity:
 
 ```
 // Auto-generated UUID
@@ -286,5 +283,5 @@ These are structural violations that agents commonly introduce. Check before sub
   `map_err(|e| Error::Foo(e.to_string()))`.
 - **Making `#[cfg(test)]` constructors public in production** — test-only helpers must carry
   `#[cfg(test)]`.
-- **Duplicating validation logic across methods** — if `add` and `update` share the same guard (e.g. parent existence check), that guard belongs in a single private helper called by both. Copy-pasted validation blocks drift out of sync.
+- **Duplicating validation logic across methods** — if `add` and `update` share the same guard, that guard belongs in a single private helper called by both. Copy-pasted validation blocks drift out of sync.
 - **Encoding structured data as a delimited string** — joining a `Vec` into a string just so the caller can split it is a design smell. Pass structured data (vec, iterator) through the type, or format it only at the output boundary.

@@ -57,10 +57,6 @@ pub enum Error {
     ConflictingAddFlags(String),
     #[error("interactive input error: {0}")]
     InteractiveInputError(String),
-    #[error("parent KB not found")]
-    ParentKBNotFound,
-    #[error("KB has children, delete them first: {0}")]
-    KBHasChildrenError(String),
     #[error("invalid path: {0}")]
     InvalidPathError(String),
     #[error("media download failed: {0}")]
