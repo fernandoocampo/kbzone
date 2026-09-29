@@ -196,7 +196,16 @@ kb search --reference "Kubernetes Official"                   # Filter by refere
 kb search --keyword pod --out json                            # Output as JSON
 kb search --category concept --limit 10 --offset 20           # Pagination
 kb search --start-date 2026-01-01 --end-date 2026-01-31        # Entries created in January 2026
+kb search --namespace "company.domain.*"                      # Wildcard: prefix match
+kb search --namespace "*.domain.subdomain"                     # Wildcard: suffix match
+kb search --namespace "*.domain.subdomain.*"                   # Wildcard: contains match
 ```
+
+`--namespace` accepts `*` glob wildcards (any number, any position) and matches
+case-insensitively whenever a `*` is used; a plain value with no `*` is still an
+exact, case-sensitive match. This wildcard support is specific to `search` —
+`export`, `ask`, `categories`, and `random` keep exact-match `--namespace`
+filtering.
 
 Filters are cumulative — multiple filters are combined with AND logic. Use `--keyword` for full-text tag search (powered by SQLite FTS5). Use `--start-date`/`--end-date` (`YYYY-MM-DD`) to filter by creation date, inclusive on both ends. Use `--out` to format results as `json` or `yaml` (default: plain text).
 

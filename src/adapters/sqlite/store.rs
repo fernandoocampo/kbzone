@@ -632,7 +632,7 @@ impl KbStore for SqliteStore {
 
     fn get_kbs_full(&self, filter: &KbFilter) -> Result<Vec<Kb>, Error> {
         let (where_clause, limit_clause, offset_clause, bound_params) =
-            build_filter_clauses(filter);
+            build_filter_clauses(filter, NamespaceMatch::Exact);
 
         let sql = format!(
             "{}{} ORDER BY CREATED_ON ASC{}{}",
@@ -705,7 +705,7 @@ impl SqliteStore {
 
     fn get_kbs_list(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
         let (where_clause, limit_clause, offset_clause, bound_params) =
-            build_filter_clauses(filter);
+            build_filter_clauses(filter, NamespaceMatch::Wildcard);
 
         let sql = format!(
             "SELECT KB_ID, KB_KEY, CATEGORY, NAMESPACE, TAG_VALUES \
@@ -753,7 +753,8 @@ impl SqliteStore {
     }
 
     fn count_kbs_list(&self, filter: &KbFilter) -> Result<i64, Error> {
-        let (where_clause, _, _, bound_params) = build_filter_clauses(filter);
+        let (where_clause, _, _, bound_params) =
+            build_filter_clauses(filter, NamespaceMatch::Wildcard);
 
         let sql = format!("SELECT COUNT(*) FROM kbs{}", where_clause);
 
@@ -834,10 +835,68 @@ fn push_date_range_conditions(
     let _ = idx;
 }
 
+/// Whether a `NAMESPACE` condition should require an exact match or accept
+/// `*`-glob wildcards translated to a case-insensitive SQL `LIKE` pattern.
+enum NamespaceMatch {
+    Exact,
+    Wildcard,
+}
+
+/// Bundles the inputs to [`build_namespace_condition`] — needed because it
+/// takes more than 2 logical parameters.
+struct NamespaceConditionArgs<'a> {
+    namespace: &'a str,
+    idx: usize,
+    /// Column reference, e.g. `"NAMESPACE"` or the aliased `"k.NAMESPACE"`
+    /// used by the FTS join.
+    column: &'a str,
+    mode: NamespaceMatch,
+}
+
+/// Builds a single namespace WHERE-clause fragment and its bound parameter.
+/// `Wildcard` mode translates `*` to `%` (via [`glob_to_like_pattern`]) and
+/// matches case-insensitively; `Exact` mode is a plain, case-sensitive `=`.
+fn build_namespace_condition(args: NamespaceConditionArgs) -> (String, String) {
+    match args.mode {
+        NamespaceMatch::Exact => (
+            format!("{} = ?{}", args.column, args.idx),
+            args.namespace.to_string(),
+        ),
+        NamespaceMatch::Wildcard => (
+            format!(
+                "LOWER({}) LIKE LOWER(?{}) ESCAPE '\\'",
+                args.column, args.idx
+            ),
+            glob_to_like_pattern(args.namespace),
+        ),
+    }
+}
+
+/// Translates a `*`-glob pattern into a SQL `LIKE` pattern: `*` becomes `%`,
+/// and any literal `%`, `_`, or `\` in the input is escaped with `\` so it
+/// isn't misinterpreted as a SQL wildcard (paired with `ESCAPE '\'`).
+fn glob_to_like_pattern(raw: &str) -> String {
+    let mut pattern = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        match ch {
+            '*' => pattern.push('%'),
+            '%' | '_' | '\\' => {
+                pattern.push('\\');
+                pattern.push(ch);
+            }
+            other => pattern.push(other),
+        }
+    }
+    pattern
+}
+
 /// Builds the WHERE clause string, LIMIT clause, OFFSET clause, and bound parameters
 /// for a filtered list query. Returns `(where_clause, limit_clause, offset_clause, params)`.
-fn build_filter_clauses(filter: &KbFilter) -> (String, String, String, Vec<String>) {
-    let (conditions, bound_params) = build_list_filters(filter);
+fn build_filter_clauses(
+    filter: &KbFilter,
+    namespace_mode: NamespaceMatch,
+) -> (String, String, String, Vec<String>) {
+    let (conditions, bound_params) = build_list_filters(filter, namespace_mode);
     let where_clause = if conditions.is_empty() {
         String::new()
     } else {
@@ -856,7 +915,10 @@ fn build_filter_clauses(filter: &KbFilter) -> (String, String, String, Vec<Strin
 
 /// Builds the WHERE conditions and bound parameter list for `list_kbs`.
 /// Translated from Go kbcli `buildSQLFilters`.
-fn build_list_filters(filter: &KbFilter) -> (Vec<String>, Vec<String>) {
+fn build_list_filters(
+    filter: &KbFilter,
+    namespace_mode: NamespaceMatch,
+) -> (Vec<String>, Vec<String>) {
     let mut conditions: Vec<String> = Vec::new();
     let mut params: Vec<String> = Vec::new();
     let mut idx = 1usize;
@@ -868,8 +930,14 @@ fn build_list_filters(filter: &KbFilter) -> (Vec<String>, Vec<String>) {
     }
 
     if let Some(ns) = &filter.namespace {
-        conditions.push(format!("NAMESPACE = ?{}", idx));
-        params.push(ns.clone());
+        let (cond, val) = build_namespace_condition(NamespaceConditionArgs {
+            namespace: ns,
+            idx,
+            column: "NAMESPACE",
+            mode: namespace_mode,
+        });
+        conditions.push(cond);
+        params.push(val);
         idx += 1;
     }
 
@@ -911,6 +979,18 @@ fn build_fts_extra_filters(filter: &KbFilter) -> (String, Vec<String>) {
     let mut conditions: Vec<String> = Vec::new();
     let mut params: Vec<String> = Vec::new();
     let mut idx = 2usize;
+
+    if let Some(ns) = filter.namespace.as_deref().filter(|n| !n.is_empty()) {
+        let (cond, val) = build_namespace_condition(NamespaceConditionArgs {
+            namespace: ns,
+            idx,
+            column: "k.NAMESPACE",
+            mode: NamespaceMatch::Wildcard,
+        });
+        conditions.push(cond);
+        params.push(val);
+        idx += 1;
+    }
 
     if let Some(r) = filter.reference.as_deref().filter(|r| !r.is_empty()) {
         conditions.push(format!("LOWER(k.REFERENCE) LIKE ?{idx}"));

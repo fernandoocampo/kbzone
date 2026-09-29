@@ -180,7 +180,10 @@ pub enum Command {
         #[arg(long, help = "Filter by category")]
         category: Option<String>,
 
-        #[arg(long, help = "Filter by namespace")]
+        #[arg(
+            long,
+            help = "Filter by namespace; supports '*' wildcards for prefix/suffix/contains matching (e.g. 'company.domain.*', '*.domain.subdomain', '*.domain.subdomain.*')"
+        )]
         namespace: Option<String>,
 
         /// Comma-separated tags to filter by

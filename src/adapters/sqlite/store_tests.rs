@@ -211,6 +211,176 @@ fn get_kbs_with_keyword_reference_filter_returns_empty_when_no_match() {
 }
 
 #[test]
+fn get_kbs_filters_by_namespace_prefix_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "company.domain.api".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "company.domain.web".to_string();
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.namespace = "company.other".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        namespace: Some("company.domain.*".to_string()),
+        ..Default::default()
+    };
+    let mut keys: Vec<String> = store
+        .get_kbs(&filter)
+        .unwrap()
+        .into_iter()
+        .map(|i| i.key)
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["key-a".to_string(), "key-b".to_string()]);
+}
+
+#[test]
+fn get_kbs_filters_by_namespace_suffix_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "company.domain.subdomain".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "company.domain.subdomain.extra".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        namespace: Some("*.domain.subdomain".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_filters_by_namespace_contains_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "company.domain.subdomain.api".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "company.other".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        namespace: Some("*.domain.subdomain.*".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_filters_by_namespace_glob_with_internal_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "a.b.c".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "a.x.c".to_string();
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.namespace = "a.b.d".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        namespace: Some("a.*.c".to_string()),
+        ..Default::default()
+    };
+    let mut keys: Vec<String> = store
+        .get_kbs(&filter)
+        .unwrap()
+        .into_iter()
+        .map(|i| i.key)
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["key-a".to_string(), "key-b".to_string()]);
+}
+
+#[test]
+fn get_kbs_filters_by_namespace_exact_no_wildcard_behavior_preserved() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "rust".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "rust-extra".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        namespace: Some("rust".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_filters_by_namespace_wildcard_is_case_insensitive() {
+    let store = initialized_store();
+    let mut kb = make_kb("id-1", "key-a");
+    kb.namespace = "company.domain.api".to_string();
+    store.save_kb(&kb).unwrap();
+
+    let filter = KbFilter {
+        namespace: Some("COMPANY.DOMAIN.*".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_filters_by_namespace_wildcard_escapes_like_special_chars() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "co_mp.domain".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    // Would incorrectly match `co_mp.*` too if `_` weren't escaped to a literal
+    // in the translated LIKE pattern, since `_` is a SQL single-char wildcard.
+    kb2.namespace = "coxmp.domain".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        namespace: Some("co_mp.*".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_via_fts5_keyword_filters_by_namespace_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.namespace = "company.domain.api".to_string();
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.namespace = "company.other".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        namespace: Some("company.domain.*".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs(&filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "rust-ownership");
+}
+
+#[test]
 fn get_kbs_with_keyword_and_limit() {
     let store = initialized_store();
     let mut kb1 = make_kb("id-1", "rust-ownership");
@@ -594,6 +764,24 @@ fn get_kbs_full_filters_by_category() {
     let results = store.get_kbs_full(&filter).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].key, "key-b");
+}
+
+#[test]
+fn get_kbs_full_namespace_wildcard_is_treated_as_literal() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "company.domain.api".to_string();
+    store.save_kb(&kb1).unwrap();
+
+    // export (`get_kbs_full`) intentionally keeps exact-match namespace
+    // semantics — a `*` is a literal character, not a wildcard, so this
+    // matches nothing.
+    let filter = KbFilter {
+        namespace: Some("company.domain.*".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs_full(&filter).unwrap();
+    assert!(results.is_empty());
 }
 
 #[test]
@@ -1128,6 +1316,48 @@ fn count_kbs_with_keyword_and_reference_filter() {
 }
 
 #[test]
+fn count_kbs_filters_by_namespace_prefix_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.namespace = "company.domain.api".to_string();
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.namespace = "company.domain.web".to_string();
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.namespace = "company.other".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        namespace: Some("company.domain.*".to_string()),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn count_kbs_via_fts5_keyword_filters_by_namespace_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.namespace = "company.domain.api".to_string();
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.namespace = "company.other".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        namespace: Some("company.domain.*".to_string()),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
 fn get_kbs_filters_by_start_date_inclusive() {
     let store = initialized_store();
     let mut kb1 = make_kb("id-1", "key-1");
@@ -1329,4 +1559,21 @@ fn get_kbs_date_range_combined_with_category_and_reference() {
     let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].key, "key-1");
+}
+
+#[test]
+fn glob_to_like_pattern_translates_wildcards_and_escapes_special_chars() {
+    assert_eq!(glob_to_like_pattern("company.domain.*"), "company.domain.%");
+    assert_eq!(
+        glob_to_like_pattern("*.domain.subdomain"),
+        "%.domain.subdomain"
+    );
+    assert_eq!(
+        glob_to_like_pattern("*.domain.subdomain.*"),
+        "%.domain.subdomain.%"
+    );
+    assert_eq!(glob_to_like_pattern("a.*.b.*.c"), "a.%.b.%.c");
+    assert_eq!(glob_to_like_pattern("plain"), "plain");
+    assert_eq!(glob_to_like_pattern("100%_done"), "100\\%\\_done");
+    assert_eq!(glob_to_like_pattern("a\\b"), "a\\\\b");
 }

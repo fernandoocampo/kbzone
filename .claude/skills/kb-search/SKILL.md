@@ -22,7 +22,7 @@ allowed-tools:
 | User intent | Mode | Command |
 |---|---|---|
 | Open-ended / conceptual question ("what do I know about X", "how do I do Y") | semantic | `kb ask` |
-| Exact filter by keyword, category, namespace, tags, or reference | keyword | `kb search` |
+| Filter by keyword, category, namespace (supports `*` wildcards), tags, or reference | keyword | `kb search` |
 | "what categories exist" / "what kinds of things have I saved" | categories | `kb categories` |
 | "give me a random quote/idiom/concept" | random | `kb random` |
 
@@ -37,7 +37,7 @@ kb ask "<natural language query>" --limit 10 --threshold 0.9 --category <cat> --
 - `--threshold` (default `0.9`) is a **maximum distance** — lower is stricter. If results feel too sparse, raise it (e.g. `0.95`) rather than assuming there's nothing relevant.
 - `--limit` (default `10`).
 - `--category` and `--namespace` are both optional and combine with AND semantics when both given. Only pass them when the user actually named a category/namespace to scope to — don't invent filters they didn't ask for, since narrowing an otherwise-open-ended question can hide the answer.
-  - `--namespace` scopes the vector search itself (it's an exact-match partition filter), so it's cheap and precise — good default when the user says things like "in my rust notes" or names a project/domain.
+  - `--namespace` scopes the vector search itself (it's an exact-match partition filter — no `*` wildcards here, unlike `search`), so it's cheap and precise — good default when the user says things like "in my rust notes" or names a project/domain.
   - `--category` is applied after the nearest-neighbor search as a filter, so it's still exact-match but slightly less precise at very small `--limit` values — if a `--category` filter returns fewer results than expected, retry with a higher `--limit` before concluding there's nothing relevant.
 - Response is a list of `{ "item": {...}, "score": <distance> }`; lower `score` = closer match. `item` here is a lighter DTO (id, key, category, namespace, tags) — follow up with `kb-manage-entry`'s `get` if the user needs the full value/notes.
 
@@ -48,6 +48,7 @@ kb search --keyword <kw> --category <cat> --namespace <ns> --tags <t1,t2> --refe
 ```
 
 - `--keyword` runs an FTS5 full-text match; the other flags are exact/contains filters and combine with it (AND semantics).
+- `--namespace` supports `*` glob wildcards (any number, any position — translated to SQL `%`) and matches case-insensitively whenever a `*` is used, e.g. `--namespace 'company.domain.*'` (prefix), `--namespace '*.domain.subdomain'` (suffix), `--namespace '*.domain.subdomain.*'` (contains). A plain value with no `*` is an exact match. This wildcard support is `search`-specific — it does not apply to `ask`'s `--namespace`.
 - `--start-date`/`--end-date` (`YYYY-MM-DD`) filter by the entry's `created_on` creation timestamp, inclusive on both ends. Only pass the ones the user actually asked for (e.g. "created this month", "since March 1st").
 - Only pass flags the user actually specified — don't invent filters they didn't ask for.
 - `--limit` default `20`, `--offset` default `0` for pagination.
