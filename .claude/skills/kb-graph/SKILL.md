@@ -68,7 +68,7 @@ kb tree <key-or-id> --direction out --depth 10 --json
 
 ## Note on `kb graph` (interactive view)
 
-There's also a `kb graph <key-or-id>` command that opens an interactive visual graph (vis-network) in the default browser, for drag/click exploration. It's deliberately **not** wrapped here — it produces no JSON, needs internet access to load the viz library, and opens a browser window rather than returning a result. If the user wants a visual/interactive exploration rather than a structured answer, tell them to run `kb graph <key-or-id> [--direction out|in|both] [--depth N]` themselves.
+There's also a `kb graph <key-or-id>` command that opens an interactive visual graph (vis-network) in the default browser, for drag/click exploration. It's deliberately **not** wrapped here — it produces no JSON, needs internet access to load the viz library, and opens a browser window rather than returning a result. Node captions in that view use each entry's `label` field when set, falling back to `key`. If the user wants a visual/interactive exploration rather than a structured answer, tell them to run `kb graph <key-or-id> [--direction out|in|both] [--depth N]` themselves.
 
 ## Output to present
 

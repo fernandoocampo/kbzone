@@ -61,6 +61,7 @@ kb add --json '{"key":"rust-ownership","value":"Each value has a single owner.",
 | `reference` | no | Source: author, company, book title, or person (not URL) |
 | `notes` | no | Extended notes or elaboration. **For bookmarks: the description of the resource** |
 | `namespace` | no | Grouping scope |
+| `label` | no | Friendly display name for reports (e.g. the `kb graph` node caption); falls back to `key` when unset |
 | `path` | no | Hierarchical path (e.g. `/personal/rust`); leading `/` added automatically |
 | `media_url` | no | URL or local file path, for media categories |
 | `metadata` | no | Freeform key-value object; keys must not be blank |
@@ -78,6 +79,7 @@ JSON Schema:
     "reference": { "type": "string", "default": "" },
     "notes": { "type": "string", "default": "" },
     "namespace": { "type": "string", "default": "" },
+    "label": { "type": ["string", "null"], "default": null },
     "path": { "type": ["string", "null"], "default": null },
     "media_url": { "type": ["string", "null"], "default": null },
     "metadata": { "type": "object", "additionalProperties": { "type": "string" }, "propertyNames": { "minLength": 1 }, "default": {} }
@@ -96,7 +98,7 @@ kb get --key <key> --out json
 kb get --id <id> --out json
 ```
 
-Returns the full entry (`id`, `key`, `value`, `notes`, `category`, `namespace`, `reference`, `tags`, `metadata`, `created_on`, `path`, `media_extension`). `--out yaml` is also available; prefer `json` for parsing.
+Returns the full entry (`id`, `key`, `value`, `notes`, `category`, `namespace`, `reference`, `label`, `tags`, `metadata`, `created_on`, `path`, `media_extension`). `--out yaml` is also available; prefer `json` for parsing.
 
 Add `--with-out-connections`, `--with-in-connections`, or `--with-all-connections` when the user also wants to see this entry's relationships in the same call — this saves a separate lookup via the kb-graph skill.
 
@@ -111,7 +113,7 @@ kb get --key <key> --out json   # resolve id
 kb update --id <id> --value "new value" --out json
 ```
 
-Only pass flags for fields that are actually changing — omitted flags leave that field untouched. `--path ""` clears the path; `--metadata ""` clears all metadata (both replace-in-full, not merge). Ask which fields to change if the user's request is ambiguous about scope (e.g. "fix the note about X" — confirm whether they mean `value` or `notes`).
+Only pass flags for fields that are actually changing — omitted flags leave that field untouched. `--path ""` clears the path; `--metadata ""` clears all metadata; `--label ""` clears the label (all replace-in-full, not merge). Ask which fields to change if the user's request is ambiguous about scope (e.g. "fix the note about X" — confirm whether they mean `value` or `notes`).
 
 ## Delete
 

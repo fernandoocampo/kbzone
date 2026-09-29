@@ -7,9 +7,9 @@ local SQLite file. The binary is named `kb`.
 
 ### CLI Commands
 
-- `kb add`                     — Add a new entry (also indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs) and `--path` (optional Unix-style path, leading `/` auto-added)
-- `kb get`                     — Fetch a single entry by key or ID; displays `path` if set; flags: `--out` (`json`\|`yaml`, optional — default is plain text)
-- `kb update`                  — Update an entry (also re-indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs; replaces existing metadata; empty string clears all), `--path` (empty string clears the path), and `--out` (`json`\|`yaml`, optional — default is plain text)
+- `kb add`                     — Add a new entry (also indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs), `--path` (optional Unix-style path, leading `/` auto-added), and `--label` (optional friendly display name, e.g. for `kb graph` node captions)
+- `kb get`                     — Fetch a single entry by key or ID; displays `path` and `label` if set; flags: `--out` (`json`\|`yaml`, optional — default is plain text)
+- `kb update`                  — Update an entry (also re-indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs; replaces existing metadata; empty string clears all), `--path` (empty string clears the path), `--label` (empty string clears the label), and `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb delete`                  — Delete an entry (also removes embedding); flags: `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--start-date`, `--end-date` (both `YYYY-MM-DD`, filter on `created_on`, inclusive), `--limit`, `--offset`, `--out` (`json`\|`yaml`, optional — default is plain text); uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
 - `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded), `--category` (post-filter), `--namespace` (`vec0` partition filter — narrows the vector search itself), `--out` (`json`\|`yaml`, optional — default is plain text)
@@ -22,7 +22,7 @@ local SQLite file. The binary is named `kb`.
 - `kb unlink <from> <to>`      — Remove the edge between two entries (key or ID); errors if no such edge exists
 - `kb related <key-or-id>`     — Show one-hop outgoing/incoming relationships; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--json` (full NOTE text; human output truncates NOTE to 40 chars)
 - `kb tree <key-or-id>`        — Transitive relationship traversal via a recursive CTE; flags: `--direction` (`out`\|`in`, default `out`), `--depth` (default `10`), `--json`
-- `kb graph <key-or-id>`       — Open an interactive HTML graph view (vis-network) in the default browser: drag nodes, click one to inspect its full content, see its relationships highlighted; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--depth` (default `2`); requires internet access (vis-network loads from a CDN) and writes no file — served once in-memory over a loopback HTTP connection, then the process exits
+- `kb graph <key-or-id>`       — Open an interactive HTML graph view (vis-network) in the default browser: drag nodes, click one to inspect its full content, see its relationships highlighted; node captions use `label` when set, falling back to `key`; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--depth` (default `2`); requires internet access (vis-network loads from a CDN) and writes no file — served once in-memory over a loopback HTTP connection, then the process exits
 
 ### Configuration
 
@@ -93,6 +93,10 @@ metadata: BTreeMap<String, String>
 // Optional Unix-style path (e.g. /personal/cars/engines).
 // Leading `/` is auto-added if omitted. Validated on add/update/import.
 path: Option<String>
+// Optional friendly display name for reports (e.g. the `kb graph`
+// node caption). Falls back to `key` when unset. Not included in
+// the embedding text.
+label: Option<String>
 // ISO-8601 creation timestamp — set once on save
 created_on: String
 ```

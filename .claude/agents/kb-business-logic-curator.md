@@ -152,6 +152,9 @@ agent never deletes or unlinks (see Hard constraints).
 - `namespace`: the one(s) chosen in step 1.
 - `reference`: cite the source file/module the logic came from, e.g.
   `src/domain/order.rs`, so a human can go verify it.
+- `label`: leave unset by default — it's a cosmetic display name (e.g. for
+  `kb graph` node captions), not business content. Only set it if the user
+  explicitly asks for a friendlier caption than the key.
 
 Examples:
 ```

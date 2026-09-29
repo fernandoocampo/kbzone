@@ -72,6 +72,7 @@ Each entry in your knowledge base has the following fields:
 | `category` | string | No | Entry type for organization (e.g. `quote`, `bookmark`, `concept`, `command`, `media`) |
 | `namespace` | string | No | Grouping scope (e.g. `rust`, `kubernetes`, `personal`, `work`) |
 | `reference` | string | No | Source attribution — author, book title, URL, person's name. Included in semantic search. |
+| `label` | string | No | Friendly display name for reports (e.g. the `kb graph` node caption). Falls back to `key` when unset. Not included in semantic search. |
 | `tags` | string[] | No | Comma-separated keywords for full-text search and semantic matching (e.g. `["rust", "memory", "ownership"]`) |
 | `metadata` | string[] | No | Comma-separated key=value metadata pairs (e.g. author=me,priority=high) |
 | `path` | string | No | Optional Unix-style hierarchical path for filing (e.g. `/learning/rust`, `/work/projects`). Leading `/` is added automatically. |
@@ -100,10 +101,13 @@ kb add --key rust-ownership \
        --namespace rust \
        --tags rust,memory,ownership \
        --reference "The Rust Programming Language" \
+       --label "Rust Ownership" \
        --path /learning/rust
 ```
 
 The `--path` flag is optional. It accepts Unix-style hierarchical paths like `/personal/rust` or `/work/projects`. The leading `/` is added automatically if omitted — `personal/rust` becomes `/personal/rust`. Invalid paths (e.g. containing `..` or `//`) are rejected with an error message.
+
+The `--label` flag is optional — a friendly display name used in reports (e.g. the `kb graph` node caption). When unset, displays fall back to `key`. Pass `--label ""` on `kb update` to clear it.
 
 ### Metadata (custom key-value pairs)
 
@@ -251,6 +255,8 @@ kb update --id <uuid> --path /learning/rust
 kb update --id <uuid> --path ""   # clears the path
 kb update --id <uuid> --metadata "priority=high"
 kb update --id <uuid> --metadata ""   # clears all metadata
+kb update --id <uuid> --label "Rust Ownership"
+kb update --id <uuid> --label ""   # clears the label
 ```
 
 Only the fields you pass are changed. Pass `--path` to set or change the path; pass an empty string to clear it. Pass `--metadata` to replace the entire metadata map (comma-separated `key=value` pairs); pass an empty string to clear all metadata. Metadata replaces entirely — to change one key you must retype all keys.
@@ -284,6 +290,7 @@ Tags: [rust, memory, ownership]
 Reference: "The Rust Programming Language"
 Path: /learning/rust        # optional: Unix-style path; leading / auto-added if omitted
 MediaExtension: jpg         # optional: file extension for media entries (e.g. jpg, png, pdf)
+Label: "Rust Borrowing"     # optional: friendly display name for reports
 ```
 
 Items that fail validation or import are written to the failed items file (default: `wrong-kb-items.yaml`). Relationships (edges) that fail to import are written to the failed edges file (default: `wrong-kb-edges.yaml`).
@@ -406,6 +413,8 @@ Opens an interactive HTML graph view in your default browser showing the entry a
 - Drag nodes to rearrange the graph
 - Click a node to inspect its full content
 - See relationships highlighted visually
+
+Node captions use each entry's `label` when set, falling back to its `key`.
 
 - `--direction` (`out` | `in` | `both`, default `both`): Relationship directions to display
 - `--depth` (default `2`): Maximum traversal depth from the root entry

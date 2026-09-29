@@ -413,13 +413,6 @@ impl KbStore for SqliteStore {
             conn.execute_batch(ddl)
                 .map_err(|e| Error::StorageInitError(e.to_string()))?;
         }
-        // Idempotent migration: add PARENT_KB_ID column if it does not exist yet.
-        if let Err(e) =
-            conn.execute_batch("ALTER TABLE kbs ADD COLUMN PARENT_KB_ID TEXT DEFAULT NULL")
-            && !e.to_string().contains("duplicate column name")
-        {
-            return Err(Error::StorageInitError(e.to_string()));
-        }
         // Idempotent migration: add KB_PATH column if it does not exist yet.
         if let Err(e) = conn.execute_batch("ALTER TABLE kbs ADD COLUMN KB_PATH TEXT DEFAULT NULL")
             && !e.to_string().contains("duplicate column name")
