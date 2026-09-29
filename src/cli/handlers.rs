@@ -66,6 +66,7 @@ pub struct SearchParams {
     pub keyword: Option<String>,
     pub category: Option<String>,
     pub namespace: Option<String>,
+    pub path: Option<String>,
     pub tags: Vec<String>,
     pub reference: Option<String>,
     pub start_date: Option<String>,
@@ -869,6 +870,9 @@ pub fn handle_search<
     if let Some(ref n) = params.namespace {
         parts.push(format!("namespace={n}"));
     }
+    if let Some(ref p) = params.path {
+        parts.push(format!("path={p}"));
+    }
     if !params.tags.is_empty() {
         parts.push(format!("tags={}", params.tags.join(",")));
     }
@@ -891,6 +895,7 @@ pub fn handle_search<
         keyword: params.keyword,
         category: params.category,
         namespace: params.namespace,
+        path: params.path,
         tags: if params.tags.is_empty() {
             None
         } else {

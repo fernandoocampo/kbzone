@@ -186,6 +186,12 @@ pub enum Command {
         )]
         namespace: Option<String>,
 
+        #[arg(
+            long,
+            help = "Filter by path; supports '*' wildcards for prefix/suffix/contains matching (e.g. '/personal/cars/*', '*/engines', '*/cars/*')"
+        )]
+        path: Option<String>,
+
         /// Comma-separated tags to filter by
         #[arg(long, value_delimiter = ',', help = "Filter by tags (comma-separated)")]
         tags: Vec<String>,

@@ -1798,6 +1798,7 @@ fn search_params(out: Option<&str>) -> SearchParams {
         keyword: None,
         category: None,
         namespace: None,
+        path: None,
         tags: Vec::new(),
         reference: None,
         start_date: None,
@@ -1845,6 +1846,18 @@ fn handle_search_invalid_out_value_returns_error() {
     seed_kb(&svc, "search-test-invalid-out");
     let result = handle_search(&svc, search_params(Some("xml")));
     assert!(matches!(result, Err(Error::SearchError(_))));
+}
+
+#[test]
+fn handle_search_with_path_filter_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-path");
+    let params = SearchParams {
+        path: Some("/personal/*".to_string()),
+        ..search_params(None)
+    };
+    let result = handle_search(&svc, params);
+    assert!(result.is_ok());
 }
 
 fn search_params_with_dates(

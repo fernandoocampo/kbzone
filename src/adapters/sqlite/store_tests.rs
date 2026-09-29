@@ -381,6 +381,176 @@ fn get_kbs_via_fts5_keyword_filters_by_namespace_wildcard() {
 }
 
 #[test]
+fn get_kbs_filters_by_path_prefix_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.path = Some("/company/domain/api".to_string());
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.path = Some("/company/domain/web".to_string());
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.path = Some("/company/other".to_string());
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        path: Some("/company/domain/*".to_string()),
+        ..Default::default()
+    };
+    let mut keys: Vec<String> = store
+        .get_kbs(&filter)
+        .unwrap()
+        .into_iter()
+        .map(|i| i.key)
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["key-a".to_string(), "key-b".to_string()]);
+}
+
+#[test]
+fn get_kbs_filters_by_path_suffix_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.path = Some("/company/domain/subdomain".to_string());
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.path = Some("/company/domain/subdomain/extra".to_string());
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        path: Some("*/domain/subdomain".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_filters_by_path_contains_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.path = Some("/company/domain/subdomain/api".to_string());
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.path = Some("/company/other".to_string());
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        path: Some("*/domain/subdomain/*".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_filters_by_path_glob_with_internal_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.path = Some("/a/b/c".to_string());
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.path = Some("/a/x/c".to_string());
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.path = Some("/a/b/d".to_string());
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        path: Some("/a/*/c".to_string()),
+        ..Default::default()
+    };
+    let mut keys: Vec<String> = store
+        .get_kbs(&filter)
+        .unwrap()
+        .into_iter()
+        .map(|i| i.key)
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["key-a".to_string(), "key-b".to_string()]);
+}
+
+#[test]
+fn get_kbs_filters_by_path_exact_no_wildcard_behavior_preserved() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.path = Some("/rust".to_string());
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.path = Some("/rust-extra".to_string());
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        path: Some("/rust".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_filters_by_path_wildcard_is_case_insensitive() {
+    let store = initialized_store();
+    let mut kb = make_kb("id-1", "key-a");
+    kb.path = Some("/company/domain/api".to_string());
+    store.save_kb(&kb).unwrap();
+
+    let filter = KbFilter {
+        path: Some("/COMPANY/DOMAIN/*".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_filters_by_path_wildcard_escapes_like_special_chars() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.path = Some("/co_mp/domain".to_string());
+    let mut kb2 = make_kb("id-2", "key-b");
+    // Would incorrectly match `/co_mp/*` too if `_` weren't escaped to a literal
+    // in the translated LIKE pattern, since `_` is a SQL single-char wildcard.
+    kb2.path = Some("/coxmp/domain".to_string());
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        path: Some("/co_mp/*".to_string()),
+        ..Default::default()
+    };
+    let items = store.get_kbs(&filter).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key, "key-a");
+}
+
+#[test]
+fn get_kbs_via_fts5_keyword_filters_by_path_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.path = Some("/company/domain/api".to_string());
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.path = Some("/company/other".to_string());
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        path: Some("/company/domain/*".to_string()),
+        ..Default::default()
+    };
+    let results = store.get_kbs(&filter).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].key, "rust-ownership");
+}
+
+#[test]
 fn get_kbs_with_keyword_and_limit() {
     let store = initialized_store();
     let mut kb1 = make_kb("id-1", "rust-ownership");
@@ -1351,6 +1521,48 @@ fn count_kbs_via_fts5_keyword_filters_by_namespace_wildcard() {
     let filter = KbFilter {
         keyword: Some("rust".to_string()),
         namespace: Some("company.domain.*".to_string()),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn count_kbs_filters_by_path_prefix_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "key-a");
+    kb1.path = Some("/company/domain/api".to_string());
+    let mut kb2 = make_kb("id-2", "key-b");
+    kb2.path = Some("/company/domain/web".to_string());
+    let mut kb3 = make_kb("id-3", "key-c");
+    kb3.path = Some("/company/other".to_string());
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+    store.save_kb(&kb3).unwrap();
+
+    let filter = KbFilter {
+        path: Some("/company/domain/*".to_string()),
+        ..Default::default()
+    };
+    let count = store.count_kbs(&filter).unwrap();
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn count_kbs_via_fts5_keyword_filters_by_path_wildcard() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "rust-ownership");
+    kb1.tags = vec!["rust".to_string()];
+    kb1.path = Some("/company/domain/api".to_string());
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    kb2.tags = vec!["rust".to_string()];
+    kb2.path = Some("/company/other".to_string());
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        path: Some("/company/domain/*".to_string()),
         ..Default::default()
     };
     let count = store.count_kbs(&filter).unwrap();
