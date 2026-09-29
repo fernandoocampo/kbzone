@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.16.0](https://github.com/fernandoocampo/kbzone/compare/860a3f274ac5fb51bde60e40de10edc9421403f0..v0.16.0) - 2026-09-29
+#### Features
+- add path filter for search - ([4542176](https://github.com/fernandoocampo/kbzone/commit/4542176a8b9dc701313208911c2b05b185b0f34e)) - Fernando Ocampo
+
+- - -
+
 ## [v0.15.0](https://github.com/fernandoocampo/kbzone/compare/6b88c32c09574acfb6d00c539cfb6c38e0489fa9..v0.15.0) - 2026-09-29
 #### Features
 - add full * glob wildcards to namespace in search - ([6b88c32](https://github.com/fernandoocampo/kbzone/commit/6b88c32c09574acfb6d00c539cfb6c38e0489fa9)) - Fernando Ocampo
