@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.14.1](https://github.com/fernandoocampo/kbzone/compare/68833e78519b27d8da47c82932bf388fc20c4a03..v0.14.1) - 2026-09-29
+#### Bug Fixes
+- add missing label field - ([68833e7](https://github.com/fernandoocampo/kbzone/commit/68833e78519b27d8da47c82932bf388fc20c4a03)) - Fernando Ocampo
+
+- - -
+
 ## [v0.14.0](https://github.com/fernandoocampo/kbzone/compare/97f71c14d7e823e44b240eff022762ab7cb7f8e8..v0.14.0) - 2026-09-29
 #### Features
 - add label field - ([97f71c1](https://github.com/fernandoocampo/kbzone/commit/97f71c14d7e823e44b240eff022762ab7cb7f8e8)) - Fernando Ocampo
