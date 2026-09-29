@@ -143,7 +143,7 @@
       const isRoot = n.id === GRAPH.root_id;
       return {
         id: n.id,
-        label: n.key,
+        label: n.label || n.key,
         title: `${n.category || "(no category)"} / ${n.namespace || "(no namespace)"}`,
         color: colorFor(n.category),
         shape: "dot",
@@ -211,13 +211,15 @@
     function showDetails(node) {
       panel.innerHTML = "";
       const h2 = document.createElement("h2");
-      h2.textContent = node.key;
+      h2.textContent = node.label || node.key;
       panel.appendChild(h2);
 
       const dl = document.createElement("dl");
       field(dl, "Category", node.category);
       field(dl, "Namespace", node.namespace);
       field(dl, "Reference", node.reference);
+      field(dl, "Label", node.label || "");
+      field(dl, "Key", node.key);
       field(dl, "Tags", (node.tags || []).join(", "));
       field(dl, "Path", node.path || "");
       field(dl, "Value", node.value);

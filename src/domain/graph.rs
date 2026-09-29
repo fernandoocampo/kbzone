@@ -290,6 +290,7 @@ pub struct GraphExportNode {
     pub reference: String,
     pub tags: Vec<String>,
     pub path: Option<String>,
+    pub label: Option<String>,
     pub created_on: String,
 }
 
@@ -305,6 +306,7 @@ impl From<&Kb> for GraphExportNode {
             reference: kb.reference.clone(),
             tags: kb.tags.clone(),
             path: kb.path.clone(),
+            label: kb.label.clone(),
             created_on: kb.created_on.clone(),
         }
     }

@@ -48,6 +48,8 @@ pub struct Kb {
     pub path: Option<String>,
     /// File extension of the stored media file (e.g. `"jpg"`, `"pdf"`). Only set for category `media`.
     pub media_extension: Option<String>,
+    /// Optional friendly display name for reports (e.g. the `kb graph` node caption).
+    pub label: Option<String>,
 }
 
 impl Kb {
@@ -93,6 +95,9 @@ impl std::fmt::Display for Kb {
         writeln!(f, "Created   : {}", self.created_on)?;
         if let Some(ref p) = self.path {
             writeln!(f, "Path      : {}", p)?;
+        }
+        if let Some(ref l) = self.label {
+            writeln!(f, "Label     : {}", l)?;
         }
         if !self.notes.is_empty() {
             writeln!(f, "Notes     :\n{}", self.notes)?;
@@ -174,6 +179,8 @@ pub struct NewKb {
     /// File extension override. Takes precedence over the extension derived from `media_url`.
     /// Used by import, where the file extension is already known and no URL is present.
     pub media_extension: Option<String>,
+    /// Optional friendly display name for reports.
+    pub label: Option<String>,
 }
 
 impl From<NewKb> for Kb {
@@ -196,6 +203,7 @@ impl From<NewKb> for Kb {
             created_on: Local::now().format("%Y-%m-%dT%H:%M:%S%z").to_string(),
             path: new.path,
             media_extension,
+            label: new.label,
         }
     }
 }
@@ -217,6 +225,8 @@ pub struct KbUpdate {
     /// Empty string = clear all metadata. Otherwise replaces the entire map
     /// (whole-replace, like `tags`) after validation via `build_metadata`.
     pub metadata: Option<String>,
+    /// Set a new label. `None` = keep existing. Empty string = clear label.
+    pub label: Option<String>,
 }
 
 /// Parameters for list / search operations.
@@ -303,6 +313,8 @@ pub struct ExportKbItem {
     pub path: Option<String>,
     #[serde(rename = "MediaExtension", skip_serializing_if = "Option::is_none")]
     pub media_extension: Option<String>,
+    #[serde(rename = "Label", skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// Parameters for the media file export operation.
@@ -334,6 +346,8 @@ pub struct ImportKbItem {
     pub path: Option<String>,
     #[serde(rename = "MediaExtension", default)]
     pub media_extension: Option<String>,
+    #[serde(rename = "Label", default)]
+    pub label: Option<String>,
 }
 
 impl ImportKbItem {
@@ -369,6 +383,7 @@ impl From<ImportKbItem> for NewKb {
             path: item.path,
             media_url: None,
             media_extension: item.media_extension,
+            label: item.label,
         }
     }
 }
@@ -392,6 +407,8 @@ pub struct AddJsonInput {
     pub path: Option<String>,
     #[serde(default)]
     pub media_url: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
     #[serde(default)]
     pub metadata: BTreeMap<String, String>,
 }
@@ -500,6 +517,7 @@ impl TryFrom<AddJsonInput> for NewKb {
             metadata: input.metadata,
             path,
             media_url: input.media_url,
+            label: input.label,
             media_extension: None,
         })
     }

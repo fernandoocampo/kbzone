@@ -13,6 +13,7 @@ fn make_kb(value: &str) -> Kb {
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         path: None,
         media_extension: None,
+        label: None,
         metadata: std::collections::BTreeMap::new(),
     }
 }
@@ -50,6 +51,14 @@ fn embedding_text_truncates_value_at_200_chars() {
     assert!(value_part.len() <= 200);
 }
 
+#[test]
+fn embedding_text_does_not_contain_label() {
+    let mut kb = make_kb("kubectl get pods");
+    kb.label = Some("My Label".to_string());
+    let text = kb.embedding_text();
+    assert!(!text.contains("My Label"));
+}
+
 fn make_import_item(key: &str, value: &str) -> ImportKbItem {
     ImportKbItem {
         key: key.to_string(),
@@ -61,6 +70,7 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
         tags: vec!["rust".to_string()],
         path: None,
         media_extension: None,
+        label: None,
     }
 }
 
@@ -358,6 +368,7 @@ fn make_add_json_input() -> AddJsonInput {
         namespace: String::new(),
         path: None,
         media_url: None,
+        label: None,
         metadata: std::collections::BTreeMap::new(),
     }
 }
@@ -590,6 +601,7 @@ fn try_from_add_json_input_defaults_optional_fields() {
         namespace: String::new(),
         path: None,
         media_url: None,
+        label: None,
         metadata: std::collections::BTreeMap::new(),
     };
     let new_kb = NewKb::try_from(input).expect("expected Ok NewKb");

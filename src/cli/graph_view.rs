@@ -40,6 +40,7 @@ mod tests {
                     reference: String::new(),
                     tags: vec!["vehicle".to_string()],
                     path: None,
+                    label: None,
                     created_on: "2026-01-01T00:00:00+0000".to_string(),
                 },
                 GraphExportNode {
@@ -52,6 +53,7 @@ mod tests {
                     reference: String::new(),
                     tags: vec![],
                     path: None,
+                    label: None,
                     created_on: "2026-01-01T00:00:00+0000".to_string(),
                 },
             ],

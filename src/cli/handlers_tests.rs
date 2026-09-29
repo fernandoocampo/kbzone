@@ -365,6 +365,7 @@ fn make_kb(id: &str, key: &str) -> crate::domain::Kb {
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         path: None,
         media_extension: None,
+        label: None,
     }
 }
 
@@ -619,6 +620,7 @@ fn make_new_kb(key: &str) -> crate::domain::NewKb {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     }
 }
 
@@ -770,6 +772,7 @@ fn build_new_kb_non_interactive_all_fields_provided_no_prompt() {
         namespace: "rust".to_string(),
         tags: vec!["rust".to_string()],
         metadata: vec![],
+        label: String::new(),
         interactive: false,
         path: None,
         media_url: None,
@@ -796,6 +799,7 @@ fn handle_add_non_interactive_fails_without_key() {
         namespace: String::new(),
         tags: Vec::new(),
         metadata: vec![],
+        label: String::new(),
         interactive: false,
         path: None,
         media_url: None,
@@ -817,6 +821,7 @@ fn handle_add_non_interactive_fails_without_value() {
         namespace: String::new(),
         tags: Vec::new(),
         metadata: vec![],
+        label: String::new(),
         interactive: false,
         path: None,
         media_url: None,
@@ -837,6 +842,7 @@ fn build_new_kb_non_interactive_builds_correctly() {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
         metadata: vec![],
+        label: String::new(),
         interactive: false,
         path: None,
         media_url: None,
@@ -920,6 +926,7 @@ fn format_preview_includes_all_fields() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     };
     let preview = format_preview(&kb);
     assert!(preview.contains("rust-ownership"));
@@ -945,6 +952,7 @@ fn format_preview_shows_tags_joined_with_comma() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     };
     let preview = format_preview(&kb);
     assert!(preview.contains("alpha, beta, gamma"));
@@ -965,6 +973,7 @@ fn build_new_kb_non_interactive_uses_provided_reference() {
         namespace: String::new(),
         tags: vec!["tag1".to_string()],
         metadata: vec![],
+        label: String::new(),
         interactive: false,
         path: None,
         media_url: None,
@@ -987,6 +996,7 @@ fn build_new_kb_non_interactive_uses_provided_tags() {
         namespace: String::new(),
         tags: vec!["rust".to_string(), "memory".to_string()],
         metadata: vec![],
+        label: String::new(),
         interactive: false,
         path: None,
         media_url: None,
@@ -1012,6 +1022,7 @@ fn add_params_with_json(json: Option<&str>) -> AddParams {
         namespace: String::new(),
         tags: Vec::new(),
         metadata: vec![],
+        label: String::new(),
         interactive: false,
         path: None,
         media_url: None,
@@ -1134,6 +1145,7 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
             tags: Vec::new(),
             path: None,
             media_extension: None,
+            label: None,
         },
         ImportKbItem {
             key: "key-two".to_string(),
@@ -1145,6 +1157,7 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
             tags: Vec::new(),
             path: None,
             media_extension: None,
+            label: None,
         },
     ];
     let result = serialize_failed_items(&items).unwrap();
@@ -1395,6 +1408,7 @@ fn seed_kb(
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .expect("seed add_kb should succeed");
 }
@@ -1419,6 +1433,7 @@ fn update_params_for(id: &str, out: Option<&str>) -> UpdateParams {
             tags: None,
             path: None,
             metadata: None,
+            label: None,
         },
         out: out.map(str::to_string),
     }
@@ -1969,6 +1984,7 @@ fn handle_delete_plain_text_success() {
             path: None,
             media_url: None,
             media_extension: None,
+            label: None,
         })
         .unwrap();
     let params = DeleteParams {
@@ -1995,6 +2011,7 @@ fn handle_delete_json_success() {
             path: None,
             media_url: None,
             media_extension: None,
+            label: None,
         })
         .unwrap();
     let params = DeleteParams {
@@ -2021,6 +2038,7 @@ fn handle_delete_invalid_out_value() {
             path: None,
             media_url: None,
             media_extension: None,
+            label: None,
         })
         .unwrap();
     let params = DeleteParams {
@@ -2070,6 +2088,7 @@ fn handle_categories_plain_text_success() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     svc.add_kb(NewKb {
@@ -2084,6 +2103,7 @@ fn handle_categories_plain_text_success() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     let params = CategoriesParams {
@@ -2109,6 +2129,7 @@ fn handle_categories_json_success() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     let params = CategoriesParams {
@@ -2145,6 +2166,7 @@ fn handle_categories_namespace_filter_json() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     svc.add_kb(NewKb {
@@ -2159,6 +2181,7 @@ fn handle_categories_namespace_filter_json() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     let params = CategoriesParams {
@@ -2197,6 +2220,7 @@ fn handle_namespaces_plain_text_success() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     svc.add_kb(NewKb {
@@ -2211,6 +2235,7 @@ fn handle_namespaces_plain_text_success() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     let params = NamespacesParams {
@@ -2236,6 +2261,7 @@ fn handle_namespaces_json_success() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     let params = NamespacesParams {
@@ -2283,6 +2309,7 @@ fn handle_namespaces_filter_json() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     svc.add_kb(NewKb {
@@ -2297,6 +2324,7 @@ fn handle_namespaces_filter_json() {
         path: None,
         media_url: None,
         media_extension: None,
+        label: None,
     })
     .unwrap();
     let params = NamespacesParams {

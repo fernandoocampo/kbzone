@@ -87,6 +87,7 @@ pub struct AddParams {
     pub category: String,
     pub namespace: String,
     pub reference: String,
+    pub label: String,
     pub tags: Vec<String>,
     pub metadata: Vec<(String, String)>,
     pub interactive: bool,
@@ -388,6 +389,7 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
         metadata,
         path,
         media_url,
+        label: (!params.label.is_empty()).then_some(params.label),
         media_extension: None,
     })
 }
@@ -420,6 +422,11 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         prompt_for("Reference (optional)", false)?
     } else {
         params.reference
+    };
+    let label = if params.label.is_empty() {
+        prompt_for("Label (optional)", false)?
+    } else {
+        params.label
     };
     let tags = if params.tags.is_empty() {
         let suggestions = suggested_tags_for(
@@ -466,6 +473,7 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         metadata,
         path,
         media_url,
+        label: (!label.is_empty()).then_some(label),
         media_extension: None,
     })
 }
@@ -499,13 +507,14 @@ fn suggested_tags_for(fields: &[&str], existing_tags: &[String]) -> Vec<String> 
 
 fn format_preview(kb: &NewKb) -> String {
     let mut s = format!(
-        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  metadata  : {}\n  path      : {}",
+        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  label     : {}\n  tags      : {}\n  metadata  : {}\n  path      : {}",
         kb.key,
         kb.value,
         kb.notes,
         kb.category,
         kb.namespace,
         kb.reference,
+        kb.label.as_deref().unwrap_or("-"),
         kb.tags.join(", "),
         format_metadata(&kb.metadata),
         kb.path.as_deref().unwrap_or("-"),
@@ -540,6 +549,13 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
     let category = prompt_adjust("category", &kb.category)?;
     let namespace = prompt_adjust("namespace", &kb.namespace)?;
     let reference = prompt_adjust("reference", &kb.reference)?;
+    let label_current = kb.label.as_deref().unwrap_or("");
+    let label_input = prompt_adjust("label (optional)", label_current)?;
+    let label = if label_input.is_empty() {
+        None
+    } else {
+        Some(label_input)
+    };
     let tags_current = kb.tags.join(", ");
     let tags_input = prompt_adjust("tags (comma-separated)", &tags_current)?;
     let tags = if tags_input.is_empty() {
@@ -575,6 +591,7 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
         category,
         namespace,
         reference,
+        label,
         tags,
         metadata,
         path,

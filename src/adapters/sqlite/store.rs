@@ -27,7 +27,10 @@ CREATE TABLE IF NOT EXISTS kbs (
     REFERENCE    TEXT NOT NULL DEFAULT '',
     TAG_VALUES   TEXT NOT NULL DEFAULT '',
     CREATED_ON   TEXT NOT NULL,
-    KB_PATH      TEXT DEFAULT NULL
+    KB_PATH      TEXT DEFAULT NULL,
+    MEDIA_EXTENSION TEXT DEFAULT NULL,
+    METADATA     TEXT DEFAULT NULL,
+    LABEL        TEXT DEFAULT NULL
 )";
 
 const CREATE_FTS_TABLE: &str = "
@@ -58,30 +61,30 @@ END";
 // ---------------------------------------------------------------------------
 
 const GET_KB_BY_ID: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                             REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA \
+                             REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA, LABEL \
                              FROM kbs WHERE KB_ID = ?1";
 
 const GET_KB_BY_KEY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                              REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA \
+                              REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA, LABEL \
                               FROM kbs WHERE KB_KEY = ?1";
 
 const INSERT_KB: &str = "INSERT INTO kbs \
-                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA) \
-                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA, LABEL) \
+                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 
 const UPDATE_KB: &str = "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGORY=?4, \
-                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, KB_PATH=?8, MEDIA_EXTENSION=?9, METADATA=?10 \
-                          WHERE KB_ID=?11";
+                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, KB_PATH=?8, MEDIA_EXTENSION=?9, METADATA=?10, LABEL=?11 \
+                          WHERE KB_ID=?12";
 
 const DELETE_KB: &str = "DELETE FROM kbs WHERE KB_ID=?1";
 
 const GET_RANDOM_BY_CATEGORY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                      REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA \
+                                      REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA, LABEL \
                                       FROM kbs WHERE LOWER(CATEGORY) = LOWER(?1) \
                                       ORDER BY RANDOM() LIMIT 1";
 
 const GET_RANDOM_BY_CATEGORY_AND_NAMESPACE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                                     REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA \
+                                                     REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA, LABEL \
                                                      FROM kbs WHERE LOWER(CATEGORY) = LOWER(?1) AND NAMESPACE = ?2 \
                                                      ORDER BY RANDOM() LIMIT 1";
 
@@ -98,7 +101,7 @@ const GET_DISTINCT_NAMESPACES_FILTERED: &str = "SELECT DISTINCT NAMESPACE FROM k
      ORDER BY NAMESPACE ASC";
 
 const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
-                                   REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA FROM kbs";
+                                   REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA, LABEL FROM kbs";
 
 const SEARCH_FTS_BASE: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
                                 FROM kbs k \
@@ -305,12 +308,13 @@ CREATE TABLE kbs_new (
     CREATED_ON   TEXT NOT NULL,
     KB_PATH      TEXT DEFAULT NULL,
     MEDIA_EXTENSION TEXT DEFAULT NULL,
-    METADATA     TEXT DEFAULT NULL
+    METADATA     TEXT DEFAULT NULL,
+    LABEL        TEXT DEFAULT NULL
 );
 INSERT INTO kbs_new (INTERNAL_ID, KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE,
-    TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA)
+    TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA, LABEL)
 SELECT INTERNAL_ID, KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE,
-    TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA
+    TAG_VALUES, CREATED_ON, KB_PATH, MEDIA_EXTENSION, METADATA, LABEL
 FROM kbs;
 DROP TABLE kbs;
 ALTER TABLE kbs_new RENAME TO kbs;
@@ -435,6 +439,12 @@ impl KbStore for SqliteStore {
         {
             return Err(Error::StorageInitError(e.to_string()));
         }
+        // Idempotent migration: add LABEL column if it does not exist yet.
+        if let Err(e) = conn.execute_batch("ALTER TABLE kbs ADD COLUMN LABEL TEXT DEFAULT NULL")
+            && !e.to_string().contains("duplicate column name")
+        {
+            return Err(Error::StorageInitError(e.to_string()));
+        }
         drop(conn);
         migrate_drop_parent_column(&self.db_path, &self.conn.lock().expect("mutex poisoned"))?;
         Ok(())
@@ -507,6 +517,7 @@ impl KbStore for SqliteStore {
                 kb.path,
                 kb.media_extension,
                 metadata_json,
+                kb.label,
             ],
         )
         .map_err(|e| Error::CreateKBError(e.to_string()))?;
@@ -531,6 +542,7 @@ impl KbStore for SqliteStore {
                     kb.path,
                     kb.media_extension,
                     metadata_json,
+                    kb.label,
                     kb.id,
                 ],
             )
@@ -798,6 +810,9 @@ fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
             .map_err(|e| Error::GetKBError(e.to_string()))?,
         media_extension: row
             .get::<_, Option<String>>(10)
+            .map_err(|e| Error::GetKBError(e.to_string()))?,
+        label: row
+            .get::<_, Option<String>>(12)
             .map_err(|e| Error::GetKBError(e.to_string()))?,
     })
 }

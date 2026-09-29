@@ -538,6 +538,7 @@ fn make_kb(id: &str, key: &str) -> Kb {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
         metadata: std::collections::BTreeMap::new(),
+        label: None,
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         path: None,
         media_extension: None,
@@ -554,6 +555,7 @@ fn make_new_kb(key: &str) -> NewKb {
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
         metadata: std::collections::BTreeMap::new(),
+        label: None,
         path: None,
         media_url: None,
         media_extension: None,
@@ -571,6 +573,7 @@ fn make_import_item(key: &str, value: &str) -> ImportKbItem {
         tags: vec!["rust".to_string()],
         path: None,
         media_extension: None,
+        label: None,
     }
 }
 
@@ -690,6 +693,7 @@ fn update_kb_merges_partial_fields_correctly() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -723,6 +727,7 @@ fn update_kb_reindexes_when_embedding_text_changes() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     assert_eq!(vector.indexed.borrow().len(), 1);
@@ -755,6 +760,7 @@ fn update_kb_changing_namespace_reindexes_with_new_namespace() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     // The vector store is re-indexed with the *new* namespace, so the entry is
@@ -792,6 +798,7 @@ fn update_kb_skips_reindex_when_only_notes_changes() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     assert!(vector.indexed.borrow().is_empty());
@@ -810,6 +817,7 @@ fn update_kb_returns_not_found_for_unknown_id() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(matches!(
         make_svc().update_kb(update),
@@ -842,6 +850,7 @@ fn update_kb_returns_ok_when_embedding_update_fails() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }
@@ -864,6 +873,7 @@ fn update_kb_rejects_stolen_key() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(matches!(
         svc.update_kb(update),
@@ -886,6 +896,7 @@ fn update_kb_same_key_same_entry_is_ok() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }
@@ -908,6 +919,7 @@ fn update_kb_lowercases_key() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -930,6 +942,7 @@ fn update_kb_lowercases_category() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -952,6 +965,7 @@ fn update_kb_lowercases_namespace() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -977,6 +991,7 @@ fn update_kb_replaces_metadata_when_provided() {
         tags: None,
         path: None,
         metadata: Some("priority=high".to_string()),
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -1004,6 +1019,7 @@ fn update_kb_keeps_metadata_when_not_provided() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -1033,6 +1049,7 @@ fn update_kb_clears_metadata_with_empty_string() {
         tags: None,
         path: None,
         metadata: Some("".to_string()),
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
@@ -1055,6 +1072,7 @@ fn update_kb_rejects_duplicate_metadata_key() {
         tags: None,
         path: None,
         metadata: Some("a=1,a=2".to_string()),
+        label: None,
     };
     assert!(matches!(
         svc.update_kb(update),
@@ -1078,6 +1096,7 @@ fn update_kb_rejects_blank_metadata_key() {
         tags: None,
         path: None,
         metadata: Some("=v".to_string()),
+        label: None,
     };
     assert!(matches!(
         svc.update_kb(update),
@@ -1111,6 +1130,7 @@ fn update_kb_skips_reindex_when_only_metadata_changes() {
         tags: None,
         path: None,
         metadata: Some("author=me".to_string()),
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
     assert_eq!(vector.indexed.borrow().len(), 0);
@@ -1618,6 +1638,7 @@ fn make_media_kb(id: &str, key: &str) -> Kb {
         namespace: "test".to_string(),
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
+        label: None,
         created_on: "2026-01-01T00:00:00+0000".to_string(),
         path: None,
         media_extension: Some("jpg".to_string()),
@@ -1634,6 +1655,7 @@ fn make_media_new_kb(key: &str, media_url: Option<&str>) -> NewKb {
         namespace: "test".to_string(),
         tags: vec![],
         metadata: std::collections::BTreeMap::new(),
+        label: None,
         path: None,
         media_url: media_url.map(str::to_string),
         media_extension: None,
@@ -1789,6 +1811,7 @@ fn update_kb_media_blocks_path_change() {
         tags: None,
         path: Some("/new/path".to_string()),
         metadata: None,
+        label: None,
     };
     assert!(matches!(
         svc.update_kb(update),
@@ -1811,6 +1834,7 @@ fn update_kb_media_allows_non_path_changes() {
         tags: None,
         path: None,
         metadata: None,
+        label: None,
     };
     assert!(svc.update_kb(update).is_ok());
 }
@@ -1844,6 +1868,7 @@ fn make_export_media_item(key: &str, namespace: &str, ext: &str) -> ExportKbItem
         tags: vec![],
         path: None,
         media_extension: Some(ext.to_string()),
+        label: None,
     }
 }
 
@@ -1935,6 +1960,7 @@ fn export_media_skips_non_media_items_in_item_by_item() {
         tags: vec![],
         path: None,
         media_extension: None,
+        label: None,
     };
     let params = ExportMediaParams {
         target_dir: "/target".to_string(),

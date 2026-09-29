@@ -41,6 +41,13 @@ pub enum Command {
         #[arg(long, default_value = "", help = "Source (book, person, URL, …)")]
         reference: String,
 
+        #[arg(
+            long,
+            default_value = "",
+            help = "Friendly display name for reports (e.g. kb graph node caption)"
+        )]
+        label: String,
+
         /// Comma-separated tags, e.g. `rust,memory,concepts`
         #[arg(long, value_delimiter = ',', help = "Comma-separated search tags")]
         tags: Vec<String>,
@@ -128,6 +135,9 @@ pub enum Command {
 
         #[arg(long, help = "New reference")]
         reference: Option<String>,
+
+        #[arg(long, help = "New label. Pass empty string to clear.")]
+        label: Option<String>,
 
         /// Comma-separated tags
         #[arg(

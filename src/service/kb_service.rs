@@ -117,6 +117,12 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             None => existing.metadata.clone(),
         };
 
+        let label = match update.label {
+            Some(ref l) if !l.is_empty() => Some(l.clone()),
+            Some(_) => None,
+            None => existing.label.clone(),
+        };
+
         let updated = Kb {
             id: existing.id,
             key: update.key.map(|v| v.to_lowercase()).unwrap_or(existing.key),
@@ -136,6 +142,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             created_on: existing.created_on,
             path,
             media_extension: existing.media_extension,
+            label,
         };
 
         let new_embed_text = updated.embedding_text();
@@ -274,6 +281,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                 tags: kb.tags.clone(),
                 path: kb.path.clone(),
                 media_extension: kb.media_extension.clone(),
+                label: kb.label.clone(),
             })
             .collect();
 
