@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.14.0](https://github.com/fernandoocampo/kbzone/compare/97f71c14d7e823e44b240eff022762ab7cb7f8e8..v0.14.0) - 2026-09-29
+#### Features
+- add label field - ([97f71c1](https://github.com/fernandoocampo/kbzone/commit/97f71c14d7e823e44b240eff022762ab7cb7f8e8)) - Fernando Ocampo
+
+- - -
+
 ## [v0.13.0](https://github.com/fernandoocampo/kbzone/compare/de3783324fc8be31cc95df6982c0101f512e6530..v0.13.0) - 2026-09-29
 #### Features
 - ![BREAKING](https://img.shields.io/badge/BREAKING-red) delete parent field - ([de37833](https://github.com/fernandoocampo/kbzone/commit/de3783324fc8be31cc95df6982c0101f512e6530)) - Fernando Ocampo
