@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.15.0](https://github.com/fernandoocampo/kbzone/compare/6b88c32c09574acfb6d00c539cfb6c38e0489fa9..v0.15.0) - 2026-09-29
+#### Features
+- add full * glob wildcards to namespace in search - ([6b88c32](https://github.com/fernandoocampo/kbzone/commit/6b88c32c09574acfb6d00c539cfb6c38e0489fa9)) - Fernando Ocampo
+
+- - -
+
 ## [v0.14.1](https://github.com/fernandoocampo/kbzone/compare/68833e78519b27d8da47c82932bf388fc20c4a03..v0.14.1) - 2026-09-29
 #### Bug Fixes
 - add missing label field - ([68833e7](https://github.com/fernandoocampo/kbzone/commit/68833e78519b27d8da47c82932bf388fc20c4a03)) - Fernando Ocampo
