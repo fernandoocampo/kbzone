@@ -2,14 +2,6 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
-## [v0.11.0](https://github.com/fernandoocampo/kbzone/compare/b89ab718a1394069e07dd5e2bc8ed335544f8e77..v0.11.0) - 2026-09-29
-#### Features
-- ![BREAKING](https://img.shields.io/badge/BREAKING-red) delete key field - ([8891ec0](https://github.com/fernandoocampo/kbzone/commit/8891ec025d3c43e3034b98d7894737dcc7b61839)) - Fernando Ocampo
-#### Miscellaneous Chores
-- add conventional release pipeline - ([b89ab71](https://github.com/fernandoocampo/kbzone/commit/b89ab718a1394069e07dd5e2bc8ed335544f8e77)) - Fernando Ocampo
-
-- - -
-
 ## [v0.10.3](https://github.com/fernandoocampo/kbzone/compare/v0.10.2..v0.10.3) - 2026-09-28
 #### Features
 - add date range for search command - ([62e8d34](https://github.com/fernandoocampo/kbzone/commit/62e8d346e3d35bbcdd9772a064fa41e655064977)) - Fernando Ocampo
