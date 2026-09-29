@@ -6,7 +6,7 @@ A personal knowledge base CLI tool with semantic search, built in Rust. Store no
 
 `kbzone` (binary: `kb`) lets you:
 
-- **Add** entries with a key, value, notes, category, namespace, tags, a reference source, and an optional parent entry
+- **Add** entries with a value, notes, category, namespace, tags, a reference source, and an optional parent entry
 - **Search** entries by tag keywords (full-text search via SQLite FTS5)
 - **Ask** questions in natural language — finds semantically similar entries using local vector embeddings (no external API calls)
 - **Organize** entries with hierarchical paths and parent-child relationships
@@ -65,8 +65,7 @@ Each entry in your knowledge base has the following fields:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | UUID string | Auto-generated | Unique internal identifier (set automatically on creation) |
-| `key` | string | Yes | User-defined identifier; normalized to lowercase on save (e.g. `rust-ownership`, `kubernetes-pods`) |
+| `id` | UUID string | Auto-generated | Unique identifier (set automatically on creation) — the sole way entries are addressed, in the CLI and in all output |
 | `value` | string | Yes | Main content or answer — the core information you're storing |
 | `notes` | string | No | Extended notes, elaboration, or additional context |
 | `category` | string | No | Entry type for organization (e.g. `quote`, `bookmark`, `concept`, `command`, `media`) |
@@ -95,8 +94,7 @@ Beyond hierarchical parent-child links, you can create semantic relationships (e
 ### Add an entry
 
 ```sh
-kb add --key rust-ownership \
-       --value "Each value has a single owner; when the owner goes out of scope, the value is dropped." \
+kb add --value "Each value has a single owner; when the owner goes out of scope, the value is dropped." \
        --category concept \
        --namespace rust \
        --tags rust,memory,ownership \
@@ -104,13 +102,14 @@ kb add --key rust-ownership \
        --path /learning/rust
 ```
 
+Every entry gets an auto-generated UUID `id` — there's no user-defined key to pass. The created entry's `id` is printed on success; use it with `kb get --id`, `kb update --id`, `kb link`, etc.
+
 The `--path` flag is optional. It accepts Unix-style hierarchical paths like `/personal/rust` or `/work/projects`. The leading `/` is added automatically if omitted — `personal/rust` becomes `/personal/rust`. Invalid paths (e.g. containing `..` or `//`) are rejected with an error message.
 
 To attach an entry to a parent, pass its UUID with `--parent`:
 
 ```sh
-kb add --key rust-borrowing \
-       --value "You can have many immutable references, or one mutable reference — not both." \
+kb add --value "You can have many immutable references, or one mutable reference — not both." \
        --category concept \
        --namespace rust \
        --parent <parent-uuid>
@@ -123,8 +122,7 @@ The parent must already exist; the command fails with an error if the ID is not 
 Add arbitrary key-value metadata to an entry using the `--metadata` flag. Pairs are comma-separated, with each pair formatted as `key=value`. Keys must be unique (duplicates are rejected with an error).
 
 ```sh
-kb add --key rust-ownership \
-       --value "Each value has a single owner..." \
+kb add --value "Each value has a single owner..." \
        --category concept \
        --namespace rust \
        --tags rust,memory,ownership \
@@ -134,8 +132,8 @@ kb add --key rust-ownership \
 Metadata is stored as JSON in the database and displayed when retrieving an entry:
 
 ```sh
-kb get --key rust-ownership         # plain text output includes metadata line
-kb get --key rust-ownership --out json   # metadata appears as a JSON object
+kb get --id <uuid>              # plain text output includes metadata line
+kb get --id <uuid> --out json   # metadata appears as a JSON object
 ```
 
 Both the interactive prompt (`--interactive`) and `--json` input paths also support metadata.
@@ -146,15 +144,13 @@ When `--category media` is used, you must also supply `--media-url` pointing to 
 
 ```sh
 # From a local file
-kb add --key my-photo \
-       --value "A photo from the trip" \
+kb add --value "A photo from the trip" \
        --category media \
        --namespace personal \
        --media-url /path/to/photo.jpg
 
 # From a URL
-kb add --key remote-image \
-       --value "Logo downloaded from the web" \
+kb add --value "Logo downloaded from the web" \
        --category media \
        --namespace assets \
        --media-url https://example.com/logo.png
@@ -163,13 +159,13 @@ kb add --key remote-image \
 The file is **copied** (not moved) to:
 
 ```
-{KBZONA_HOME}/media/{namespace}/{key}.{ext}
+{KBZONA_HOME}/media/{namespace}/{id}.{ext}
 ```
 
 or, if `--path` is also set:
 
 ```
-{KBZONA_HOME}/media/{namespace}/{path}/{key}.{ext}
+{KBZONA_HOME}/media/{namespace}/{path}/{id}.{ext}
 ```
 
 The original extension is preserved. If the source is a URL, the file is first downloaded to a temporary location and then copied to the final destination.
@@ -184,13 +180,12 @@ The original extension is preserved. If the source is a URL, the file is first d
 ### Get an entry
 
 ```sh
-kb get --key rust-ownership
 kb get --id <uuid>
-kb get --key rust-ownership --out json
-kb get --key rust-ownership --out yaml
+kb get --id <uuid> --out json
+kb get --id <uuid> --out yaml
 ```
 
-Retrieve a single entry by key or ID. Use `--out` to format output as `json` or `yaml` (default: plain text).
+Retrieve a single entry by ID. Use `--out` to format output as `json` or `yaml` (default: plain text).
 
 ### Search and filter entries
 
@@ -228,7 +223,7 @@ Finds entries by meaning, not just keywords. Returns results ranked by distance 
 The following fields are combined into the embedding text at index time:
 
 ```
-{key} {category} {namespace} {reference} {tags} {value[0..200]}
+{category} {namespace} {reference} {tags} {value[0..200]}
 ```
 
 To get the best recall:
@@ -243,7 +238,7 @@ To get the best recall:
 **When to re-run `kb reindex`**
 
 - After a bulk `kb import`
-- After upgrading `kbzone` when the embedding text formula changes (e.g. this release adds `reference`)
+- After upgrading `kbzone` when the embedding text formula changes (e.g. the `key` field's removal dropped it from the formula; an older release adding `reference` is another example)
 - If embedding generation failed silently during `add`/`update` (check for missing results in `kb ask`)
 
 **`kb ask` vs `kb search`**
@@ -291,19 +286,21 @@ kb import --file my-entries.yaml --failed-items-file failures.yaml --failed-edge
 The YAML file should be a multi-document file (entries separated by `---`). Each document supports the following fields:
 
 ```yaml
-Key: rust-borrowing
+Id: 11111111-1111-1111-1111-111111111111
 Value: "You can have many immutable references, or one mutable reference — not both."
 Notes: ""
 Category: concept
 Namespace: rust
 Tags: [rust, memory, ownership]
 Reference: "The Rust Programming Language"
-ParentKey: rust-ownership   # optional: kb key of the parent entry
+ParentId: 00000000-0000-0000-0000-000000000000   # optional: id of the parent entry
 Path: /learning/rust        # optional: Unix-style path; leading / auto-added if omitted
 MediaExtension: jpg         # optional: file extension for media entries (e.g. jpg, png, pdf)
 ```
 
-`ParentKey` is resolved to an internal UUID at import time. If the referenced key does not exist, that item is recorded as a failure and the rest of the batch continues. Items that fail validation or import are written to the failed items file (default: `wrong-kb-items.yaml`). Relationships (edges) that fail to import are written to the failed edges file (default: `wrong-kb-edges.yaml`).
+`Id` is **required** and must be a well-formed UUID — unlike a normal `kb add`, import **preserves** this id rather than generating a fresh one, so relationships (which reference entries by id) survive an export/import round trip. If an imported entry's `id` already exists in the target database, that item is **skipped** (the existing entry is left untouched) and recorded as a failure so you can review and re-attempt; the rest of the batch continues. `ParentId` is validated against the store at import time — if the referenced id does not exist, that item is recorded as a failure too. Items that fail validation or import are written to the failed items file (default: `wrong-kb-items.yaml`). Relationships (edges) that fail to import are written to the failed edges file (default: `wrong-kb-edges.yaml`).
+
+> **Note:** Export files from before the `key` field was removed use `Key`/`Parent`/`ParentKey` instead of `Id`/`ParentId` and are not importable as-is — re-export from a live database to get the current format.
 
 ### Export entries
 
@@ -318,16 +315,16 @@ kb export --folder-output ./backup --limit 100 --offset 0
 
 Exports matching entries to a multi-document YAML file in the same format accepted by `kb import`. Filters are cumulative — `--category` and `--namespace` are combined with AND. Use `--limit` and `--offset` for pagination. The `--folder-output` directory is required and is where the YAML file will be written; `--file-name` is optional and defaults to `exported-kb-<yyyy-mm-dd-hh-mi-ss>.yaml`.
 
-Parent–child relationships are preserved: an entry's `Parent` field is only written when its parent is also included in the export set. Parents always appear before their children in the output file so the file can be re-imported directly with `kb import`.
+Parent–child relationships are preserved: an entry's `ParentId` field is only written when its parent is also included in the export set. Parents always appear before their children in the output file so the file can be re-imported directly with `kb import`. Since `kb import` preserves `Id` (it no longer generates a fresh UUID), an export/import round trip keeps the same ids and relationships intact.
 
 ```yaml
-Key: motogp-twitter
+Id: 550e8400-e29b-41d4-a716-446655440000
 Value: https://x.com/MotoGP
 Notes: First on the throttle, last on the brakes
 Category: bookmark
 Reference: motogp twitter
 Namespace: default
-Parent: any-parent-key
+ParentId: 550e8400-e29b-41d4-a716-446655440099
 Path: /sports/motorsport
 Tags:
     - account
@@ -336,6 +333,8 @@ Tags:
     - motorcycles
     - twitter
 ```
+
+`kb export`'s output also has a `graph:` section listing relationships as `From`/`To` id pairs (plus `Note`) — an edge is only included when *both* its endpoints survive the same filter as the exported `kbs` set.
 
 ### Rebuild embeddings
 
@@ -368,16 +367,15 @@ Lists all distinct, non-empty category values in the knowledge base. Use `--name
 ### Create a relationship link between two entries
 
 ```sh
-kb link rust-ownership rust-borrowing
+kb link <uuid-1> <uuid-2>
 kb link <uuid-1> <uuid-2> --note "borrowing is a refinement of ownership"
 ```
 
-Creates a directed edge (relationship) between two entries. Each argument accepts either a key or a UUID. Use `--note` to add a free-text description of why these entries are related. Attempting to link the same pair twice in the same direction will return an error.
+Creates a directed edge (relationship) between two entries. Each argument is the entry's UUID `id`. Use `--note` to add a free-text description of why these entries are related. Attempting to link the same pair twice in the same direction will return an error.
 
 ### Remove a relationship link
 
 ```sh
-kb unlink rust-ownership rust-borrowing
 kb unlink <uuid-1> <uuid-2>
 ```
 
@@ -386,11 +384,11 @@ Removes the directed edge between two entries. Returns an error if no such edge 
 ### Show one-hop relationships
 
 ```sh
-kb related rust-ownership
-kb related rust-ownership --direction out
-kb related rust-ownership --direction in
-kb related rust-ownership --direction both
-kb related rust-ownership --json
+kb related <uuid>
+kb related <uuid> --direction out
+kb related <uuid> --direction in
+kb related <uuid> --direction both
+kb related <uuid> --json
 ```
 
 Shows entries that are directly connected to the given entry (one hop). 
@@ -403,10 +401,10 @@ Shows entries that are directly connected to the given entry (one hop).
 ### Show the relationship tree
 
 ```sh
-kb tree rust-ownership
-kb tree rust-ownership --direction out
-kb tree rust-ownership --depth 5
-kb tree rust-ownership --json
+kb tree <uuid>
+kb tree <uuid> --direction out
+kb tree <uuid> --depth 5
+kb tree <uuid> --json
 ```
 
 Traverses relationships transitively, showing all connected entries up to a maximum depth.
@@ -418,13 +416,13 @@ Traverses relationships transitively, showing all connected entries up to a maxi
 ### Interactive graph visualization
 
 ```sh
-kb graph rust-ownership
-kb graph rust-ownership --direction both --depth 2
+kb graph <uuid>
+kb graph <uuid> --direction both --depth 2
 ```
 
 Opens an interactive HTML graph view in your default browser showing the entry and its relationships. You can:
-- Drag nodes to rearrange the graph
-- Click a node to inspect its full content
+- Drag nodes to rearrange the graph — each node is labeled with a truncated preview of its `value` (there's no key to use as a label)
+- Click a node to inspect its full content, including the untruncated `value`
 - See relationships highlighted visually
 
 - `--direction` (`out` | `in` | `both`, default `both`): Relationship directions to display

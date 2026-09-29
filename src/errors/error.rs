@@ -13,8 +13,6 @@ pub enum Error {
     KBWasNotUpdatedError,
     #[error("unable to delete KB: {0}")]
     DeleteKBError(String),
-    #[error("KB already exists")]
-    DuplicateKBError,
     #[error("unable to search: {0}")]
     SearchError(String),
     #[error("unable to list entries: {0}")]

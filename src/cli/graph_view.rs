@@ -28,11 +28,10 @@ mod tests {
     fn sample_export() -> GraphExport {
         GraphExport {
             root_id: "car-id".to_string(),
-            root_key: "car".to_string(),
             nodes: vec![
                 GraphExportNode {
                     id: "car-id".to_string(),
-                    key: "car".to_string(),
+                    label: "a car".to_string(),
                     value: "a car".to_string(),
                     notes: String::new(),
                     category: "concept".to_string(),
@@ -44,7 +43,7 @@ mod tests {
                 },
                 GraphExportNode {
                     id: "engine-id".to_string(),
-                    key: "engine".to_string(),
+                    label: "an engine".to_string(),
                     value: "an engine".to_string(),
                     notes: String::new(),
                     category: "concept".to_string(),
@@ -70,8 +69,8 @@ mod tests {
         let html = render_graph_html(&sample_export()).unwrap();
 
         assert!(!html.contains(DATA_PLACEHOLDER));
-        assert!(html.contains("\"root_key\":\"car\""));
-        assert!(html.contains("\"key\":\"engine\""));
+        assert!(html.contains("\"root_id\":\"car-id\""));
+        assert!(html.contains("\"label\":\"an engine\""));
         assert!(html.contains("\"note\":\"has an engine\""));
     }
 

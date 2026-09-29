@@ -19,9 +19,6 @@ pub struct Cli {
 pub enum Command {
     /// Add a new knowledge base entry.
     Add {
-        #[arg(long, help = "Unique string key (e.g. rust-ownership)")]
-        key: Option<String>,
-
         #[arg(long, help = "Content / answer for this entry")]
         value: Option<String>,
 
@@ -70,8 +67,8 @@ pub enum Command {
         media_url: String,
 
         /// Full entry as a JSON object, e.g.
-        /// `{"key":"k","value":"v","category":"quote","tags":["a","b"]}`.
-        /// `key`, `value`, `category` and `tags` are required; `tags` must be
+        /// `{"value":"v","category":"quote","tags":["a","b"]}`.
+        /// `value`, `category` and `tags` are required; `tags` must be
         /// a non-empty array with no blank entries (duplicates are silently
         /// deduped). Mutually exclusive with every other `add` flag — skips
         /// all prompts and prints only the created entry as JSON.
@@ -82,13 +79,10 @@ pub enum Command {
         json: Option<String>,
     },
 
-    /// Get a single entry by key or ID.
+    /// Get a single entry by ID.
     Get {
-        #[arg(long, help = "Unique string key", conflicts_with = "id")]
-        key: Option<String>,
-
-        #[arg(long, help = "UUID", conflicts_with = "key")]
-        id: Option<String>,
+        #[arg(long, required = true, help = "UUID")]
+        id: String,
 
         #[arg(long, help = "Output format: json | yaml (default: plain text)")]
         out: Option<String>,
@@ -113,9 +107,6 @@ pub enum Command {
     Update {
         #[arg(long, required = true, help = "UUID of the entry to update")]
         id: String,
-
-        #[arg(long, help = "New key")]
-        key: Option<String>,
 
         #[arg(long, help = "New value")]
         value: Option<String>,
@@ -318,10 +309,10 @@ pub enum Command {
 
     /// Link two existing KB entries (creates a directed edge).
     Link {
-        #[arg(help = "Key or UUID of the source entry")]
+        #[arg(help = "UUID of the source entry")]
         from: String,
 
-        #[arg(help = "Key or UUID of the target entry")]
+        #[arg(help = "UUID of the target entry")]
         to: String,
 
         #[arg(
@@ -337,17 +328,17 @@ pub enum Command {
 
     /// Remove the link between two KB entries.
     Unlink {
-        #[arg(help = "Key or UUID of the source entry")]
+        #[arg(help = "UUID of the source entry")]
         from: String,
 
-        #[arg(help = "Key or UUID of the target entry")]
+        #[arg(help = "UUID of the target entry")]
         to: String,
     },
 
     /// Show one-hop outgoing/incoming relationships for an entry.
     Related {
-        #[arg(help = "Key or UUID of the entry")]
-        key_or_id: String,
+        #[arg(help = "UUID of the entry")]
+        id: String,
 
         #[arg(long, default_value = "both", help = "out | in | both")]
         direction: String,
@@ -358,8 +349,8 @@ pub enum Command {
 
     /// Show the transitive relationship tree for an entry.
     Tree {
-        #[arg(help = "Key or UUID of the entry")]
-        key_or_id: String,
+        #[arg(help = "UUID of the entry")]
+        id: String,
 
         #[arg(long, default_value = "out", help = "out | in")]
         direction: String,
@@ -374,8 +365,8 @@ pub enum Command {
     /// Generate an interactive HTML graph view and open it in your browser
     /// (drag nodes, click to inspect, see relationships highlighted).
     Graph {
-        #[arg(help = "Key or UUID of the entry")]
-        key_or_id: String,
+        #[arg(help = "UUID of the entry")]
+        id: String,
 
         #[arg(long, default_value = "both", help = "out | in | both")]
         direction: String,

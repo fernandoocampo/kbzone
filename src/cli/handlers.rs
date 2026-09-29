@@ -20,8 +20,7 @@ use std::collections::BTreeMap;
 // ---------------------------------------------------------------------------
 
 pub struct GetParams {
-    pub key: Option<String>,
-    pub id: Option<String>,
+    pub id: String,
     pub base_dir: String,
     pub out: Option<String>,
     pub with_out_connections: bool,
@@ -81,7 +80,6 @@ pub struct AskParams {
 }
 
 pub struct AddParams {
-    pub key: Option<String>,
     pub value: Option<String>,
     pub notes: String,
     pub category: String,
@@ -163,20 +161,20 @@ pub struct UnlinkParams {
 }
 
 pub struct RelatedParams {
-    pub key_or_id: String,
+    pub id: String,
     pub direction: String,
     pub json: bool,
 }
 
 pub struct TreeParams {
-    pub key_or_id: String,
+    pub id: String,
     pub direction: String,
     pub depth: i64,
     pub json: bool,
 }
 
 pub struct GraphViewCliParams {
-    pub key_or_id: String,
+    pub id: String,
     pub direction: String,
     pub depth: i64,
 }
@@ -204,29 +202,23 @@ const KB_GIT_HASH: &str = match option_env!("KB_GIT_HASH") {
 
 const COL_SCORE: usize = 8;
 const COL_ID: usize = 36;
-const COL_KEY: usize = 24;
 const COL_CAT: usize = 12;
 const COL_NS: usize = 14;
 const COL_TAGS: usize = 30;
 
 fn print_table_header() {
     println!(
-        "{:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
+        "{:<id$}  {:<cat$}  {:<ns$}  {:<tags$}",
         "ID",
-        "KEY",
         "CATEGORY",
         "NAMESPACE",
         "TAGS",
         id = COL_ID,
-        key = COL_KEY,
         cat = COL_CAT,
         ns = COL_NS,
         tags = COL_TAGS,
     );
-    println!(
-        "{}",
-        "-".repeat(COL_ID + COL_KEY + COL_CAT + COL_NS + COL_TAGS + 8)
-    );
+    println!("{}", "-".repeat(COL_ID + COL_CAT + COL_NS + COL_TAGS + 6));
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +257,6 @@ pub fn handle_add<
     print!("{kb}");
     let suggestions = suggested_tags_for(
         &[
-            &kb.key,
             &kb.value,
             &kb.notes,
             &kb.reference,
@@ -285,8 +276,7 @@ pub fn handle_add<
 /// sibling flags default to `""`/an empty `Vec`, which clap can't reliably
 /// distinguish from "the user explicitly passed the default value".
 fn assert_no_conflicting_add_flags(params: &AddParams) -> Result<(), Error> {
-    let conflicts = params.key.is_some()
-        || params.value.is_some()
+    let conflicts = params.value.is_some()
         || !params.notes.is_empty()
         || !params.category.is_empty()
         || !params.namespace.is_empty()
@@ -299,7 +289,7 @@ fn assert_no_conflicting_add_flags(params: &AddParams) -> Result<(), Error> {
         || params.media_url.is_some();
     if conflicts {
         return Err(Error::ConflictingAddFlags(
-            "--json cannot be combined with --key/--value/--notes/--category/--namespace/\
+            "--json cannot be combined with --value/--notes/--category/--namespace/\
              --reference/--tags/--metadata/--interactive/--parent/--path/--media-url"
                 .to_string(),
         ));
@@ -345,9 +335,6 @@ fn resolve_media_url(category: &str, provided: Option<String>) -> Result<Option<
 }
 
 fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
-    let key = params
-        .key
-        .ok_or_else(|| Error::MissingRequiredField("key".to_string()))?;
     let value = params
         .value
         .ok_or_else(|| Error::MissingRequiredField("value".to_string()))?;
@@ -359,7 +346,6 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
     let tags = if params.tags.is_empty() {
         let suggestions = suggested_tags_for(
             &[
-                &key,
                 &value,
                 &params.notes,
                 &reference,
@@ -380,7 +366,7 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
     let path = params.path.filter(|p| !p.is_empty());
     let media_url = resolve_media_url(&params.category, params.media_url)?;
     Ok(NewKb {
-        key,
+        id: None,
         value,
         notes: params.notes,
         category: params.category,
@@ -396,10 +382,6 @@ fn build_new_kb_non_interactive(params: AddParams) -> Result<NewKb, Error> {
 }
 
 fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
-    let key = params
-        .key
-        .filter(|s| !s.is_empty())
-        .map_or_else(|| prompt_for("Key", true), Ok)?;
     let value = params
         .value
         .filter(|s| !s.is_empty())
@@ -425,10 +407,8 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
         params.reference
     };
     let tags = if params.tags.is_empty() {
-        let suggestions = suggested_tags_for(
-            &[&key, &value, &notes, &category, &namespace, &reference],
-            &[],
-        );
+        let suggestions =
+            suggested_tags_for(&[&value, &notes, &category, &namespace, &reference], &[]);
         if !suggestions.is_empty() {
             eprintln!("Suggested tags : {}", suggestions.join(", "));
         }
@@ -459,7 +439,7 @@ fn build_new_kb_interactive(params: AddParams) -> Result<NewKb, Error> {
     };
     let media_url = resolve_media_url(&category, params.media_url)?;
     Ok(NewKb {
-        key,
+        id: None,
         value,
         notes,
         category,
@@ -503,8 +483,7 @@ fn suggested_tags_for(fields: &[&str], existing_tags: &[String]) -> Vec<String> 
 
 fn format_preview(kb: &NewKb) -> String {
     let mut s = format!(
-        "  key       : {}\n  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  metadata  : {}\n  path      : {}\n  parent    : {}",
-        kb.key,
+        "  value     : {}\n  notes     : {}\n  category  : {}\n  namespace : {}\n  reference : {}\n  tags      : {}\n  metadata  : {}\n  path      : {}\n  parent    : {}",
         kb.value,
         kb.notes,
         kb.category,
@@ -539,7 +518,6 @@ fn confirm_or_adjust(mut new_kb: NewKb) -> Result<AddDecision, Error> {
 }
 
 fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
-    let key = prompt_adjust("key", &kb.key)?;
     let value = prompt_adjust("value", &kb.value)?;
     let notes = prompt_adjust("notes", &kb.notes)?;
     let category = prompt_adjust("category", &kb.category)?;
@@ -581,7 +559,7 @@ fn adjust_fields(kb: NewKb) -> Result<NewKb, Error> {
         kb.media_url
     };
     Ok(NewKb {
-        key,
+        id: kb.id,
         value,
         notes,
         category,
@@ -664,14 +642,7 @@ where
         .transpose()
         .map_err(Error::GetKBError)?;
 
-    let kb = match (params.key, params.id) {
-        (Some(k), _) => services.svc.get_kb_by_key(&k)?,
-        (_, Some(i)) => services.svc.get_kb_by_id(&i)?,
-        _ => {
-            eprintln!("error: provide --key or --id");
-            return Err(Error::GetKBError("no lookup key provided".to_string()));
-        }
-    };
+    let kb = services.svc.get_kb_by_id(&params.id)?;
 
     let kb = match kb {
         Some(kb) => kb,
@@ -720,7 +691,7 @@ where
                     base_dir: &params.base_dir,
                     namespace: &kb.namespace,
                     path: kb.path.as_deref(),
-                    key: &kb.key,
+                    id: &kb.id,
                     extension: kb.media_extension.as_deref(),
                 });
                 println!("Media File : {}", path);
@@ -951,14 +922,12 @@ pub fn handle_search<
     print_table_header();
     for item in items {
         println!(
-            "{:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
+            "{:<id$}  {:<cat$}  {:<ns$}  {:<tags$}",
             item.id,
-            item.key,
             item.category,
             item.namespace,
             item.tags.join(", "),
             id = COL_ID,
-            key = COL_KEY,
             cat = COL_CAT,
             ns = COL_NS,
             tags = COL_TAGS,
@@ -1186,11 +1155,11 @@ pub fn handle_reindex<
 ) -> Result<(), Error> {
     let result = svc.reindex()?;
     println!("Reindexing {} entries...", result.total());
-    for (key, _id) in &result.succeeded {
-        println!("  [OK] {}", key);
+    for id in &result.succeeded {
+        println!("  [OK] {}", id);
     }
-    for (key_or_id, err) in &result.failed {
-        eprintln!("  [FAIL] {}: {}", key_or_id, err);
+    for (id, err) in &result.failed {
+        eprintln!("  [FAIL] {}: {}", id, err);
     }
     println!(
         "Done: {} indexed, {} failed.",
@@ -1378,38 +1347,34 @@ fn write_failed_items(path: &str, content: &str) -> Result<(), Error> {
 
 fn print_scored_table_header() {
     println!(
-        "{:<score$}  {:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
+        "{:<score$}  {:<id$}  {:<cat$}  {:<ns$}  {:<tags$}",
         "DISTANCE",
         "ID",
-        "KEY",
         "CATEGORY",
         "NAMESPACE",
         "TAGS",
         score = COL_SCORE,
         id = COL_ID,
-        key = COL_KEY,
         cat = COL_CAT,
         ns = COL_NS,
         tags = COL_TAGS,
     );
     println!(
         "{}",
-        "-".repeat(COL_SCORE + COL_ID + COL_KEY + COL_CAT + COL_NS + COL_TAGS + 10)
+        "-".repeat(COL_SCORE + COL_ID + COL_CAT + COL_NS + COL_TAGS + 8)
     );
 }
 
 fn print_scored_row(scored: &ScoredKbItem) {
     println!(
-        "{:<score$}  {:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
+        "{:<score$}  {:<id$}  {:<cat$}  {:<ns$}  {:<tags$}",
         format!("{:.4}", scored.score),
         scored.item.id,
-        scored.item.key,
         scored.item.category,
         scored.item.namespace,
         scored.item.tags.join(", "),
         score = COL_SCORE,
         id = COL_ID,
-        key = COL_KEY,
         cat = COL_CAT,
         ns = COL_NS,
         tags = COL_TAGS,
@@ -1474,7 +1439,7 @@ pub fn handle_related<S: KbStore, G: KbGraph>(
     params: RelatedParams,
 ) -> Result<(), Error> {
     let direction: EdgeDirection = params.direction.parse().map_err(Error::GraphQueryError)?;
-    let result = graph_svc.related(&params.key_or_id, direction)?;
+    let result = graph_svc.related(&params.id, direction)?;
     if params.json {
         let json = serde_json::to_string_pretty(&result)
             .map_err(|e| Error::GraphQueryError(e.to_string()))?;
@@ -1491,7 +1456,7 @@ pub fn handle_tree<S: KbStore, G: KbGraph>(
 ) -> Result<(), Error> {
     let direction: EdgeDirection = params.direction.parse().map_err(Error::GraphQueryError)?;
     let result = graph_svc.tree(TreeWalkParams {
-        key_or_id: params.key_or_id,
+        id: params.id,
         direction,
         depth: params.depth,
     })?;
@@ -1511,7 +1476,7 @@ pub fn handle_graph<S: KbStore, G: KbGraph>(
 ) -> Result<(), Error> {
     let direction: EdgeDirection = params.direction.parse().map_err(Error::GraphQueryError)?;
     let export = graph_svc.export_graph(GraphViewParams {
-        key_or_id: params.key_or_id,
+        id: params.id,
         direction,
         depth: params.depth,
     })?;
@@ -1526,7 +1491,7 @@ pub fn handle_graph<S: KbStore, G: KbGraph>(
 /// Max NOTE length in human-readable output before truncation with an
 /// ellipsis. `--json` output always carries the full text.
 const NOTE_TRUNCATE_LEN: usize = 40;
-const TREE_COL_KEY: usize = 12;
+const TREE_COL_ID: usize = COL_ID;
 
 /// Truncates to `NOTE_TRUNCATE_LEN` *characters* (not bytes), char-safe via
 /// `.chars()` — same technique as `Kb::embedding_text`'s `.chars().take(200)`.
@@ -1543,16 +1508,16 @@ fn render_related(result: &RelatedResult, direction: EdgeDirection) -> String {
     if direction != EdgeDirection::In {
         out.push_str(&format!(
             "→ {} points to ({})\n",
-            result.node.key,
+            result.node.id,
             result.outgoing.len()
         ));
         for e in &result.outgoing {
             out.push_str(&format!(
-                "  {:<key$}  {:<cat$}  \"{}\"\n",
-                e.to.key,
+                "  {:<id$}  {:<cat$}  \"{}\"\n",
+                e.to.id,
                 e.to.category,
                 truncate_note(&e.note),
-                key = COL_KEY,
+                id = COL_ID,
                 cat = COL_CAT,
             ));
         }
@@ -1561,16 +1526,16 @@ fn render_related(result: &RelatedResult, direction: EdgeDirection) -> String {
     if direction != EdgeDirection::Out {
         out.push_str(&format!(
             "← pointed to by {} ({})\n",
-            result.node.key,
+            result.node.id,
             result.incoming.len()
         ));
         for e in &result.incoming {
             out.push_str(&format!(
-                "  {:<key$}  {:<cat$}  \"{}\"\n",
-                e.from.key,
+                "  {:<id$}  {:<cat$}  \"{}\"\n",
+                e.from.id,
                 e.from.category,
                 truncate_note(&e.note),
-                key = COL_KEY,
+                id = COL_ID,
                 cat = COL_CAT,
             ));
         }
@@ -1579,7 +1544,7 @@ fn render_related(result: &RelatedResult, direction: EdgeDirection) -> String {
 }
 
 fn render_tree(result: &TreeResult) -> String {
-    TreeRenderer::new(&result.nodes).render(&result.root.key, &result.root.id)
+    TreeRenderer::new(&result.nodes).render(&result.root.id)
 }
 
 /// Groups the flat `TreeNode` list by `parent_id` once, then walks it
@@ -1605,8 +1570,8 @@ impl<'a> TreeRenderer<'a> {
         }
     }
 
-    fn render(mut self, root_key: &str, root_id: &str) -> String {
-        self.out.push_str(root_key);
+    fn render(mut self, root_id: &str) -> String {
+        self.out.push_str(root_id);
         self.out.push('\n');
         self.render_children(root_id, "");
         self.out
@@ -1623,9 +1588,9 @@ impl<'a> TreeRenderer<'a> {
             let branch = if is_last { "└── " } else { "├── " };
             self.out.push_str(&format!(
                 "{prefix}{branch}{:<width$} \"{}\"\n",
-                node.key,
+                node.id,
                 truncate_note(&node.note),
-                width = TREE_COL_KEY,
+                width = TREE_COL_ID,
             ));
             let child_prefix = format!("{prefix}{}", if is_last { "    " } else { "│   " });
             self.render_children(&node.id, &child_prefix);

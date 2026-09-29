@@ -5,7 +5,6 @@ use super::*;
 fn make_kb() -> Kb {
     Kb {
         id: "kb-id-1".to_string(),
-        key: "car".to_string(),
         value: "a car".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -71,9 +70,27 @@ fn graph_node_from_kb_copies_the_relevant_fields() {
     let kb = make_kb();
     let node = GraphNode::from(&kb);
     assert_eq!(node.id, "kb-id-1");
-    assert_eq!(node.key, "car");
     assert_eq!(node.category, "concept");
     assert_eq!(node.namespace, "vehicles");
+}
+
+#[test]
+fn graph_export_node_from_kb_sets_label_to_untruncated_value_when_short() {
+    let kb = make_kb(); // value = "a car"
+    let node = GraphExportNode::from(&kb);
+    assert_eq!(node.label, "a car");
+    assert_eq!(node.value, "a car");
+}
+
+#[test]
+fn graph_export_node_from_kb_truncates_label_for_long_value() {
+    let mut kb = make_kb();
+    kb.value = "x".repeat(50);
+    let node = GraphExportNode::from(&kb);
+    assert_eq!(node.label.chars().count(), 41); // 40 chars + ellipsis
+    assert!(node.label.ends_with('…'));
+    // The full, untruncated value is retained separately for the detail panel.
+    assert_eq!(node.value.chars().count(), 50);
 }
 
 fn make_related_result() -> RelatedResult {
@@ -85,7 +102,6 @@ fn make_related_result() -> RelatedResult {
             created_on: "2026-01-01T00:00:00+0000".to_string(),
             to: GraphNode {
                 id: "engine-id".to_string(),
-                key: "engine".to_string(),
                 category: "concept".to_string(),
                 namespace: "vehicles".to_string(),
             },
@@ -98,7 +114,7 @@ fn make_related_result() -> RelatedResult {
 fn kb_relationships_from_related_result_drops_node() {
     let related = KbRelationships::from(make_related_result());
     assert_eq!(related.outgoing.len(), 1);
-    assert_eq!(related.outgoing[0].to.key, "engine");
+    assert_eq!(related.outgoing[0].to.id, "engine-id");
     assert!(related.incoming.is_empty());
     // `KbRelationships` has no `node` field at all — this is a compile-time
     // guarantee, not something a runtime assertion can check further.
@@ -112,7 +128,7 @@ fn kb_with_relationships_json_omits_relationships_key_when_none() {
     };
     let json = serde_json::to_string(&dto).expect("serialize should succeed");
     assert!(!json.contains("relationships"));
-    assert!(json.contains("\"key\":\"car\""));
+    assert!(json.contains("\"id\":\"kb-id-1\""));
     assert!(!json.contains("\"kb\":"));
 }
 
@@ -126,7 +142,7 @@ fn kb_with_relationships_json_includes_relationships_key_when_some() {
     assert!(json.contains("\"relationships\""));
     assert!(json.contains("\"outgoing\""));
     assert!(json.contains("\"incoming\""));
-    assert!(json.contains("\"key\":\"car\""));
+    assert!(json.contains("\"id\":\"kb-id-1\""));
     // The root entry is already flattened at the top level — `node` inside
     // `relationships` would just repeat it, so it must not be there.
     assert!(!json.contains("\"node\""));
@@ -140,21 +156,21 @@ fn kb_with_relationships_yaml_flattens_kb_fields() {
     };
     let yaml = serde_yaml::to_string(&dto).expect("serialize should succeed");
     assert!(!yaml.contains("kb:"));
-    assert!(yaml.contains("key: car"));
+    assert!(yaml.contains("id: kb-id-1"));
     assert!(yaml.contains("relationships:"));
     assert!(!yaml.contains("node:"));
 }
 
-fn make_export_kb_item(key: &str) -> ExportKbItem {
+fn make_export_kb_item(id: &str) -> ExportKbItem {
     ExportKbItem {
-        key: key.to_string(),
+        id: id.to_string(),
         value: "a value".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
         reference: String::new(),
         namespace: "vehicles".to_string(),
         tags: vec![],
-        parent_key: None,
+        parent_id: None,
         path: None,
         media_extension: None,
     }
@@ -163,8 +179,8 @@ fn make_export_kb_item(key: &str) -> ExportKbItem {
 #[test]
 fn export_edge_item_serializes_with_capitalized_keys() {
     let edge = ExportEdgeItem {
-        from_key: "motogp-twitter".to_string(),
-        to_key: "motogp-quote".to_string(),
+        from_id: "motogp-twitter".to_string(),
+        to_id: "motogp-quote".to_string(),
         note: "source account".to_string(),
     };
     let yaml = serde_yaml::to_string(&edge).expect("serialize");
@@ -178,8 +194,8 @@ fn export_document_serializes_kbs_and_graph_sections() {
     let doc = ExportDocument {
         kbs: vec![make_export_kb_item("motogp-twitter")],
         graph: vec![ExportEdgeItem {
-            from_key: "a".to_string(),
-            to_key: "b".to_string(),
+            from_id: "a".to_string(),
+            to_id: "b".to_string(),
             note: String::new(),
         }],
     };
@@ -187,7 +203,7 @@ fn export_document_serializes_kbs_and_graph_sections() {
     assert!(yaml.starts_with("kbs:"));
     assert!(yaml.contains("graph:"));
     assert!(yaml.contains("From: a"));
-    assert!(yaml.contains("Key: motogp-twitter"));
+    assert!(yaml.contains("Id: motogp-twitter"));
 }
 
 #[test]
@@ -204,8 +220,8 @@ fn export_document_serializes_empty_graph_as_empty_sequence() {
 fn import_edge_item_deserializes_from_pascal_case_yaml() {
     let yaml = "From: a\nTo: b\nNote: n\n";
     let item: ImportEdgeItem = serde_yaml::from_str(yaml).expect("deserialize");
-    assert_eq!(item.from_key, "a");
-    assert_eq!(item.to_key, "b");
+    assert_eq!(item.from_id, "a");
+    assert_eq!(item.to_id, "b");
     assert_eq!(item.note, "n");
 }
 
@@ -219,31 +235,31 @@ fn import_edge_item_note_defaults_when_absent() {
 #[test]
 fn import_edge_item_round_trips_from_export_edge_item_output() {
     let export_edge = ExportEdgeItem {
-        from_key: "motogp-twitter".to_string(),
-        to_key: "motogp-quote".to_string(),
+        from_id: "motogp-twitter".to_string(),
+        to_id: "motogp-quote".to_string(),
         note: "source account".to_string(),
     };
     let yaml = serde_yaml::to_string(&export_edge).expect("serialize");
     let import_edge: ImportEdgeItem = serde_yaml::from_str(&yaml).expect("deserialize");
-    assert_eq!(import_edge.from_key, export_edge.from_key);
-    assert_eq!(import_edge.to_key, export_edge.to_key);
+    assert_eq!(import_edge.from_id, export_edge.from_id);
+    assert_eq!(import_edge.to_id, export_edge.to_id);
     assert_eq!(import_edge.note, export_edge.note);
 }
 
 #[test]
 fn import_document_deserializes_kbs_and_graph_sections() {
-    let yaml = "kbs:\n  - Key: car\n    Value: a value\ngraph:\n  - From: car\n    To: engine\n    Note: has an engine\n";
+    let yaml = "kbs:\n  - Id: car\n    Value: a value\ngraph:\n  - From: car\n    To: engine\n    Note: has an engine\n";
     let doc: ImportDocument = serde_yaml::from_str(yaml).expect("deserialize");
     assert_eq!(doc.kbs.len(), 1);
-    assert_eq!(doc.kbs[0].key, "car");
+    assert_eq!(doc.kbs[0].id, "car");
     assert_eq!(doc.graph.len(), 1);
-    assert_eq!(doc.graph[0].from_key, "car");
-    assert_eq!(doc.graph[0].to_key, "engine");
+    assert_eq!(doc.graph[0].from_id, "car");
+    assert_eq!(doc.graph[0].to_id, "engine");
 }
 
 #[test]
 fn import_document_defaults_missing_graph_section_to_empty() {
-    let yaml = "kbs:\n  - Key: car\n    Value: a value\n";
+    let yaml = "kbs:\n  - Id: car\n    Value: a value\n";
     let doc: ImportDocument = serde_yaml::from_str(yaml).expect("deserialize");
     assert!(doc.graph.is_empty());
 }
@@ -260,33 +276,33 @@ fn import_document_round_trips_from_export_document_output() {
     let export_doc = ExportDocument {
         kbs: vec![make_export_kb_item("car")],
         graph: vec![ExportEdgeItem {
-            from_key: "car".to_string(),
-            to_key: "engine".to_string(),
+            from_id: "car".to_string(),
+            to_id: "engine".to_string(),
             note: "has an engine".to_string(),
         }],
     };
     let yaml = serde_yaml::to_string(&export_doc).expect("serialize");
     let import_doc: ImportDocument = serde_yaml::from_str(&yaml).expect("deserialize");
     assert_eq!(import_doc.kbs.len(), export_doc.kbs.len());
-    assert_eq!(import_doc.kbs[0].key, export_doc.kbs[0].key);
+    assert_eq!(import_doc.kbs[0].id, export_doc.kbs[0].id);
     assert_eq!(import_doc.graph.len(), export_doc.graph.len());
-    assert_eq!(import_doc.graph[0].from_key, export_doc.graph[0].from_key);
+    assert_eq!(import_doc.graph[0].from_id, export_doc.graph[0].from_id);
 }
 
 #[test]
 fn failed_import_edge_item_carries_item_and_reason() {
     let failed = FailedImportEdgeItem {
         item: make_import_kb_edge_item("car", "engine"),
-        reason: "to key/id not found: engine".to_string(),
+        reason: "to id not found: engine".to_string(),
     };
-    assert_eq!(failed.item.from_key, "car");
-    assert_eq!(failed.reason, "to key/id not found: engine");
+    assert_eq!(failed.item.from_id, "car");
+    assert_eq!(failed.reason, "to id not found: engine");
 }
 
-fn make_import_kb_edge_item(from_key: &str, to_key: &str) -> ImportEdgeItem {
+fn make_import_kb_edge_item(from_id: &str, to_id: &str) -> ImportEdgeItem {
     ImportEdgeItem {
-        from_key: from_key.to_string(),
-        to_key: to_key.to_string(),
+        from_id: from_id.to_string(),
+        to_id: to_id.to_string(),
         note: String::new(),
     }
 }
