@@ -14,6 +14,8 @@ pub trait KbStore: Debug + Clone {
 
     fn get_kb_by_id(&self, id: &str) -> Result<Option<Kb>, Error>;
 
+    fn get_kb_by_key(&self, key: &str) -> Result<Option<Kb>, Error>;
+
     fn get_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error>;
 
     /// Returns the total count of KB entries matching `filter`, ignoring LIMIT/OFFSET.

@@ -40,6 +40,15 @@ impl crate::ports::KbStore for MockKbStore {
         Ok(self.data.borrow().get(id).cloned())
     }
 
+    fn get_kb_by_key(&self, key: &str) -> Result<Option<crate::domain::Kb>, Error> {
+        Ok(self
+            .data
+            .borrow()
+            .values()
+            .find(|kb| kb.key == key)
+            .cloned())
+    }
+
     fn get_kbs(
         &self,
         _filter: &crate::domain::KbFilter,
@@ -203,6 +212,7 @@ impl MockKbGraph {
             .cloned()
             .unwrap_or_else(|| crate::domain::GraphNode {
                 id: id.to_string(),
+                key: String::new(),
                 category: String::new(),
                 namespace: String::new(),
             })
@@ -299,8 +309,8 @@ fn make_svc()
 
 /// Builds a `(KBService, GraphService)` pair for `handle_get` relationship
 /// tests: `kbs` are seeded into both services' stores (so `GraphService`'s
-/// internal id resolution can find them), and `graph` carries any
-/// pre-seeded edges/nodes.
+/// internal key-or-id resolution can find them by id), and `graph` carries
+/// any pre-seeded edges/nodes.
 fn make_get_services(
     kbs: Vec<crate::domain::Kb>,
     graph: MockKbGraph,
@@ -345,9 +355,10 @@ fn make_import_services() -> (
     )
 }
 
-fn make_kb(id: &str) -> crate::domain::Kb {
+fn make_kb(id: &str, key: &str) -> crate::domain::Kb {
     crate::domain::Kb {
         id: id.to_string(),
+        key: key.to_string(),
         value: "value".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -412,7 +423,7 @@ fn handle_import_returns_parse_error_on_malformed_yaml() {
 
 #[test]
 fn handle_import_succeeds_for_valid_file() {
-    let yaml = "kbs:\n  - Id: 11111111-1111-1111-1111-111111111111\n    Value: memory management\n";
+    let yaml = "kbs:\n  - Key: rust-ownership\n    Value: memory management\n";
     let path = write_temp_yaml("valid_import_test.yaml", yaml);
     let (svc, graph_svc) = make_import_services();
     let params = ImportParams {
@@ -433,7 +444,7 @@ fn handle_import_succeeds_for_valid_file() {
 
 #[test]
 fn handle_import_writes_failed_items_in_yaml_format() {
-    let yaml = "kbs:\n  - Id: \n    Value: memory management\n";
+    let yaml = "kbs:\n  - Key: \n    Value: memory management\n";
     let path = write_temp_yaml("failed_import_test.yaml", yaml);
     let failed_path = std::env::temp_dir()
         .join("failed_items_test.yaml")
@@ -462,10 +473,13 @@ fn handle_import_writes_failed_items_in_yaml_format() {
 #[test]
 fn handle_import_imports_edges_from_graph_section() {
     let svc = make_svc();
-    let yaml = "kbs:\n  - Id: 11111111-1111-1111-1111-111111111111\n    Value: a car\n  - Id: 22222222-2222-2222-2222-222222222222\n    Value: an engine\ngraph:\n  - From: car-id\n    To: engine-id\n    Note: has an engine\n";
+    let yaml = "kbs:\n  - Key: car\n    Value: a car\n  - Key: engine\n    Value: an engine\ngraph:\n  - From: car\n    To: engine\n    Note: has an engine\n";
     let path = write_temp_yaml("import_with_edges_test.yaml", yaml);
 
-    let graph_store = MockKbStore::with(vec![make_kb("car-id"), make_kb("engine-id")]);
+    let graph_store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
     let mock_graph = MockKbGraph::default();
     let graph_svc = GraphService::new(graph_store, mock_graph.clone());
 
@@ -490,14 +504,14 @@ fn handle_import_imports_edges_from_graph_section() {
 #[test]
 fn handle_import_reports_failed_edges_and_writes_failed_edges_file() {
     let svc = make_svc();
-    let yaml = "kbs:\n  - Id: 11111111-1111-1111-1111-111111111111\n    Value: a car\ngraph:\n  - From: car-id\n    To: no-such-id\n    Note: bad edge\n";
+    let yaml = "kbs:\n  - Key: car\n    Value: a car\ngraph:\n  - From: car\n    To: no-such-key\n    Note: bad edge\n";
     let path = write_temp_yaml("import_with_bad_edge_test.yaml", yaml);
     let failed_edges_path = std::env::temp_dir()
         .join("failed_edges_test.yaml")
         .to_string_lossy()
         .to_string();
 
-    let graph_store = MockKbStore::with(vec![make_kb("car-id")]);
+    let graph_store = MockKbStore::with(vec![make_kb("car-id", "car")]);
     let graph_svc = GraphService::new(graph_store, MockKbGraph::default());
 
     let params = ImportParams {
@@ -517,7 +531,7 @@ fn handle_import_reports_failed_edges_and_writes_failed_edges_file() {
     assert!(result.is_ok());
     let failed_content = std::fs::read_to_string(&failed_edges_path).unwrap_or_default();
     let _ = std::fs::remove_file(&failed_edges_path);
-    assert!(failed_content.contains("no-such-id"));
+    assert!(failed_content.contains("no-such-key"));
 }
 
 #[test]
@@ -597,10 +611,10 @@ fn handle_import_end_to_end_round_trip_from_handle_export_output() {
 // handle_export tests
 // ---------------------------------------------------------------------------
 
-fn make_new_kb(value: &str) -> crate::domain::NewKb {
+fn make_new_kb(key: &str) -> crate::domain::NewKb {
     crate::domain::NewKb {
-        id: None,
-        value: value.to_string(),
+        key: key.to_string(),
+        value: "a value".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
         namespace: "default".to_string(),
@@ -664,8 +678,8 @@ fn handle_export_writes_kbs_and_graph_sections_to_a_single_yaml_document() {
 
     assert!(content.starts_with("kbs:"));
     assert!(content.contains("graph:"));
-    assert!(content.contains(&format!("From: {}", kb_a.id)));
-    assert!(content.contains(&format!("To: {}", kb_b.id)));
+    assert!(content.contains("From: car"));
+    assert!(content.contains("To: engine"));
 }
 
 #[test]
@@ -754,6 +768,7 @@ fn handle_version_returns_ok() {
 #[test]
 fn build_new_kb_non_interactive_all_fields_provided_no_prompt() {
     let params = AddParams {
+        key: Some("test-key".to_string()),
         value: Some("test-value".to_string()),
         notes: "notes".to_string(),
         category: "concept".to_string(),
@@ -770,15 +785,39 @@ fn build_new_kb_non_interactive_all_fields_provided_no_prompt() {
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
     let kb = result.expect("expected Ok NewKb");
+    assert_eq!(kb.key, "test-key");
     assert_eq!(kb.value, "test-value");
     assert_eq!(kb.reference, "the book");
     assert_eq!(kb.tags, vec!["rust".to_string()]);
 }
 
 #[test]
+fn handle_add_non_interactive_fails_without_key() {
+    let svc = make_svc();
+    let params = AddParams {
+        key: None,
+        value: Some("test-value".to_string()),
+        notes: String::new(),
+        category: String::new(),
+        reference: String::new(),
+        namespace: String::new(),
+        tags: Vec::new(),
+        metadata: vec![],
+        interactive: false,
+        parent: None,
+        path: None,
+        media_url: None,
+        json: None,
+    };
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::MissingRequiredField(_))));
+}
+
+#[test]
 fn handle_add_non_interactive_fails_without_value() {
     let svc = make_svc();
     let params = AddParams {
+        key: Some("test-key".to_string()),
         value: None,
         notes: String::new(),
         category: String::new(),
@@ -799,6 +838,7 @@ fn handle_add_non_interactive_fails_without_value() {
 #[test]
 fn build_new_kb_non_interactive_builds_correctly() {
     let params = AddParams {
+        key: Some("my-key".to_string()),
         value: Some("my-value".to_string()),
         notes: "some notes".to_string(),
         category: "concept".to_string(),
@@ -815,6 +855,7 @@ fn build_new_kb_non_interactive_builds_correctly() {
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
     let new_kb = result.expect("expected Ok NewKb");
+    assert_eq!(new_kb.key, "my-key");
     assert_eq!(new_kb.value, "my-value");
     assert_eq!(new_kb.tags, vec!["rust".to_string()]);
 }
@@ -878,7 +919,7 @@ fn suggested_tags_for_returns_empty_for_stop_words_only() {
 fn format_preview_includes_all_fields() {
     use crate::domain::NewKb;
     let kb = NewKb {
-        id: None,
+        key: "rust-ownership".to_string(),
         value: "memory management in rust".to_string(),
         notes: "important concept".to_string(),
         category: "concept".to_string(),
@@ -892,6 +933,7 @@ fn format_preview_includes_all_fields() {
         media_extension: None,
     };
     let preview = format_preview(&kb);
+    assert!(preview.contains("rust-ownership"));
     assert!(preview.contains("memory management in rust"));
     assert!(preview.contains("important concept"));
     assert!(preview.contains("concept"));
@@ -903,7 +945,7 @@ fn format_preview_includes_all_fields() {
 fn format_preview_shows_tags_joined_with_comma() {
     use crate::domain::NewKb;
     let kb = NewKb {
-        id: None,
+        key: "k".to_string(),
         value: "v".to_string(),
         notes: String::new(),
         category: String::new(),
@@ -927,6 +969,7 @@ fn format_preview_shows_tags_joined_with_comma() {
 #[test]
 fn build_new_kb_non_interactive_uses_provided_reference() {
     let params = AddParams {
+        key: Some("ref-key".to_string()),
         value: Some("ref-value".to_string()),
         notes: String::new(),
         category: String::new(),
@@ -949,6 +992,7 @@ fn build_new_kb_non_interactive_uses_provided_reference() {
 #[test]
 fn build_new_kb_non_interactive_uses_provided_tags() {
     let params = AddParams {
+        key: Some("tags-key".to_string()),
         value: Some("tags-value".to_string()),
         notes: String::new(),
         category: String::new(),
@@ -974,6 +1018,7 @@ fn build_new_kb_non_interactive_uses_provided_tags() {
 
 fn add_params_with_json(json: Option<&str>) -> AddParams {
     AddParams {
+        key: None,
         value: None,
         notes: String::new(),
         category: String::new(),
@@ -991,20 +1036,17 @@ fn add_params_with_json(json: Option<&str>) -> AddParams {
 
 #[test]
 fn handle_add_json_creates_entry_and_returns_ok() {
-    let store = MockKbStore::new();
-    let svc = make_svc_with_store(store.clone());
+    let svc = make_svc();
     let params = add_params_with_json(Some(
-        r#"{"value":"Fools ignore complexity.","category":"quote","tags":["a","b"],"reference":"Alan Perlis"}"#,
+        r#"{"key":"complexity-views","value":"Fools ignore complexity.","category":"quote","tags":["a","b"],"reference":"Alan Perlis"}"#,
     ));
     let result = handle_add(&svc, params);
     assert!(result.is_ok());
-    let kb = store
-        .data
-        .borrow()
-        .values()
-        .find(|kb| kb.value == "Fools ignore complexity.")
-        .cloned()
+    let kb = svc
+        .get_kb_by_key("complexity-views")
+        .expect("lookup should succeed")
         .expect("entry should be persisted");
+    assert_eq!(kb.value, "Fools ignore complexity.");
     assert_eq!(kb.category, "quote");
     assert_eq!(kb.reference, "Alan Perlis");
     assert_eq!(kb.tags, vec!["a".to_string(), "b".to_string()]);
@@ -1012,39 +1054,38 @@ fn handle_add_json_creates_entry_and_returns_ok() {
 
 #[test]
 fn handle_add_json_dedupes_tags_end_to_end() {
-    let store = MockKbStore::new();
-    let svc = make_svc_with_store(store.clone());
+    let svc = make_svc();
     let params = add_params_with_json(Some(
-        r#"{"value":"v","category":"concept","tags":["a","a","b"]}"#,
+        r#"{"key":"dedup-key","value":"v","category":"concept","tags":["a","a","b"]}"#,
     ));
     let result = handle_add(&svc, params);
     assert!(result.is_ok());
-    let kb = store
-        .data
-        .borrow()
-        .values()
-        .find(|kb| kb.category == "concept")
-        .cloned()
+    let kb = svc
+        .get_kb_by_key("dedup-key")
+        .expect("lookup should succeed")
         .expect("entry should be persisted");
     assert_eq!(kb.tags, vec!["a".to_string(), "b".to_string()]);
 }
 
 #[test]
 fn handle_add_json_rejects_blank_tag() {
-    let store = MockKbStore::new();
-    let svc = make_svc_with_store(store.clone());
+    let svc = make_svc();
     let params = add_params_with_json(Some(
-        r#"{"value":"v","category":"concept","tags":["a"," "]}"#,
+        r#"{"key":"blank-tag-key","value":"v","category":"concept","tags":["a"," "]}"#,
     ));
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::InvalidTagError(_))));
-    assert!(store.data.borrow().is_empty());
+    assert!(
+        svc.get_kb_by_key("blank-tag-key")
+            .expect("lookup should succeed")
+            .is_none()
+    );
 }
 
 #[test]
 fn handle_add_json_rejects_missing_required_field() {
     let svc = make_svc();
-    let params = add_params_with_json(Some(r#"{"value":"v","tags":["a"]}"#));
+    let params = add_params_with_json(Some(r#"{"key":"k","value":"v","tags":["a"]}"#));
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::InvalidJsonInput(_))));
 }
@@ -1058,10 +1099,27 @@ fn handle_add_json_rejects_malformed_json() {
 }
 
 #[test]
+fn handle_add_json_conflicts_with_key_flag() {
+    let svc = make_svc();
+    let mut params = add_params_with_json(Some(
+        r#"{"key":"k","value":"v","category":"concept","tags":["a"]}"#,
+    ));
+    params.key = Some("some-other-key".to_string());
+    let result = handle_add(&svc, params);
+    assert!(matches!(result, Err(Error::ConflictingAddFlags(_))));
+    assert!(
+        svc.get_kb_by_key("k")
+            .expect("lookup should succeed")
+            .is_none()
+    );
+}
+
+#[test]
 fn handle_add_json_conflicts_with_tags_flag() {
     let svc = make_svc();
-    let mut params =
-        add_params_with_json(Some(r#"{"value":"v","category":"concept","tags":["a"]}"#));
+    let mut params = add_params_with_json(Some(
+        r#"{"key":"k","value":"v","category":"concept","tags":["a"]}"#,
+    ));
     params.tags = vec!["extra".to_string()];
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::ConflictingAddFlags(_))));
@@ -1070,8 +1128,9 @@ fn handle_add_json_conflicts_with_tags_flag() {
 #[test]
 fn handle_add_json_conflicts_with_interactive_flag() {
     let svc = make_svc();
-    let mut params =
-        add_params_with_json(Some(r#"{"value":"v","category":"concept","tags":["a"]}"#));
+    let mut params = add_params_with_json(Some(
+        r#"{"key":"k","value":"v","category":"concept","tags":["a"]}"#,
+    ));
     params.interactive = true;
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::ConflictingAddFlags(_))));
@@ -1081,33 +1140,33 @@ fn handle_add_json_conflicts_with_interactive_flag() {
 fn serialize_failed_items_produces_multi_doc_yaml() {
     let items = vec![
         ImportKbItem {
-            id: "11111111-1111-1111-1111-111111111111".to_string(),
+            key: "key-one".to_string(),
             value: "value one".to_string(),
             notes: String::new(),
             category: String::new(),
             reference: String::new(),
             namespace: String::new(),
             tags: Vec::new(),
-            parent_id: None,
+            parent_key: None,
             path: None,
             media_extension: None,
         },
         ImportKbItem {
-            id: "22222222-2222-2222-2222-222222222222".to_string(),
+            key: "key-two".to_string(),
             value: "value two".to_string(),
             notes: String::new(),
             category: String::new(),
             reference: String::new(),
             namespace: String::new(),
             tags: Vec::new(),
-            parent_id: None,
+            parent_key: None,
             path: None,
             media_extension: None,
         },
     ];
     let result = serialize_failed_items(&items).unwrap();
-    assert!(result.contains("11111111-1111-1111-1111-111111111111"));
-    assert!(result.contains("22222222-2222-2222-2222-222222222222"));
+    assert!(result.contains("key-one"));
+    assert!(result.contains("key-two"));
     assert!(result.contains("---"));
 }
 
@@ -1117,9 +1176,10 @@ fn serialize_failed_items_produces_multi_doc_yaml() {
 
 use crate::domain::{GraphNode, IncomingEdge, OutgoingEdge, TreeRoot};
 
-fn make_graph_node(label: &str, category: &str) -> GraphNode {
+fn make_graph_node(key: &str, category: &str) -> GraphNode {
     GraphNode {
-        id: format!("{label}-id"),
+        id: format!("{key}-id"),
+        key: key.to_string(),
         category: category.to_string(),
         namespace: "default".to_string(),
     }
@@ -1164,10 +1224,10 @@ fn render_related_shows_both_sections_by_default() {
         }],
     };
     let output = render_related(&result, EdgeDirection::Both);
-    assert!(output.contains("→ car-id points to (1)"));
-    assert!(output.contains("engine-id"));
-    assert!(output.contains("← pointed to by car-id (1)"));
-    assert!(output.contains("spare-parts-kit-id"));
+    assert!(output.contains("→ car points to (1)"));
+    assert!(output.contains("engine"));
+    assert!(output.contains("← pointed to by car (1)"));
+    assert!(output.contains("spare-parts-kit"));
 }
 
 #[test]
@@ -1183,7 +1243,7 @@ fn render_related_direction_out_hides_incoming_section() {
         }],
     };
     let output = render_related(&result, EdgeDirection::Out);
-    assert!(output.contains("→ car-id points to (0)"));
+    assert!(output.contains("→ car points to (0)"));
     assert!(!output.contains("pointed to by"));
 }
 
@@ -1201,7 +1261,7 @@ fn render_related_direction_in_hides_outgoing_section() {
     };
     let output = render_related(&result, EdgeDirection::In);
     assert!(!output.contains("points to"));
-    assert!(output.contains("← pointed to by car-id (0)"));
+    assert!(output.contains("← pointed to by car (0)"));
 }
 
 #[test]
@@ -1284,29 +1344,34 @@ fn render_tree_draws_branches_for_a_multi_level_hierarchy() {
     let result = TreeResult {
         root: TreeRoot {
             id: "car-id".to_string(),
+            key: "car".to_string(),
         },
         direction: "out".to_string(),
         nodes: vec![
             TreeNode {
                 id: "engine-id".to_string(),
+                key: "engine".to_string(),
                 depth: 1,
                 parent_id: "car-id".to_string(),
                 note: "car has an engine".to_string(),
             },
             TreeNode {
                 id: "chassis-id".to_string(),
+                key: "chassis".to_string(),
                 depth: 1,
                 parent_id: "car-id".to_string(),
                 note: "car is built on a chassis".to_string(),
             },
             TreeNode {
                 id: "camshaft-id".to_string(),
+                key: "camshaft".to_string(),
                 depth: 2,
                 parent_id: "engine-id".to_string(),
                 note: "engine contains camshaft".to_string(),
             },
             TreeNode {
                 id: "piston-id".to_string(),
+                key: "piston".to_string(),
                 depth: 2,
                 parent_id: "engine-id".to_string(),
                 note: "engine contains piston".to_string(),
@@ -1315,18 +1380,16 @@ fn render_tree_draws_branches_for_a_multi_level_hierarchy() {
     };
     let output = render_tree(&result);
     let lines: Vec<&str> = output.lines().collect();
-    assert_eq!(lines[0], "car-id");
-    assert!(lines[1].starts_with("├── engine-id"));
+    assert_eq!(lines[0], "car");
+    assert!(lines[1].starts_with("├── engine"));
     assert!(lines[1].contains("car has an engine"));
-    assert!(lines[2].starts_with("│   ├── camshaft-id"));
+    assert!(lines[2].starts_with("│   ├── camshaft"));
     assert!(lines[2].contains("engine contains camshaft"));
-    assert!(lines[3].starts_with("│   └── piston-id"));
-    assert!(lines[4].starts_with("└── chassis-id"));
+    assert!(lines[3].starts_with("│   └── piston"));
+    assert!(lines[4].starts_with("└── chassis"));
     assert!(lines[4].contains("car is built on a chassis"));
 }
 
-/// Seeds one entry and returns its generated id (there's no more stable,
-/// caller-chosen key to look it back up by).
 fn seed_kb(
     svc: &KBService<
         MockKbStore,
@@ -1335,9 +1398,10 @@ fn seed_kb(
         MockMediaStore,
         MockMediaFetcher,
     >,
-) -> String {
+    key: &str,
+) {
     svc.add_kb(NewKb {
-        id: None,
+        key: key.to_string(),
         value: "test-value".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -1350,8 +1414,7 @@ fn seed_kb(
         media_url: None,
         media_extension: None,
     })
-    .expect("seed add_kb should succeed")
-    .id
+    .expect("seed add_kb should succeed");
 }
 
 /// A `graph_svc` with no seeded edges — fine for tests that pass no
@@ -1365,6 +1428,7 @@ fn update_params_for(id: &str, out: Option<&str>) -> UpdateParams {
     UpdateParams {
         update: KbUpdate {
             id: id.to_string(),
+            key: None,
             value: Some("updated-value".to_string()),
             notes: None,
             category: None,
@@ -1382,7 +1446,8 @@ fn update_params_for(id: &str, out: Option<&str>) -> UpdateParams {
 #[test]
 fn handle_update_no_out_succeeds() {
     let svc = make_svc();
-    let id = seed_kb(&svc);
+    seed_kb(&svc, "update-test-key");
+    let id = svc.get_kb_by_key("update-test-key").unwrap().unwrap().id;
     let result = handle_update(&svc, update_params_for(&id, None));
     assert!(result.is_ok());
 }
@@ -1390,7 +1455,8 @@ fn handle_update_no_out_succeeds() {
 #[test]
 fn handle_update_out_json_succeeds() {
     let svc = make_svc();
-    let id = seed_kb(&svc);
+    seed_kb(&svc, "update-test-json");
+    let id = svc.get_kb_by_key("update-test-json").unwrap().unwrap().id;
     let result = handle_update(&svc, update_params_for(&id, Some("json")));
     assert!(result.is_ok());
 }
@@ -1398,7 +1464,8 @@ fn handle_update_out_json_succeeds() {
 #[test]
 fn handle_update_out_yaml_succeeds() {
     let svc = make_svc();
-    let id = seed_kb(&svc);
+    seed_kb(&svc, "update-test-yaml");
+    let id = svc.get_kb_by_key("update-test-yaml").unwrap().unwrap().id;
     let result = handle_update(&svc, update_params_for(&id, Some("yaml")));
     assert!(result.is_ok());
 }
@@ -1406,7 +1473,12 @@ fn handle_update_out_yaml_succeeds() {
 #[test]
 fn handle_update_invalid_out_value_returns_error() {
     let svc = make_svc();
-    let id = seed_kb(&svc);
+    seed_kb(&svc, "update-test-invalid-out");
+    let id = svc
+        .get_kb_by_key("update-test-invalid-out")
+        .unwrap()
+        .unwrap()
+        .id;
     let result = handle_update(&svc, update_params_for(&id, Some("xml")));
     assert!(matches!(result, Err(Error::UpdateKBError(_))));
 }
@@ -1414,10 +1486,11 @@ fn handle_update_invalid_out_value_returns_error() {
 #[test]
 fn handle_get_found_no_out_succeeds() {
     let svc = make_svc();
-    let id = seed_kb(&svc);
+    seed_kb(&svc, "get-test-key");
     let graph_svc = make_empty_graph_svc();
     let params = GetParams {
-        id,
+        key: Some("get-test-key".to_string()),
+        id: None,
         base_dir: String::new(),
         out: None,
         with_out_connections: false,
@@ -1437,10 +1510,11 @@ fn handle_get_found_no_out_succeeds() {
 #[test]
 fn handle_get_found_out_json_succeeds() {
     let svc = make_svc();
-    let id = seed_kb(&svc);
+    seed_kb(&svc, "get-test-json");
     let graph_svc = make_empty_graph_svc();
     let params = GetParams {
-        id,
+        key: Some("get-test-json".to_string()),
+        id: None,
         base_dir: String::new(),
         out: Some("json".to_string()),
         with_out_connections: false,
@@ -1460,10 +1534,11 @@ fn handle_get_found_out_json_succeeds() {
 #[test]
 fn handle_get_found_out_yaml_succeeds() {
     let svc = make_svc();
-    let id = seed_kb(&svc);
+    seed_kb(&svc, "get-test-yaml");
     let graph_svc = make_empty_graph_svc();
     let params = GetParams {
-        id,
+        key: Some("get-test-yaml".to_string()),
+        id: None,
         base_dir: String::new(),
         out: Some("yaml".to_string()),
         with_out_connections: false,
@@ -1485,7 +1560,8 @@ fn handle_get_not_found_returns_ok() {
     let svc = make_svc();
     let graph_svc = make_empty_graph_svc();
     let params = GetParams {
-        id: "no-such-id".to_string(),
+        key: Some("no-such-key".to_string()),
+        id: None,
         base_dir: String::new(),
         out: None,
         with_out_connections: false,
@@ -1507,7 +1583,8 @@ fn handle_get_not_found_with_out_json_returns_ok() {
     let svc = make_svc();
     let graph_svc = make_empty_graph_svc();
     let params = GetParams {
-        id: "no-such-id".to_string(),
+        key: Some("no-such-key".to_string()),
+        id: None,
         base_dir: String::new(),
         out: Some("json".to_string()),
         with_out_connections: false,
@@ -1527,10 +1604,11 @@ fn handle_get_not_found_with_out_json_returns_ok() {
 #[test]
 fn handle_get_invalid_out_value_returns_error() {
     let svc = make_svc();
-    let id = seed_kb(&svc);
+    seed_kb(&svc, "get-test-invalid-out");
     let graph_svc = make_empty_graph_svc();
     let params = GetParams {
-        id,
+        key: Some("get-test-invalid-out".to_string()),
+        id: None,
         base_dir: String::new(),
         out: Some("xml".to_string()),
         with_out_connections: false,
@@ -1547,9 +1625,33 @@ fn handle_get_invalid_out_value_returns_error() {
     assert!(matches!(result, Err(Error::GetKBError(_))));
 }
 
-fn get_params_for(id: &str, flags: RelationshipFlags) -> GetParams {
+#[test]
+fn handle_get_no_key_no_id_returns_error() {
+    let svc = make_svc();
+    let graph_svc = make_empty_graph_svc();
+    let params = GetParams {
+        key: None,
+        id: None,
+        base_dir: String::new(),
+        out: None,
+        with_out_connections: false,
+        with_in_connections: false,
+        with_all_connections: false,
+    };
+    let result = handle_get(
+        GetServices {
+            svc: &svc,
+            graph_svc: &graph_svc,
+        },
+        params,
+    );
+    assert!(matches!(result, Err(Error::GetKBError(_))));
+}
+
+fn get_params_for(key: &str, flags: RelationshipFlags) -> GetParams {
     GetParams {
-        id: id.to_string(),
+        key: Some(key.to_string()),
+        id: None,
         base_dir: String::new(),
         out: None,
         with_out_connections: flags.with_out,
@@ -1560,8 +1662,8 @@ fn get_params_for(id: &str, flags: RelationshipFlags) -> GetParams {
 
 #[test]
 fn handle_get_with_out_connections_only_succeeds() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
     let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
     graph
         .edges
@@ -1570,7 +1672,7 @@ fn handle_get_with_out_connections_only_succeeds() {
     let (svc, graph_svc) = make_get_services(vec![car, engine], graph);
 
     let params = get_params_for(
-        "car-id",
+        "car",
         RelationshipFlags {
             with_out: true,
             with_in: false,
@@ -1589,8 +1691,8 @@ fn handle_get_with_out_connections_only_succeeds() {
 
 #[test]
 fn handle_get_with_in_connections_only_succeeds() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
     let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
     graph
         .edges
@@ -1599,7 +1701,7 @@ fn handle_get_with_in_connections_only_succeeds() {
     let (svc, graph_svc) = make_get_services(vec![car, engine], graph);
 
     let params = get_params_for(
-        "engine-id",
+        "engine",
         RelationshipFlags {
             with_out: false,
             with_in: true,
@@ -1618,8 +1720,8 @@ fn handle_get_with_in_connections_only_succeeds() {
 
 #[test]
 fn handle_get_with_all_connections_succeeds() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
     let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
     graph
         .edges
@@ -1628,7 +1730,7 @@ fn handle_get_with_all_connections_succeeds() {
     let (svc, graph_svc) = make_get_services(vec![car, engine], graph);
 
     let params = get_params_for(
-        "car-id",
+        "car",
         RelationshipFlags {
             with_out: false,
             with_in: false,
@@ -1647,8 +1749,8 @@ fn handle_get_with_all_connections_succeeds() {
 
 #[test]
 fn handle_get_combined_out_and_in_flags_resolves_to_both() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
     let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
     graph
         .edges
@@ -1657,7 +1759,7 @@ fn handle_get_combined_out_and_in_flags_resolves_to_both() {
     let (svc, graph_svc) = make_get_services(vec![car, engine], graph);
 
     let params = get_params_for(
-        "car-id",
+        "car",
         RelationshipFlags {
             with_out: true,
             with_in: true,
@@ -1678,7 +1780,7 @@ fn handle_get_combined_out_and_in_flags_resolves_to_both() {
 fn handle_get_not_found_with_relationship_flag_still_prints_not_found() {
     let (svc, graph_svc) = make_get_services(vec![], MockKbGraph::default());
     let params = get_params_for(
-        "missing-id",
+        "missing",
         RelationshipFlags {
             with_out: false,
             with_in: false,
@@ -1713,7 +1815,7 @@ fn search_params(out: Option<&str>) -> SearchParams {
 #[test]
 fn handle_search_no_out_succeeds() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-plain");
     let result = handle_search(&svc, search_params(None));
     assert!(result.is_ok());
 }
@@ -1721,7 +1823,7 @@ fn handle_search_no_out_succeeds() {
 #[test]
 fn handle_search_out_json_succeeds() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-json");
     let result = handle_search(&svc, search_params(Some("json")));
     assert!(result.is_ok());
 }
@@ -1729,7 +1831,7 @@ fn handle_search_out_json_succeeds() {
 #[test]
 fn handle_search_out_yaml_succeeds() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-yaml");
     let result = handle_search(&svc, search_params(Some("yaml")));
     assert!(result.is_ok());
 }
@@ -1744,7 +1846,7 @@ fn handle_search_empty_results_out_json_succeeds() {
 #[test]
 fn handle_search_invalid_out_value_returns_error() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-invalid-out");
     let result = handle_search(&svc, search_params(Some("xml")));
     assert!(matches!(result, Err(Error::SearchError(_))));
 }
@@ -1764,7 +1866,7 @@ fn search_params_with_dates(
 #[test]
 fn handle_search_valid_start_date_succeeds() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-date");
     let result = handle_search(
         &svc,
         search_params_with_dates(None, Some("2026-01-01"), None),
@@ -1775,7 +1877,7 @@ fn handle_search_valid_start_date_succeeds() {
 #[test]
 fn handle_search_valid_end_date_succeeds() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-date");
     let result = handle_search(
         &svc,
         search_params_with_dates(None, None, Some("2026-12-31")),
@@ -1786,7 +1888,7 @@ fn handle_search_valid_end_date_succeeds() {
 #[test]
 fn handle_search_valid_date_range_succeeds() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-date");
     let result = handle_search(
         &svc,
         search_params_with_dates(None, Some("2026-01-01"), Some("2026-12-31")),
@@ -1797,7 +1899,7 @@ fn handle_search_valid_date_range_succeeds() {
 #[test]
 fn handle_search_invalid_start_date_returns_error() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-date");
     let result = handle_search(
         &svc,
         search_params_with_dates(None, Some("01-01-2026"), None),
@@ -1808,7 +1910,7 @@ fn handle_search_invalid_start_date_returns_error() {
 #[test]
 fn handle_search_invalid_end_date_returns_error() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-date");
     let result = handle_search(
         &svc,
         search_params_with_dates(None, None, Some("2026-13-40")),
@@ -1819,7 +1921,7 @@ fn handle_search_invalid_end_date_returns_error() {
 #[test]
 fn handle_search_inverted_date_range_returns_ok_with_no_error() {
     let svc = make_svc();
-    seed_kb(&svc);
+    seed_kb(&svc, "search-test-date");
     let result = handle_search(
         &svc,
         search_params_with_dates(None, Some("2026-12-31"), Some("2026-01-01")),
@@ -1875,7 +1977,7 @@ fn handle_delete_plain_text_success() {
     let svc = make_svc();
     let kb = svc
         .add_kb(NewKb {
-            id: None,
+            key: "test-key".to_string(),
             value: "test value".to_string(),
             notes: String::new(),
             category: "concept".to_string(),
@@ -1902,7 +2004,7 @@ fn handle_delete_json_success() {
     let svc = make_svc();
     let kb = svc
         .add_kb(NewKb {
-            id: None,
+            key: "test-key-json".to_string(),
             value: "test value".to_string(),
             notes: String::new(),
             category: "concept".to_string(),
@@ -1929,7 +2031,7 @@ fn handle_delete_invalid_out_value() {
     let svc = make_svc();
     let kb = svc
         .add_kb(NewKb {
-            id: None,
+            key: "test-key-invalid".to_string(),
             value: "test value".to_string(),
             notes: String::new(),
             category: "concept".to_string(),
@@ -1979,7 +2081,7 @@ fn handle_delete_not_found_json_returns_error() {
 fn handle_categories_plain_text_success() {
     let svc = make_svc();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-1".to_string(),
         value: "value 1".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -1994,7 +2096,7 @@ fn handle_categories_plain_text_success() {
     })
     .unwrap();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-2".to_string(),
         value: "value 2".to_string(),
         notes: String::new(),
         category: "bookmark".to_string(),
@@ -2020,7 +2122,7 @@ fn handle_categories_plain_text_success() {
 fn handle_categories_json_success() {
     let svc = make_svc();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-1".to_string(),
         value: "value 1".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -2057,7 +2159,7 @@ fn handle_categories_json_empty_success() {
 fn handle_categories_namespace_filter_json() {
     let svc = make_svc();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-rust".to_string(),
         value: "value".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -2072,7 +2174,7 @@ fn handle_categories_namespace_filter_json() {
     })
     .unwrap();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-k8s".to_string(),
         value: "value".to_string(),
         notes: String::new(),
         category: "command".to_string(),
@@ -2111,7 +2213,7 @@ fn handle_categories_invalid_out_value() {
 fn handle_namespaces_plain_text_success() {
     let svc = make_svc();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-1".to_string(),
         value: "value 1".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -2126,7 +2228,7 @@ fn handle_namespaces_plain_text_success() {
     })
     .unwrap();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-2".to_string(),
         value: "value 2".to_string(),
         notes: String::new(),
         category: "bookmark".to_string(),
@@ -2152,7 +2254,7 @@ fn handle_namespaces_plain_text_success() {
 fn handle_namespaces_json_success() {
     let svc = make_svc();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-1".to_string(),
         value: "value 1".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -2200,7 +2302,7 @@ fn handle_namespaces_invalid_out_value() {
 fn handle_namespaces_filter_json() {
     let svc = make_svc();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-1".to_string(),
         value: "value 1".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -2215,7 +2317,7 @@ fn handle_namespaces_filter_json() {
     })
     .unwrap();
     svc.add_kb(NewKb {
-        id: None,
+        key: "kb-2".to_string(),
         value: "value 2".to_string(),
         notes: String::new(),
         category: "bookmark".to_string(),
@@ -2242,12 +2344,12 @@ fn handle_namespaces_filter_json() {
 #[test]
 fn handle_link_plain_text_success() {
     let (_svc, graph_svc) = make_get_services(
-        vec![make_kb("id-from"), make_kb("id-to")],
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
         MockKbGraph::default(),
     );
     let params = LinkParams {
-        from_id: "id-from".to_string(),
-        to_id: "id-to".to_string(),
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "to-key".to_string(),
         note: "related".to_string(),
         out: None,
     };
@@ -2258,12 +2360,12 @@ fn handle_link_plain_text_success() {
 #[test]
 fn handle_link_json_success() {
     let (_svc, graph_svc) = make_get_services(
-        vec![make_kb("id-from"), make_kb("id-to")],
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
         MockKbGraph::default(),
     );
     let params = LinkParams {
-        from_id: "id-from".to_string(),
-        to_id: "id-to".to_string(),
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "to-key".to_string(),
         note: "related".to_string(),
         out: Some("json".to_string()),
     };
@@ -2274,12 +2376,12 @@ fn handle_link_json_success() {
 #[test]
 fn handle_link_invalid_out_value_returns_error() {
     let (_svc, graph_svc) = make_get_services(
-        vec![make_kb("id-from"), make_kb("id-to")],
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
         MockKbGraph::default(),
     );
     let params = LinkParams {
-        from_id: "id-from".to_string(),
-        to_id: "id-to".to_string(),
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "to-key".to_string(),
         note: String::new(),
         out: Some("xml".to_string()),
     };
@@ -2290,12 +2392,12 @@ fn handle_link_invalid_out_value_returns_error() {
 #[test]
 fn handle_link_not_found_returns_error() {
     let (_svc, graph_svc) = make_get_services(
-        vec![make_kb("id-from"), make_kb("id-to")],
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
         MockKbGraph::default(),
     );
     let params = LinkParams {
-        from_id: "unknown-id".to_string(),
-        to_id: "id-to".to_string(),
+        from_key_or_id: "unknown-key".to_string(),
+        to_key_or_id: "to-key".to_string(),
         note: String::new(),
         out: None,
     };
@@ -2306,12 +2408,12 @@ fn handle_link_not_found_returns_error() {
 #[test]
 fn handle_link_self_loop_returns_error() {
     let (_svc, graph_svc) = make_get_services(
-        vec![make_kb("id-from"), make_kb("id-to")],
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
         MockKbGraph::default(),
     );
     let params = LinkParams {
-        from_id: "id-from".to_string(),
-        to_id: "id-from".to_string(),
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "from-key".to_string(),
         note: String::new(),
         out: None,
     };
@@ -2322,12 +2424,12 @@ fn handle_link_self_loop_returns_error() {
 #[test]
 fn handle_link_self_loop_json_returns_error() {
     let (_svc, graph_svc) = make_get_services(
-        vec![make_kb("id-from"), make_kb("id-to")],
+        vec![make_kb("id-from", "from-key"), make_kb("id-to", "to-key")],
         MockKbGraph::default(),
     );
     let params = LinkParams {
-        from_id: "id-from".to_string(),
-        to_id: "id-from".to_string(),
+        from_key_or_id: "from-key".to_string(),
+        to_key_or_id: "from-key".to_string(),
         note: String::new(),
         out: Some("json".to_string()),
     };

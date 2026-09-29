@@ -60,13 +60,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
     /// For `media` category entries, the media file is fetched/copied BEFORE the DB row
     /// is saved — a media failure returns an error without creating a dangling DB record.
     /// Embedding failures are non-fatal: a warning is printed and `Ok(kb)` is returned.
-    pub fn add_kb(&self, mut new_kb: NewKb) -> Result<Kb, Error> {
-        // Generated here (rather than left to `Kb::from`) so a media-category
-        // entry's file can be stored under its final id before the DB row
-        // exists — `Kb::from` reuses this id, per `NewKb::id`'s contract.
-        if new_kb.id.is_none() {
-            new_kb.id = Some(uuid::Uuid::new_v4().to_string());
-        }
+    pub fn add_kb(&self, new_kb: NewKb) -> Result<Kb, Error> {
         if is_media_category(&new_kb.category) {
             self.store_media_for_new_kb(&new_kb)?;
         }
@@ -77,13 +71,17 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             namespace: kb.namespace.clone(),
         };
         if let Err(e) = self.index_kb(&input) {
-            eprintln!("Warning: could not index embedding for '{}': {}", kb.id, e);
+            eprintln!("Warning: could not index embedding for '{}': {}", kb.key, e);
         }
         Ok(kb)
     }
 
     pub fn get_kb_by_id(&self, id: &str) -> Result<Option<Kb>, Error> {
         self.store.get_kb_by_id(id)
+    }
+
+    pub fn get_kb_by_key(&self, key: &str) -> Result<Option<Kb>, Error> {
+        self.store.get_kb_by_key(key)
     }
 
     pub fn get_kbs(&self, filter: KbFilter) -> Result<Vec<KbItem>, Error> {
@@ -104,7 +102,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             .ok_or(Error::KBNotFound)?;
 
         if is_media_category(&existing.category) && update.path.is_some() {
-            return Err(Error::MediaPathUpdateNotAllowed(existing.id.clone()));
+            return Err(Error::MediaPathUpdateNotAllowed(existing.key.clone()));
         }
 
         self.validate_parent_exists(&update.parent)?;
@@ -125,6 +123,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
 
         let updated = Kb {
             id: existing.id,
+            key: update.key.map(|v| v.to_lowercase()).unwrap_or(existing.key),
             value: update.value.unwrap_or(existing.value),
             notes: update.notes.unwrap_or(existing.notes),
             category: update
@@ -180,7 +179,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                 base_dir: &self.base_dir,
                 namespace: &existing.namespace,
                 path: existing.path.as_deref(),
-                id: &existing.id,
+                key: &existing.key,
                 extension: Some(ext),
             });
             self.media_store.delete_media(&path)?;
@@ -236,8 +235,8 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                         namespace: kb.namespace.clone(),
                     };
                     match self.index_kb(&input) {
-                        Ok(_) => succeeded.push(kb.id.clone()),
-                        Err(e) => failed.push((kb.id.clone(), e.to_string())),
+                        Ok(_) => succeeded.push((kb.key.clone(), kb.id.clone())),
+                        Err(e) => failed.push((kb.key.clone(), e.to_string())),
                     }
                 }
             }
@@ -257,7 +256,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                 namespace: kb.namespace.clone(),
             };
             if let Err(e) = self.index_kb(&input) {
-                eprintln!("Warning: could not index embedding for '{}': {}", kb.id, e);
+                eprintln!("Warning: could not index embedding for '{}': {}", kb.key, e);
             }
         }
         result
@@ -265,7 +264,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
 
     /// Exports entries matching `filter` as a list of [`ExportKbItem`], ordered so
     /// parents always appear before their children. If a parent is not in the filtered
-    /// set, the child's `parent_id` field is omitted so the file can be re-imported
+    /// set, the child's `parent_key` field is omitted so the file can be re-imported
     /// cleanly.
     pub fn export_kbs(&self, filter: KbFilter) -> Result<Vec<ExportKbItem>, Error> {
         let kbs = self.store.get_kbs_full(&filter)?;
@@ -273,7 +272,10 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             return Ok(vec![]);
         }
 
-        let exported_ids: HashSet<&str> = kbs.iter().map(|kb| kb.id.as_str()).collect();
+        let id_to_key: std::collections::HashMap<&str, &str> = kbs
+            .iter()
+            .map(|kb| (kb.id.as_str(), kb.key.as_str()))
+            .collect();
 
         let mut emitted: HashSet<&str> = HashSet::new();
         let mut ordered: Vec<&Kb> = Vec::with_capacity(kbs.len());
@@ -285,7 +287,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                 let parent_in_set = kb
                     .parent
                     .as_ref()
-                    .is_some_and(|pid| exported_ids.contains(pid.as_str()));
+                    .is_some_and(|pid| id_to_key.contains_key(pid.as_str()));
                 let parent_emitted = kb
                     .parent
                     .as_ref()
@@ -309,18 +311,18 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         let items = ordered
             .into_iter()
             .map(|kb| ExportKbItem {
-                id: kb.id.clone(),
+                key: kb.key.clone(),
                 value: kb.value.clone(),
                 notes: kb.notes.clone(),
                 category: kb.category.clone(),
                 reference: kb.reference.clone(),
                 namespace: kb.namespace.clone(),
                 tags: kb.tags.clone(),
-                parent_id: kb
+                parent_key: kb
                     .parent
                     .as_ref()
-                    .filter(|pid| exported_ids.contains(pid.as_str()))
-                    .cloned(),
+                    .and_then(|pid| id_to_key.get(pid.as_str()))
+                    .map(|s| s.to_string()),
                 path: kb.path.clone(),
                 media_extension: kb.media_extension.clone(),
             })
@@ -367,14 +369,14 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                     base_dir: &self.base_dir,
                     namespace: &item.namespace,
                     path: item.path.as_deref(),
-                    id: &item.id,
+                    key: &item.key,
                     extension: Some(ext),
                 });
                 let dest = media_file_path(&MediaPathParams {
                     base_dir: &params.target_dir,
                     namespace: &item.namespace,
                     path: item.path.as_deref(),
-                    id: &item.id,
+                    key: &item.key,
                     extension: Some(ext),
                 });
                 self.media_store.store_media(&StoreMediaParams {
@@ -391,8 +393,12 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
     // Private helpers
     // ---------------------------------------------------------------------------
 
-    /// Low-level CRUD add: parent existence check, convert to `Kb`, persist.
+    /// Low-level CRUD add: duplicate-key check, parent existence check, convert to `Kb`, persist.
     fn add_kb_crud(&self, mut new_kb: NewKb) -> Result<Kb, Error> {
+        let key = new_kb.key.to_lowercase();
+        if self.store.get_kb_by_key(&key)?.is_some() {
+            return Err(Error::DuplicateKBError);
+        }
         self.validate_parent_exists(&new_kb.parent)?;
         new_kb.path = match new_kb.path.take() {
             Some(p) if !p.is_empty() => Some(normalize_path(&p)?),
@@ -403,8 +409,13 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         Ok(kb)
     }
 
-    /// Low-level CRUD update: persist.
+    /// Low-level CRUD update: duplicate-key guard, persist.
     fn update_kb_crud(&self, kb: Kb) -> Result<(), Error> {
+        if let Some(existing) = self.store.get_kb_by_key(&kb.key)?
+            && existing.id != kb.id
+        {
+            return Err(Error::DuplicateKBError);
+        }
         let updated = self.store.update_kb(&kb)?;
         if !updated {
             return Err(Error::KBWasNotUpdatedError);
@@ -412,10 +423,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         Ok(())
     }
 
-    /// Batch CRUD add: validates, skips items whose `id` already exists (reported,
-    /// not a hard failure), resolves `parent_id` (existence check only — no more
-    /// key resolution now that `id` is preserved from the import file), calls
-    /// `add_kb_crud`, collects failures.
+    /// Batch CRUD add: validates, resolves parent_key to parent_id, calls `add_kb_crud`, collects failures.
     fn add_kbs_crud(&self, items: Vec<ImportKbItem>) -> ImportBatchResult {
         let mut saved = Vec::new();
         let mut failed = Vec::new();
@@ -425,31 +433,14 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                 failed.push(FailedImportItem { item, reason });
                 continue;
             }
-            match self.store.get_kb_by_id(&item.id) {
-                Ok(Some(_)) => {
-                    failed.push(FailedImportItem {
-                        item,
-                        reason: "id already exists".to_string(),
-                    });
-                    continue;
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    failed.push(FailedImportItem {
-                        item,
-                        reason: e.to_string(),
-                    });
-                    continue;
-                }
-            }
-            let parent_id = item.parent_id.clone();
-            if let Some(pid) = &parent_id {
-                match self.store.get_kb_by_id(pid) {
-                    Ok(Some(_)) => {}
+            let parent_key = item.parent_key.clone();
+            let parent_id = if let Some(pk) = parent_key {
+                match self.store.get_kb_by_key(&pk) {
+                    Ok(Some(parent_kb)) => Some(parent_kb.id),
                     Ok(None) => {
                         failed.push(FailedImportItem {
                             item,
-                            reason: format!("parent id not found: {}", pid),
+                            reason: format!("parent key not found: {}", pk),
                         });
                         continue;
                     }
@@ -461,7 +452,9 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
                         continue;
                     }
                 }
-            }
+            } else {
+                None
+            };
             let mut new_kb = NewKb::from(item.clone());
             new_kb.parent = parent_id;
             match self.add_kb_crud(new_kb) {
@@ -480,15 +473,11 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
     /// `new_kb.media_url` and copies it to its final destination under `base_dir`.
     /// Returns `MediaUrlRequired` when `media_url` is absent or empty.
     fn store_media_for_new_kb(&self, new_kb: &NewKb) -> Result<(), Error> {
-        let id = new_kb
-            .id
-            .as_deref()
-            .expect("id must be set (by add_kb) before storing media for a new entry");
         let url = new_kb
             .media_url
             .as_deref()
             .filter(|u| !u.is_empty())
-            .ok_or_else(|| Error::MediaUrlRequired(id.to_string()))?;
+            .ok_or_else(|| Error::MediaUrlRequired(new_kb.key.clone()))?;
 
         let is_remote = url.starts_with("http://") || url.starts_with("https://");
         let source = if is_remote {
@@ -501,7 +490,7 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
             base_dir: &self.base_dir,
             namespace: &new_kb.namespace,
             path: new_kb.path.as_deref(),
-            id,
+            key: &new_kb.key,
             extension: file_extension(url).as_deref(),
         });
 

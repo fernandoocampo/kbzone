@@ -8,7 +8,7 @@ local SQLite file. The binary is named `kb`.
 ### CLI Commands
 
 - `kb add`                     — Add a new entry (also indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs) and `--path` (optional Unix-style path, leading `/` auto-added)
-- `kb get`                     — Fetch a single entry by ID; displays `path` if set; flags: `--out` (`json`\|`yaml`, optional — default is plain text)
+- `kb get`                     — Fetch a single entry by key or ID; displays `path` if set; flags: `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb update`                  — Update an entry (also re-indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs; replaces existing metadata; empty string clears all), `--path` (empty string clears the path), and `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb delete`                  — Delete an entry (also removes embedding); flags: `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace`, `--tags`, `--reference`, `--start-date`, `--end-date` (both `YYYY-MM-DD`, filter on `created_on`, inclusive), `--limit`, `--offset`, `--out` (`json`\|`yaml`, optional — default is plain text); uses FTS5 when `--keyword` is set, otherwise a regular SQL filter
@@ -18,11 +18,11 @@ local SQLite file. The binary is named `kb`.
 - `kb import`                  — Import KB entries from a multi-document YAML file; `Path` field is validated and normalised on import
 - `kb random`                  — Print a random entry from a category; flags: `--category` (required), `--namespace` (optional), `--include-notes` (optional — append notes if present), `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
 - `kb categories`              — List all distinct, non-empty category values; flags: `--namespace` (optional), `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
-- `kb link <from> <to>`        — Create a directed edge between two entries (each `from`/`to` is an internal ID); flags: `--note`, `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
-- `kb unlink <from> <to>`      — Remove the edge between two entries (by ID); errors if no such edge exists
-- `kb related <id>`            — Show one-hop outgoing/incoming relationships; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--json` (full NOTE text; human output truncates NOTE to 40 chars)
-- `kb tree <id>`               — Transitive relationship traversal via a recursive CTE; flags: `--direction` (`out`\|`in`, default `out`), `--depth` (default `10`), `--json`
-- `kb graph <id>`              — Open an interactive HTML graph view (vis-network) in the default browser: drag nodes, click one to inspect its full content, see its relationships highlighted; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--depth` (default `2`); requires internet access (vis-network loads from a CDN) and writes no file — served once in-memory over a loopback HTTP connection, then the process exits
+- `kb link <from> <to>`        — Create a directed edge between two entries (each `from`/`to` accepts a key or an internal ID); flags: `--note`, `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
+- `kb unlink <from> <to>`      — Remove the edge between two entries (key or ID); errors if no such edge exists
+- `kb related <key-or-id>`     — Show one-hop outgoing/incoming relationships; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--json` (full NOTE text; human output truncates NOTE to 40 chars)
+- `kb tree <key-or-id>`        — Transitive relationship traversal via a recursive CTE; flags: `--direction` (`out`\|`in`, default `out`), `--depth` (default `10`), `--json`
+- `kb graph <key-or-id>`       — Open an interactive HTML graph view (vis-network) in the default browser: drag nodes, click one to inspect its full content, see its relationships highlighted; flags: `--direction` (`out`\|`in`\|`both`, default `both`), `--depth` (default `2`); requires internet access (vis-network loads from a CDN) and writes no file — served once in-memory over a loopback HTTP connection, then the process exits
 
 ### Configuration
 
@@ -43,7 +43,7 @@ embedding:
 When indexing an entry (on `add`, `update`, or `reindex`), the text fed to the embedding model is:
 
 ```
-"{category} {namespace} {reference} {tags_as_string} {value[0..200]}"
+"{key} {category} {namespace} {reference} {tags_as_string} {value[0..200]}"
 ```
 
 Note: `metadata` is **not** included in the embedding text and does not trigger a re-index when updated (updates to only metadata are skipped).
@@ -67,33 +67,15 @@ via `kb update --namespace ...` already re-indexes it (any change to
 `embedding_text()`'s inputs triggers a re-index), which correctly re-shards it
 into the new partition since `save_embedding` does delete-then-insert.
 
-#### `KB_KEY` removal migration
-
-`kbs` used to have a `KB_KEY TEXT NOT NULL UNIQUE` column (the removed
-user-defined "key" field). SQLite can't `ALTER TABLE ... DROP` a
-`UNIQUE`-constrained column via the additive `ADD COLUMN` pattern the other
-migrations below use, so `SqliteStore::initialize()` detects a pre-migration
-database (`PRAGMA table_info(kbs)` still has `KB_KEY`) and runs a one-time,
-idempotent rebuild: back up the `.db` file (`VACUUM INTO
-<db_path>.bak-<timestamp>`, skipped for `:memory:`), rename on-disk media
-files from the old `{key}.{ext}` naming to the new `{id}.{ext}` naming (while
-`KB_KEY` is still readable), then `CREATE TABLE kbs_new (...without
-KB_KEY...)` + `INSERT INTO kbs_new SELECT ...` (explicitly listing
-`INTERNAL_ID` — `tags_idx` is FTS5 external-content keyed on
-`content_rowid='INTERNAL_ID'`, so letting `AUTOINCREMENT` reassign it would
-silently desync keyword search) + `DROP TABLE kbs` + `ALTER TABLE kbs_new
-RENAME TO kbs`, then re-creates the triggers `DROP TABLE` auto-dropped. A
-fresh install never has `KB_KEY`, so this is a no-op for new databases. **Run
-`kb reindex` once after upgrading** — `embedding_text()` no longer includes
-the removed key token, so existing embeddings are stale until reindexed.
-
 ## KB Entity Fields
 
 The `Kb` struct in `domain/kb.rs` is the canonical entity:
 
 ```
-// Auto-generated UUID — primary key and sole identifier (no user-defined key field exists)
+// Auto-generated UUID — primary key
 id: String
+// User-defined identifier — normalized to lowercase on save
+key: String
 // Main content / answer
 value: String
 // Extended notes or elaboration
@@ -137,8 +119,9 @@ note: String
 created_on: String
 ```
 
-`from`/`to` on the CLI are internal `Kb.id` values; `GraphService` validates
-each exists via `get_kb_by_id` before touching storage. `(FROM_KB_ID, TO_KB_ID)` is unique — linking the same pair
+`from`/`to` on the CLI accept either a `key` or an internal `id`; `GraphService`
+resolves them to `Kb.id` (tries `key` first, falls back to `id`) before
+touching storage. `(FROM_KB_ID, TO_KB_ID)` is unique — linking the same pair
 twice in the same direction is a `DuplicateEdgeError`; a `kbs_ad_edges` trigger
 deletes an entry's edges when it is deleted.
 
@@ -173,7 +156,7 @@ src/
   service/kb_service.rs          KBService<S,V,E,M,F> — unified CRUD + semantic +
                                    media service; unit tests (MockKbStore)
   service/graph_service.rs        GraphService<S,G> — edge add/remove/traversal,
-                                   id validation; unit tests (MockKbStore, MockKbGraph)
+                                   key-or-id resolution; unit tests (MockKbStore, MockKbGraph)
   adapters/sqlite/store.rs       SqliteStore implements KbStore + VectorStore + KbGraph;
                                    integration tests (in-memory + sqlite-vec)
   adapters/fastembed/provider.rs FastEmbedProvider (bge-small-en-v1.5, 384 dims)
@@ -216,7 +199,7 @@ CLI args
         → adapters/fastembed/provider.rs (implementation)
     → service/graph_service.rs (edge add/remove/traversal — a separate
         service; edges have no coupling to the CRUD/embedding flow)
-      → ports/storage.rs (trait, for id existence checks)
+      → ports/storage.rs (trait, for key-or-id resolution)
       → ports/graph.rs (trait)
         → adapters/sqlite/store.rs (implementation)
 ```

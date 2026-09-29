@@ -53,6 +53,7 @@ When adding or updating KB entries via `kb-manage-entry` skill, follow this patt
 **Example (concept):**
 ```json
 {
+  "key": "rust-ownership",
   "value": "Each value has a single owner, transfers on assignment",
   "notes": "Ownership is Rust's memory safety mechanism. When a value is assigned to a new variable, the previous binding is invalidated (move semantics). Cloning creates a deep copy; borrowing (references) allows temporary access without transfer.",
   "category": "concept"
@@ -62,6 +63,7 @@ When adding or updating KB entries via `kb-manage-entry` skill, follow this patt
 **Example (command):**
 ```json
 {
+  "key": "git-rebase-interactive",
   "value": "Interactively reorder, squash, or edit commits: git rebase -i <base>",
   "notes": "Interactive rebase opens an editor listing all commits between HEAD and <base>. Each line starts with a command: pick (keep), reword (edit message), squash (combine with previous), drop (remove). Useful for cleaning up PR history before merge.",
   "category": "command"
@@ -75,6 +77,7 @@ When adding or updating KB entries via `kb-manage-entry` skill, follow this patt
 **Example:**
 ```json
 {
+  "key": "rust-book",
   "value": "https://doc.rust-lang.org/book/",
   "notes": "Official Rust Book: comprehensive guide covering ownership, types, error handling, testing, and Cargo. Go-to reference for Rust fundamentals.",
   "category": "bookmark"

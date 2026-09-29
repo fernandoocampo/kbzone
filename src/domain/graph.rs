@@ -8,11 +8,7 @@
 use chrono::Local;
 use uuid::Uuid;
 
-use crate::domain::kb::{ExportKbItem, ImportKbItem, Kb, truncate_chars};
-
-/// Max characters shown in the `kb graph` HTML view's node label — the same
-/// length `cli/handlers.rs` truncates `NOTE` to for human-readable output.
-const GRAPH_LABEL_TRUNCATE_LEN: usize = 40;
+use crate::domain::kb::{ExportKbItem, ImportKbItem, Kb};
 
 /// A directed relationship between two `Kb` entries, persisted in `kb_edges`.
 #[derive(Debug, Clone, PartialEq)]
@@ -29,9 +25,9 @@ pub struct KbEdge {
     pub created_on: String,
 }
 
-/// DTO for creating a new edge. `from_id`/`to_id` must already be validated
-/// internal `Kb.id` values — that validation happens one layer up, in
-/// `GraphService`.
+/// DTO for creating a new edge. `from_id`/`to_id` must already be resolved
+/// internal `Kb.id` values — resolving user-supplied key-or-id input happens
+/// one layer up, in `GraphService`.
 #[derive(Debug, Clone)]
 pub struct NewKbEdge {
     pub from_id: String,
@@ -88,28 +84,28 @@ impl std::str::FromStr for EdgeDirection {
 // Service-layer input DTOs (raw user input, not yet resolved to a KB_ID)
 // ---------------------------------------------------------------------------
 
-/// Input for `GraphService::link`. `from_id`/`to_id` are raw CLI input
-/// (an internal `Kb.id`), validated in the service.
+/// Input for `GraphService::link`. `from_key_or_id`/`to_key_or_id` are raw
+/// CLI input (either a `key` or an internal `id`), resolved in the service.
 pub struct LinkParams {
-    pub from_id: String,
-    pub to_id: String,
+    pub from_key_or_id: String,
+    pub to_key_or_id: String,
     pub note: String,
     pub out: Option<String>,
 }
 
-/// Input for `GraphService::tree`. `id` is raw CLI input.
+/// Input for `GraphService::tree`. `key_or_id` is raw CLI input.
 pub struct TreeWalkParams {
-    pub id: String,
+    pub key_or_id: String,
     pub direction: EdgeDirection,
     pub depth: i64,
 }
 
-/// Input for `GraphService::export_graph`. `id` is raw CLI input.
+/// Input for `GraphService::export_graph`. `key_or_id` is raw CLI input.
 /// Unlike `TreeWalkParams`, `Both` is a valid direction here — the BFS
 /// walks one hop at a time via `KbGraph::get_related`, which already
 /// supports `Both` per call.
 pub struct GraphViewParams {
-    pub id: String,
+    pub key_or_id: String,
     pub direction: EdgeDirection,
     pub depth: i64,
 }
@@ -171,6 +167,7 @@ pub struct LinkErrorResponse {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct GraphNode {
     pub id: String,
+    pub key: String,
     pub category: String,
     pub namespace: String,
 }
@@ -179,6 +176,7 @@ impl From<&Kb> for GraphNode {
     fn from(kb: &Kb) -> Self {
         GraphNode {
             id: kb.id.clone(),
+            key: kb.key.clone(),
             category: kb.category.clone(),
             namespace: kb.namespace.clone(),
         }
@@ -221,7 +219,7 @@ pub struct RelatedResult {
 /// carries for standalone `kb related` output. Embedded inside
 /// `KbWithRelationships`, the root entry is already present at the top
 /// level (via `#[serde(flatten)]` on `Kb`), so repeating its
-/// `id`/`category`/`namespace` under a nested `node` field would
+/// `id`/`key`/`category`/`namespace` under a nested `node` field would
 /// just duplicate what's already there.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct KbRelationships {
@@ -253,6 +251,7 @@ pub struct KbWithRelationships {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TreeNode {
     pub id: String,
+    pub key: String,
     pub depth: i64,
     pub parent_id: String,
     pub note: String,
@@ -261,6 +260,7 @@ pub struct TreeNode {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TreeRoot {
     pub id: String,
+    pub key: String,
 }
 
 /// Service/CLI-level output for `kb tree`.
@@ -282,10 +282,7 @@ pub struct TreeResult {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct GraphExportNode {
     pub id: String,
-    /// Pre-truncated, human-readable node label for the HTML view (the
-    /// browser has no way to re-truncate consistently, and the full `value`
-    /// is already shown separately in the detail panel).
-    pub label: String,
+    pub key: String,
     pub value: String,
     pub notes: String,
     pub category: String,
@@ -300,7 +297,7 @@ impl From<&Kb> for GraphExportNode {
     fn from(kb: &Kb) -> Self {
         GraphExportNode {
             id: kb.id.clone(),
-            label: truncate_chars(&kb.value, GRAPH_LABEL_TRUNCATE_LEN),
+            key: kb.key.clone(),
             value: kb.value.clone(),
             notes: kb.notes.clone(),
             category: kb.category.clone(),
@@ -327,14 +324,16 @@ pub struct GraphExportEdge {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct GraphExport {
     pub root_id: String,
+    pub root_key: String,
     pub nodes: Vec<GraphExportNode>,
     pub edges: Vec<GraphExportEdge>,
 }
 
 // ---------------------------------------------------------------------------
 // `kb export` output DTOs — the portable, DB-independent YAML shape written
-// by `kb export`. `id` is preserved across export/import (see `NewKb::id`),
-// so it doubles as the portable identifier these edges reference.
+// by `kb export`. Unlike `GraphExportEdge` (raw ids, ephemeral HTML-view use
+// only), these carry `key`, never `id` — the same portability rule
+// `ExportKbItem` already follows for entries.
 // ---------------------------------------------------------------------------
 
 /// One relationship in the exported `graph` section. Only ever produced for
@@ -343,9 +342,9 @@ pub struct GraphExport {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExportEdgeItem {
     #[serde(rename = "From")]
-    pub from_id: String,
+    pub from_key: String,
     #[serde(rename = "To")]
-    pub to_id: String,
+    pub to_key: String,
     #[serde(rename = "Note")]
     pub note: String,
 }
@@ -366,15 +365,15 @@ pub struct ExportDocument {
 // ---------------------------------------------------------------------------
 
 /// Deserializable counterpart to `ExportEdgeItem` — one relationship read
-/// from a `kb import` document's `graph` section. `from_id`/`to_id` must be
-/// `Kb.id` values; `GraphService::import_edges` validates both exist via
-/// `GraphService::resolve`.
+/// from a `kb import` document's `graph` section. `from_key`/`to_key` carry
+/// the same key-or-id-agnostic semantics as `LinkParams`:
+/// `GraphService::import_edges` resolves either via `GraphService::resolve`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ImportEdgeItem {
     #[serde(rename = "From")]
-    pub from_id: String,
+    pub from_key: String,
     #[serde(rename = "To")]
-    pub to_id: String,
+    pub to_key: String,
     #[serde(rename = "Note", default)]
     pub note: String,
 }

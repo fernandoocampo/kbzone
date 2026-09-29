@@ -9,7 +9,7 @@ use crate::domain::{
 use crate::errors::Error;
 use crate::ports::{KbGraph, KbStore};
 
-/// Graph-relationship service — validates `id` CLI input against internal
+/// Graph-relationship service — resolves key-or-id CLI input to internal
 /// `Kb.id` values and orchestrates edge add/remove/traversal. Kept separate
 /// from `KBService` since edges have no coupling to the CRUD/embedding flow
 /// (unlike semantic search, nothing needs to run on every `add`/`update`).
@@ -26,8 +26,8 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
 
     /// Resolves both ends, rejects a self-loop, and persists a new edge.
     pub fn link(&self, params: LinkParams) -> Result<KbEdge, Error> {
-        let from = self.resolve(&params.from_id)?;
-        let to = self.resolve(&params.to_id)?;
+        let from = self.resolve(&params.from_key_or_id)?;
+        let to = self.resolve(&params.to_key_or_id)?;
         if from.id == to.id {
             return Err(Error::SelfLoopNotAllowed);
         }
@@ -42,7 +42,7 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
 
     /// Batch-imports edges from a `kb import` document's `graph` section.
     /// Mirrors `KBService::import_kbs`'s philosophy: per-item failures
-    /// (unresolved id, self-loop, duplicate edge, or any other store
+    /// (unresolved key, self-loop, duplicate edge, or any other store
     /// error) are collected as `FailedImportEdgeItem`s rather than
     /// aborting the batch — this never returns `Err`.
     pub fn import_edges(&self, items: Vec<ImportEdgeItem>) -> ImportEdgeBatchResult {
@@ -50,21 +50,21 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
         let mut failed = Vec::new();
 
         for item in items {
-            let from = match self.resolve(&item.from_id) {
+            let from = match self.resolve(&item.from_key) {
                 Ok(kb) => kb,
                 Err(e) => {
                     failed.push(FailedImportEdgeItem {
-                        reason: format!("from id not found: {} ({})", item.from_id, e),
+                        reason: format!("from key/id not found: {} ({})", item.from_key, e),
                         item,
                     });
                     continue;
                 }
             };
-            let to = match self.resolve(&item.to_id) {
+            let to = match self.resolve(&item.to_key) {
                 Ok(kb) => kb,
                 Err(e) => {
                     failed.push(FailedImportEdgeItem {
-                        reason: format!("to id not found: {} ({})", item.to_id, e),
+                        reason: format!("to key/id not found: {} ({})", item.to_key, e),
                         item,
                     });
                     continue;
@@ -110,8 +110,12 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
     }
 
     /// One-hop outgoing/incoming edges for the resolved entry.
-    pub fn related(&self, id: &str, direction: EdgeDirection) -> Result<RelatedResult, Error> {
-        let node = self.resolve(id)?;
+    pub fn related(
+        &self,
+        key_or_id: &str,
+        direction: EdgeDirection,
+    ) -> Result<RelatedResult, Error> {
+        let node = self.resolve(key_or_id)?;
         let edges = self.graph.get_related(&RelatedQuery {
             kb_id: node.id.clone(),
             direction,
@@ -131,14 +135,17 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
                 "direction must be 'out' or 'in' for tree traversal".to_string(),
             ));
         }
-        let root = self.resolve(&params.id)?;
+        let root = self.resolve(&params.key_or_id)?;
         let nodes = self.graph.get_tree(&TreeQuery {
             kb_id: root.id.clone(),
             direction: params.direction,
             depth: params.depth,
         })?;
         Ok(TreeResult {
-            root: TreeRoot { id: root.id },
+            root: TreeRoot {
+                id: root.id,
+                key: root.key,
+            },
             direction: params.direction.as_str().to_string(),
             nodes,
         })
@@ -150,7 +157,7 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
     /// — the caller (an offline HTML view) has no way to query the database
     /// live, so every field has to be embedded up front.
     pub fn export_graph(&self, params: GraphViewParams) -> Result<GraphExport, Error> {
-        let root = self.resolve(&params.id)?;
+        let root = self.resolve(&params.key_or_id)?;
 
         let mut visited_ids: HashSet<String> = HashSet::new();
         let mut edges_by_id: HashMap<String, GraphExportEdge> = HashMap::new();
@@ -207,51 +214,69 @@ impl<S: KbStore, G: KbGraph> GraphService<S, G> {
 
         Ok(GraphExport {
             root_id: root.id,
+            root_key: root.key,
             nodes,
             edges: edges_by_id.into_values().collect(),
         })
     }
 
     /// Returns the edges among the entries matched by `filter`, translated
-    /// to `(from_id, to_id, note)` DTOs for `kb export`'s `graph` section.
+    /// to `(from_key, to_key, note)` DTOs for `kb export`'s `graph` section.
     /// An edge is only included when *both* its endpoints survive `filter`
-    /// — mirrors `KBService::export_kbs`'s "omit `ParentId` when the parent
+    /// — mirrors `KBService::export_kbs`'s "omit `Parent` when the parent
     /// isn't in the filtered set" rule, applied to edges. Independently
     /// re-runs `store.get_kbs_full(filter)` rather than accepting the
     /// already-fetched `Kb` list from `KBService`, keeping the two services
     /// uncoupled (edges have no coupling to the CRUD/embedding flow). Output
-    /// is sorted by `(from_id, to_id)` for deterministic file content.
+    /// is sorted by `(from_key, to_key)` for deterministic file content.
     pub fn export_edges(&self, filter: &KbFilter) -> Result<Vec<ExportEdgeItem>, Error> {
         let kbs = self.store.get_kbs_full(filter)?;
         if kbs.is_empty() {
             return Ok(vec![]);
         }
 
-        let exported_ids: HashSet<&str> = kbs.iter().map(|kb| kb.id.as_str()).collect();
+        let id_to_key: HashMap<&str, &str> = kbs
+            .iter()
+            .map(|kb| (kb.id.as_str(), kb.key.as_str()))
+            .collect();
         let ids: Vec<String> = kbs.iter().map(|kb| kb.id.clone()).collect();
 
-        let mut edges: Vec<ExportEdgeItem> = self
+        let mut edges = self
             .graph
             .get_edges_among_ids(&ids)?
             .into_iter()
-            .filter(|e| {
-                exported_ids.contains(e.from_id.as_str()) && exported_ids.contains(e.to_id.as_str())
+            .map(|e| {
+                let from_key = id_to_key.get(e.from_id.as_str()).ok_or_else(|| {
+                    Error::GraphQueryError(format!(
+                        "edge {} references an id ({}) outside the exported set",
+                        e.id, e.from_id
+                    ))
+                })?;
+                let to_key = id_to_key.get(e.to_id.as_str()).ok_or_else(|| {
+                    Error::GraphQueryError(format!(
+                        "edge {} references an id ({}) outside the exported set",
+                        e.id, e.to_id
+                    ))
+                })?;
+                Ok(ExportEdgeItem {
+                    from_key: from_key.to_string(),
+                    to_key: to_key.to_string(),
+                    note: e.note,
+                })
             })
-            .map(|e| ExportEdgeItem {
-                from_id: e.from_id,
-                to_id: e.to_id,
-                note: e.note,
-            })
-            .collect();
+            .collect::<Result<Vec<ExportEdgeItem>, Error>>()?;
 
-        edges.sort_by(|a, b| (&a.from_id, &a.to_id).cmp(&(&b.from_id, &b.to_id)));
+        edges.sort_by(|a, b| (&a.from_key, &a.to_key).cmp(&(&b.from_key, &b.to_key)));
         Ok(edges)
     }
 
-    /// Validates `id` refers to an existing entry and returns it.
-    /// Errors with `Error::KBNotFound` if it doesn't.
-    fn resolve(&self, id: &str) -> Result<Kb, Error> {
-        self.store.get_kb_by_id(id)?.ok_or(Error::KBNotFound)
+    /// Resolves user input to a full `Kb`: tries `key` first (the common CLI
+    /// case), falls back to `id`. Errors with `Error::KBNotFound` if neither matches.
+    fn resolve(&self, key_or_id: &str) -> Result<Kb, Error> {
+        if let Some(kb) = self.store.get_kb_by_key(key_or_id)? {
+            return Ok(kb);
+        }
+        self.store.get_kb_by_id(key_or_id)?.ok_or(Error::KBNotFound)
     }
 }
 

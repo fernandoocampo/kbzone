@@ -36,6 +36,15 @@ impl KbStore for MockKbStore {
         Ok(self.data.borrow().get(id).cloned())
     }
 
+    fn get_kb_by_key(&self, key: &str) -> Result<Option<Kb>, Error> {
+        Ok(self
+            .data
+            .borrow()
+            .values()
+            .find(|kb| kb.key == key)
+            .cloned())
+    }
+
     fn get_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
         let keyword = filter.keyword.as_deref().unwrap_or("");
         let ref_filter = filter.reference.as_deref().unwrap_or("");
@@ -72,7 +81,7 @@ impl KbStore for MockKbStore {
                 })
                 .map(|kb| KbItem {
                     id: kb.id.clone(),
-
+                    key: kb.key.clone(),
                     category: kb.category.clone(),
                     namespace: kb.namespace.clone(),
                     tags: kb.tags.clone(),
@@ -105,7 +114,7 @@ impl KbStore for MockKbStore {
             })
             .map(|kb| KbItem {
                 id: kb.id.clone(),
-
+                key: kb.key.clone(),
                 category: kb.category.clone(),
                 namespace: kb.namespace.clone(),
                 tags: kb.tags.clone(),
@@ -265,6 +274,7 @@ impl KbStore for MockKbStore {
 #[derive(Debug, Clone)]
 struct GhostItemKbStore {
     ghost_id: String,
+    ghost_key: String,
 }
 
 impl KbStore for GhostItemKbStore {
@@ -276,10 +286,15 @@ impl KbStore for GhostItemKbStore {
         Ok(None)
     }
 
+    fn get_kb_by_key(&self, _key: &str) -> Result<Option<Kb>, Error> {
+        Ok(None)
+    }
+
     fn get_kbs(&self, filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
         if filter.keyword.as_deref().is_none_or(|k| k.is_empty()) {
             return Ok(vec![KbItem {
                 id: self.ghost_id.clone(),
+                key: self.ghost_key.clone(),
                 category: "concept".to_string(),
                 namespace: "default".to_string(),
                 tags: vec![],
@@ -526,9 +541,10 @@ impl EmbeddingProvider for CountingEmbeddingProvider {
 
 // ---- Helpers ----
 
-fn make_kb(id: &str) -> Kb {
+fn make_kb(id: &str, key: &str) -> Kb {
     Kb {
         id: id.to_string(),
+        key: key.to_string(),
         value: "some value".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -543,9 +559,9 @@ fn make_kb(id: &str) -> Kb {
     }
 }
 
-fn make_new_kb() -> NewKb {
+fn make_new_kb(key: &str) -> NewKb {
     NewKb {
-        id: None,
+        key: key.to_string(),
         value: "some value".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -560,27 +576,23 @@ fn make_new_kb() -> NewKb {
     }
 }
 
-fn make_kb_with_parent(id: &str, parent_id: &str) -> Kb {
+fn make_kb_with_parent(id: &str, key: &str, parent_id: &str) -> Kb {
     Kb {
         parent: Some(parent_id.to_string()),
-        ..make_kb(id)
+        ..make_kb(id, key)
     }
 }
 
-/// `id` must be a valid UUID string — `ImportKbItem::validate()` enforces
-/// this, matching the real `kb import` contract now that `id` (not `key`) is
-/// the portable identifier. Use `uuid::Uuid::new_v4().to_string()` for
-/// fixtures that don't need a specific, predictable value.
-fn make_import_item(id: &str, value: &str) -> ImportKbItem {
+fn make_import_item(key: &str, value: &str) -> ImportKbItem {
     ImportKbItem {
-        id: id.to_string(),
+        key: key.to_string(),
         value: value.to_string(),
         notes: String::new(),
         category: "concept".to_string(),
         reference: String::new(),
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
-        parent_id: None,
+        parent_key: None,
         path: None,
         media_extension: None,
     }
@@ -632,11 +644,9 @@ fn add_kb_saves_entry_and_indexes_embedding() {
             base_dir: String::new(),
         },
     );
-    let result = svc.add_kb(make_new_kb());
+    let result = svc.add_kb(make_new_kb("rust-ownership"));
     assert!(result.is_ok());
-    let kb = result.unwrap();
-    assert!(!kb.id.is_empty());
-    assert_eq!(kb.value, "some value");
+    assert_eq!(result.unwrap().key, "rust-ownership");
     assert_eq!(vector.indexed.borrow().len(), 1);
 }
 
@@ -652,7 +662,17 @@ fn add_kb_returns_ok_when_embedding_fails() {
             base_dir: String::new(),
         },
     );
-    assert!(svc.add_kb(make_new_kb()).is_ok());
+    assert!(svc.add_kb(make_new_kb("rust-ownership")).is_ok());
+}
+
+#[test]
+fn add_kb_fails_on_duplicate_key() {
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
+    let svc = make_svc_with_store(store);
+    assert!(matches!(
+        svc.add_kb(make_new_kb("rust-ownership")),
+        Err(Error::DuplicateKBError)
+    ));
 }
 
 // ---- get tests ----
@@ -664,20 +684,28 @@ fn get_kb_by_id_returns_none_for_unknown_id() {
 
 #[test]
 fn get_kb_by_id_returns_entry_when_present() {
-    let store = MockKbStore::with(vec![make_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
     let svc = make_svc_with_store(store);
     assert!(svc.get_kb_by_id("id-1").unwrap().is_some());
+}
+
+#[test]
+fn get_kb_by_key_returns_entry_when_present() {
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
+    let svc = make_svc_with_store(store);
+    assert!(svc.get_kb_by_key("rust-ownership").unwrap().is_some());
 }
 
 // ---- update_kb tests ----
 
 #[test]
 fn update_kb_merges_partial_fields_correctly() {
-    let original = make_kb("id-1");
+    let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: Some("updated value".to_string()),
         notes: None,
         category: None,
@@ -691,12 +719,12 @@ fn update_kb_merges_partial_fields_correctly() {
     assert!(svc.update_kb(update).is_ok());
     let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
     assert_eq!(fetched.value, "updated value");
-    assert_eq!(fetched.id, "id-1");
+    assert_eq!(fetched.key, "rust-ownership");
 }
 
 #[test]
 fn update_kb_reindexes_when_embedding_text_changes() {
-    let original = make_kb("id-1");
+    let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let vector = MockVectorStore::default();
     let svc = KBService::new(
@@ -711,9 +739,10 @@ fn update_kb_reindexes_when_embedding_text_changes() {
     );
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: Some("rust-updated".to_string()),
         value: None,
         notes: None,
-        category: Some("updated-category".to_string()),
+        category: None,
         namespace: None,
         reference: None,
         tags: None,
@@ -727,7 +756,7 @@ fn update_kb_reindexes_when_embedding_text_changes() {
 
 #[test]
 fn update_kb_changing_namespace_reindexes_with_new_namespace() {
-    let mut original = make_kb("id-1");
+    let mut original = make_kb("id-1", "rust-ownership");
     original.namespace = "work".to_string();
     let store = MockKbStore::with(vec![original]);
     let vector = MockVectorStore::default();
@@ -743,6 +772,7 @@ fn update_kb_changing_namespace_reindexes_with_new_namespace() {
     );
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -765,7 +795,7 @@ fn update_kb_changing_namespace_reindexes_with_new_namespace() {
 
 #[test]
 fn update_kb_skips_reindex_when_only_notes_changes() {
-    let original = make_kb("id-1");
+    let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let vector = MockVectorStore::default();
     let svc = KBService::new(
@@ -780,6 +810,7 @@ fn update_kb_skips_reindex_when_only_notes_changes() {
     );
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: Some("new notes only".to_string()),
         category: None,
@@ -798,6 +829,7 @@ fn update_kb_skips_reindex_when_only_notes_changes() {
 fn update_kb_returns_not_found_for_unknown_id() {
     let update = KbUpdate {
         id: "no-such-id".to_string(),
+        key: None,
         value: Some("x".to_string()),
         notes: None,
         category: None,
@@ -816,7 +848,7 @@ fn update_kb_returns_not_found_for_unknown_id() {
 
 #[test]
 fn update_kb_returns_ok_when_embedding_update_fails() {
-    let original = make_kb("id-1");
+    let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let svc = KBService::new(
         store,
@@ -830,9 +862,56 @@ fn update_kb_returns_ok_when_embedding_update_fails() {
     );
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: Some("rust-updated".to_string()),
         value: None,
         notes: None,
-        category: Some("updated-category".to_string()),
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: None,
+    };
+    assert!(svc.update_kb(update).is_ok());
+}
+
+#[test]
+fn update_kb_rejects_stolen_key() {
+    let store = MockKbStore::with(vec![
+        make_kb("id-1", "my-key"),
+        make_kb("id-2", "already-taken"),
+    ]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: Some("already-taken".to_string()),
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: None,
+    };
+    assert!(matches!(
+        svc.update_kb(update),
+        Err(Error::DuplicateKBError)
+    ));
+}
+
+#[test]
+fn update_kb_same_key_same_entry_is_ok() {
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: Some("rust-ownership".to_string()),
+        value: Some("new value".to_string()),
+        notes: None,
+        category: None,
         namespace: None,
         reference: None,
         tags: None,
@@ -846,12 +925,36 @@ fn update_kb_returns_ok_when_embedding_update_fails() {
 // ---- update_kb lowercase tests ----
 
 #[test]
-fn update_kb_lowercases_category() {
-    let original = make_kb("id-1");
+fn update_kb_lowercases_key() {
+    let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: Some("UpperKey".to_string()),
+        value: None,
+        notes: None,
+        category: None,
+        namespace: None,
+        reference: None,
+        tags: None,
+        parent: None,
+        path: None,
+        metadata: None,
+    };
+    assert!(svc.update_kb(update).is_ok());
+    let fetched = svc.get_kb_by_id("id-1").unwrap().unwrap();
+    assert_eq!(fetched.key, "upperkey");
+}
+
+#[test]
+fn update_kb_lowercases_category() {
+    let original = make_kb("id-1", "rust-ownership");
+    let store = MockKbStore::with(vec![original]);
+    let svc = make_svc_with_store(store);
+    let update = KbUpdate {
+        id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: Some("UpperCat".to_string()),
@@ -869,11 +972,12 @@ fn update_kb_lowercases_category() {
 
 #[test]
 fn update_kb_lowercases_namespace() {
-    let original = make_kb("id-1");
+    let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -891,7 +995,7 @@ fn update_kb_lowercases_namespace() {
 
 #[test]
 fn update_kb_replaces_metadata_when_provided() {
-    let mut original = make_kb("id-1");
+    let mut original = make_kb("id-1", "rust-ownership");
     original
         .metadata
         .insert("author".to_string(), "me".to_string());
@@ -899,6 +1003,7 @@ fn update_kb_replaces_metadata_when_provided() {
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -918,7 +1023,7 @@ fn update_kb_replaces_metadata_when_provided() {
 
 #[test]
 fn update_kb_keeps_metadata_when_not_provided() {
-    let mut original = make_kb("id-1");
+    let mut original = make_kb("id-1", "rust-ownership");
     original
         .metadata
         .insert("author".to_string(), "me".to_string());
@@ -926,6 +1031,7 @@ fn update_kb_keeps_metadata_when_not_provided() {
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: Some("new value".to_string()),
         notes: None,
         category: None,
@@ -944,7 +1050,7 @@ fn update_kb_keeps_metadata_when_not_provided() {
 
 #[test]
 fn update_kb_clears_metadata_with_empty_string() {
-    let mut original = make_kb("id-1");
+    let mut original = make_kb("id-1", "rust-ownership");
     original
         .metadata
         .insert("author".to_string(), "me".to_string());
@@ -955,6 +1061,7 @@ fn update_kb_clears_metadata_with_empty_string() {
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -972,11 +1079,12 @@ fn update_kb_clears_metadata_with_empty_string() {
 
 #[test]
 fn update_kb_rejects_duplicate_metadata_key() {
-    let original = make_kb("id-1");
+    let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -995,11 +1103,12 @@ fn update_kb_rejects_duplicate_metadata_key() {
 
 #[test]
 fn update_kb_rejects_blank_metadata_key() {
-    let original = make_kb("id-1");
+    let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -1018,7 +1127,7 @@ fn update_kb_rejects_blank_metadata_key() {
 
 #[test]
 fn update_kb_skips_reindex_when_only_metadata_changes() {
-    let original = make_kb("id-1");
+    let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let vector = MockVectorStore::default();
     let svc = KBService::new(
@@ -1033,6 +1142,7 @@ fn update_kb_skips_reindex_when_only_metadata_changes() {
     );
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -1051,7 +1161,7 @@ fn update_kb_skips_reindex_when_only_metadata_changes() {
 
 #[test]
 fn delete_kb_removes_entry_and_embedding() {
-    let store = MockKbStore::with(vec![make_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
     let vector = MockVectorStore::default();
     let svc = KBService::new(
         store,
@@ -1070,7 +1180,7 @@ fn delete_kb_removes_entry_and_embedding() {
 
 #[test]
 fn delete_kb_returns_ok_when_embedding_removal_fails() {
-    let store = MockKbStore::with(vec![make_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
     let svc = KBService::new(
         store,
         ServiceDeps {
@@ -1096,7 +1206,7 @@ fn delete_kb_returns_not_found_for_unknown_id() {
 
 #[test]
 fn get_kbs_returns_matching_entries_by_keyword() {
-    let mut kb = make_kb("id-1");
+    let mut kb = make_kb("id-1", "rust-ownership");
     kb.tags = vec!["memory".to_string(), "rust".to_string()];
     let store = MockKbStore::with(vec![kb]);
     let svc = make_svc_with_store(store);
@@ -1110,10 +1220,10 @@ fn get_kbs_returns_matching_entries_by_keyword() {
 
 #[test]
 fn get_kbs_with_keyword_and_reference_filter_returns_matching_entries() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "rust-ownership");
     kb1.tags = vec!["rust".to_string()];
     kb1.reference = "The Rust Book".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
     kb2.tags = vec!["rust".to_string()];
     kb2.reference = "other source".to_string();
     let store = MockKbStore::with(vec![kb1, kb2]);
@@ -1125,15 +1235,15 @@ fn get_kbs_with_keyword_and_reference_filter_returns_matching_entries() {
     };
     let results = svc.get_kbs(filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].id, "id-1");
+    assert_eq!(results[0].key, "rust-ownership");
 }
 
 #[test]
 fn get_kbs_with_keyword_only_returns_all_keyword_matches() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "rust-ownership");
     kb1.tags = vec!["rust".to_string()];
     kb1.reference = "The Rust Book".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
     kb2.tags = vec!["rust".to_string()];
     kb2.reference = "other source".to_string();
     let store = MockKbStore::with(vec![kb1, kb2]);
@@ -1148,7 +1258,7 @@ fn get_kbs_with_keyword_only_returns_all_keyword_matches() {
 
 #[test]
 fn get_kbs_without_keyword_returns_all_entries() {
-    let store = MockKbStore::with(vec![make_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
     let results = make_svc_with_store(store)
         .get_kbs(KbFilter::default())
         .unwrap();
@@ -1157,9 +1267,9 @@ fn get_kbs_without_keyword_returns_all_entries() {
 
 #[test]
 fn get_kbs_without_keyword_filters_by_reference() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "rust-ownership");
     kb1.reference = "The Rust Book".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "rust-lifetimes");
     kb2.reference = "other source".to_string();
     let store = MockKbStore::with(vec![kb1, kb2]);
     let svc = make_svc_with_store(store);
@@ -1169,14 +1279,17 @@ fn get_kbs_without_keyword_filters_by_reference() {
     };
     let results = svc.get_kbs(filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].id, "id-1");
+    assert_eq!(results[0].key, "rust-ownership");
 }
 
 // ---- reindex tests ----
 
 #[test]
 fn reindex_all_succeed_full_succeeded_counts() {
-    let store = MockKbStore::with(vec![make_kb("id-1"), make_kb("id-2")]);
+    let store = MockKbStore::with(vec![
+        make_kb("id-1", "rust-ownership"),
+        make_kb("id-2", "rust-borrowing"),
+    ]);
     let svc = make_svc_with_store(store);
     let result = svc.reindex().unwrap();
     assert_eq!(result.succeeded.len(), 2);
@@ -1185,7 +1298,10 @@ fn reindex_all_succeed_full_succeeded_counts() {
 
 #[test]
 fn reindex_partial_failures_reported_in_result() {
-    let store = MockKbStore::with(vec![make_kb("id-1"), make_kb("id-2")]);
+    let store = MockKbStore::with(vec![
+        make_kb("id-1", "rust-ownership"),
+        make_kb("id-2", "rust-borrowing"),
+    ]);
     let svc = KBService::new(
         store,
         ServiceDeps {
@@ -1206,6 +1322,7 @@ fn reindex_partial_failures_reported_in_result() {
 fn reindex_ghost_entry_appears_in_failed() {
     let ghost_store = GhostItemKbStore {
         ghost_id: "ghost-id".to_string(),
+        ghost_key: "ghost-key".to_string(),
     };
     let svc = KBService::new(
         ghost_store,
@@ -1246,8 +1363,8 @@ fn import_kbs_indexes_all_saved_entries() {
         },
     );
     let items = vec![
-        make_import_item("11111111-1111-1111-1111-111111111111", "memory management"),
-        make_import_item("22222222-2222-2222-2222-222222222222", "borrow checker"),
+        make_import_item("rust-ownership", "memory management"),
+        make_import_item("rust-borrowing", "borrow checker"),
     ];
     let result = svc.import_kbs(items);
     assert_eq!(result.saved.len(), 2);
@@ -1268,8 +1385,8 @@ fn import_kbs_skips_indexing_for_failed_items() {
         },
     );
     let items = vec![
-        make_import_item("11111111-1111-1111-1111-111111111111", "memory management"),
-        make_import_item("", "empty id fails"),
+        make_import_item("rust-ownership", "memory management"),
+        make_import_item("", "empty key fails"),
     ];
     let result = svc.import_kbs(items);
     assert_eq!(result.saved.len(), 1);
@@ -1290,8 +1407,8 @@ fn import_kbs_continues_on_embedding_failure() {
         },
     );
     let items = vec![
-        make_import_item("11111111-1111-1111-1111-111111111111", "memory management"),
-        make_import_item("22222222-2222-2222-2222-222222222222", "borrow checker"),
+        make_import_item("rust-ownership", "memory management"),
+        make_import_item("rust-borrowing", "borrow checker"),
     ];
     let result = svc.import_kbs(items);
     assert_eq!(result.saved.len(), 2);
@@ -1302,8 +1419,8 @@ fn import_kbs_continues_on_embedding_failure() {
 fn add_kbs_imports_all_valid_items() {
     let svc = make_svc();
     let items = vec![
-        make_import_item("11111111-1111-1111-1111-111111111111", "memory management"),
-        make_import_item("22222222-2222-2222-2222-222222222222", "borrow checker"),
+        make_import_item("rust-ownership", "memory management"),
+        make_import_item("rust-borrowing", "borrow checker"),
     ];
     let result = svc.import_kbs(items);
     assert_eq!(result.saved.len(), 2);
@@ -1311,42 +1428,35 @@ fn add_kbs_imports_all_valid_items() {
 }
 
 #[test]
-fn add_kbs_collects_item_with_empty_id() {
+fn add_kbs_collects_item_with_empty_key() {
     let result = make_svc().import_kbs(vec![make_import_item("", "some value")]);
     assert_eq!(result.failed.len(), 1);
-    assert!(result.failed[0].reason.contains("Id"));
+    assert!(result.failed[0].reason.contains("Key"));
 }
 
 #[test]
 fn add_kbs_collects_item_with_empty_value() {
-    let result = make_svc().import_kbs(vec![make_import_item(
-        "11111111-1111-1111-1111-111111111111",
-        "",
-    )]);
+    let result = make_svc().import_kbs(vec![make_import_item("rust-ownership", "")]);
     assert_eq!(result.failed.len(), 1);
     assert!(result.failed[0].reason.contains("Value"));
 }
 
 #[test]
-fn add_kbs_skips_item_with_existing_id_and_reports_it() {
-    let existing_id = "11111111-1111-1111-1111-111111111111";
-    let store = MockKbStore::with(vec![make_kb(existing_id)]);
+fn add_kbs_collects_duplicate_key() {
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
     let svc = make_svc_with_store(store);
-    let result = svc.import_kbs(vec![make_import_item(existing_id, "duplicate")]);
-    assert!(result.saved.is_empty());
+    let result = svc.import_kbs(vec![make_import_item("rust-ownership", "some value")]);
     assert_eq!(result.failed.len(), 1);
-    assert_eq!(result.failed[0].reason, "id already exists");
 }
 
 #[test]
 fn add_kbs_mixed_batch_correct_counts() {
-    let existing_id = "11111111-1111-1111-1111-111111111111";
-    let store = MockKbStore::with(vec![make_kb(existing_id)]);
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
     let svc = make_svc_with_store(store);
     let items = vec![
-        make_import_item("22222222-2222-2222-2222-222222222222", "borrow checker"),
+        make_import_item("rust-borrowing", "borrow checker"),
         make_import_item("", "some value"),
-        make_import_item(existing_id, "duplicate"),
+        make_import_item("rust-ownership", "duplicate"),
     ];
     let result = svc.import_kbs(items);
     assert_eq!(result.saved.len(), 1);
@@ -1364,7 +1474,7 @@ fn add_kbs_empty_input_returns_empty_result() {
 
 #[test]
 fn random_returns_entry_for_category() {
-    let mut kb = make_kb("id-1");
+    let mut kb = make_kb("id-1", "stoic-wisdom");
     kb.category = "quote".to_string();
     let store = MockKbStore::with(vec![kb]);
     let svc = make_svc_with_store(store);
@@ -1383,10 +1493,10 @@ fn random_propagates_not_found_when_category_absent() {
 
 #[test]
 fn random_respects_namespace_filter() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "stoic-wisdom");
     kb1.category = "quote".to_string();
     kb1.namespace = "ns1".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "zen-wisdom");
     kb2.category = "quote".to_string();
     kb2.namespace = "ns2".to_string();
     let store = MockKbStore::with(vec![kb1, kb2]);
@@ -1399,11 +1509,11 @@ fn random_respects_namespace_filter() {
 
 #[test]
 fn categories_returns_distinct_sorted_categories() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "key-a");
     kb1.category = "zebra".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "key-b");
     kb2.category = "apple".to_string();
-    let mut kb3 = make_kb("id-3");
+    let mut kb3 = make_kb("id-3", "key-c");
     kb3.category = "apple".to_string(); // duplicate
     let store = MockKbStore::with(vec![kb1, kb2, kb3]);
     let svc = make_svc_with_store(store);
@@ -1414,7 +1524,7 @@ fn categories_returns_distinct_sorted_categories() {
 
 #[test]
 fn categories_excludes_empty_category() {
-    let mut kb = make_kb("id-1");
+    let mut kb = make_kb("id-1", "key-a");
     kb.category = String::new();
     let store = MockKbStore::with(vec![kb]);
     let svc = make_svc_with_store(store);
@@ -1424,10 +1534,10 @@ fn categories_excludes_empty_category() {
 
 #[test]
 fn categories_filters_by_namespace_when_given() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "key-a");
     kb1.category = "concept".to_string();
     kb1.namespace = "rust".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "key-b");
     kb2.category = "quote".to_string();
     kb2.namespace = "personal".to_string();
     let store = MockKbStore::with(vec![kb1, kb2]);
@@ -1447,11 +1557,11 @@ fn categories_returns_empty_vec_when_no_entries() {
 
 #[test]
 fn namespaces_returns_distinct_sorted_namespaces() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "key-a");
     kb1.namespace = "zebra".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "key-b");
     kb2.namespace = "apple".to_string();
-    let mut kb3 = make_kb("id-3");
+    let mut kb3 = make_kb("id-3", "key-c");
     kb3.namespace = "apple".to_string(); // duplicate
     let store = MockKbStore::with(vec![kb1, kb2, kb3]);
     let svc = make_svc_with_store(store);
@@ -1462,7 +1572,7 @@ fn namespaces_returns_distinct_sorted_namespaces() {
 
 #[test]
 fn namespaces_excludes_empty_namespace() {
-    let mut kb = make_kb("id-1");
+    let mut kb = make_kb("id-1", "key-a");
     kb.namespace = String::new();
     let store = MockKbStore::with(vec![kb]);
     let svc = make_svc_with_store(store);
@@ -1478,13 +1588,13 @@ fn namespaces_returns_empty_vec_when_no_entries() {
 
 #[test]
 fn namespaces_filters_by_substring_when_given() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "key-a");
     kb1.namespace = "com.cubita.com".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "key-b");
     kb2.namespace = "cubita.subdomain.service".to_string();
-    let mut kb3 = make_kb("id-3");
+    let mut kb3 = make_kb("id-3", "key-c");
     kb3.namespace = "com.sura.cubita".to_string();
-    let mut kb4 = make_kb("id-4");
+    let mut kb4 = make_kb("id-4", "key-d");
     kb4.namespace = "unrelated.namespace".to_string();
     let store = MockKbStore::with(vec![kb1, kb2, kb3, kb4]);
     let svc = make_svc_with_store(store);
@@ -1540,10 +1650,10 @@ fn ask_fails_when_embedding_provider_fails() {
 
 #[test]
 fn add_kb_with_valid_parent_succeeds() {
-    let parent = make_kb("parent-id");
+    let parent = make_kb("parent-id", "parent-key");
     let store = MockKbStore::with(vec![parent]);
     let svc = make_svc_with_store(store);
-    let mut new_kb = make_new_kb();
+    let mut new_kb = make_new_kb("child-key");
     new_kb.parent = Some("parent-id".to_string());
     let result = svc.add_kb(new_kb);
     assert!(result.is_ok());
@@ -1553,19 +1663,20 @@ fn add_kb_with_valid_parent_succeeds() {
 #[test]
 fn add_kb_with_missing_parent_fails() {
     let svc = make_svc();
-    let mut new_kb = make_new_kb();
+    let mut new_kb = make_new_kb("child-key");
     new_kb.parent = Some("nonexistent-parent-id".to_string());
     assert!(matches!(svc.add_kb(new_kb), Err(Error::ParentKBNotFound)));
 }
 
 #[test]
 fn update_kb_with_valid_parent_succeeds() {
-    let parent = make_kb("parent-id");
-    let child = make_kb("child-id");
+    let parent = make_kb("parent-id", "parent-key");
+    let child = make_kb("child-id", "child-key");
     let store = MockKbStore::with(vec![parent, child]);
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "child-id".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -1583,11 +1694,12 @@ fn update_kb_with_valid_parent_succeeds() {
 
 #[test]
 fn update_kb_with_missing_parent_fails() {
-    let child = make_kb("child-id");
+    let child = make_kb("child-id", "child-key");
     let store = MockKbStore::with(vec![child]);
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "child-id".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -1606,8 +1718,8 @@ fn update_kb_with_missing_parent_fails() {
 
 #[test]
 fn delete_kb_with_children_fails_and_lists_them() {
-    let parent = make_kb("parent-id");
-    let mut child = make_kb("child-id");
+    let parent = make_kb("parent-id", "parent-key");
+    let mut child = make_kb("child-id", "child-key");
     child.parent = Some("parent-id".to_string());
     let store = MockKbStore::with(vec![parent, child]);
     let svc = make_svc_with_store(store);
@@ -1620,8 +1732,8 @@ fn delete_kb_with_children_fails_and_lists_them() {
 
 #[test]
 fn delete_kb_without_children_succeeds() {
-    let parent = make_kb("parent-id");
-    let mut child = make_kb("child-id");
+    let parent = make_kb("parent-id", "parent-key");
+    let mut child = make_kb("child-id", "child-key");
     child.parent = Some("parent-id".to_string());
     let store = MockKbStore::with(vec![parent, child]);
     let svc = make_svc_with_store(store);
@@ -1631,12 +1743,12 @@ fn delete_kb_without_children_succeeds() {
 }
 
 #[test]
-fn import_kb_with_valid_parent_id_resolves() {
-    let parent = make_kb("parent-id");
+fn import_kb_with_valid_parent_key_resolves_id() {
+    let parent = make_kb("parent-id", "parent-key");
     let store = MockKbStore::with(vec![parent]);
     let svc = make_svc_with_store(store);
-    let mut item = make_import_item("11111111-1111-1111-1111-111111111111", "child value");
-    item.parent_id = Some("parent-id".to_string());
+    let mut item = make_import_item("child-key", "child value");
+    item.parent_key = Some("parent-key".to_string());
     let result = svc.import_kbs(vec![item]);
     assert_eq!(result.saved.len(), 1);
     assert_eq!(result.failed.len(), 0);
@@ -1644,14 +1756,14 @@ fn import_kb_with_valid_parent_id_resolves() {
 }
 
 #[test]
-fn import_kb_with_missing_parent_id_reports_failure() {
+fn import_kb_with_missing_parent_key_reports_failure() {
     let svc = make_svc();
-    let mut item = make_import_item("11111111-1111-1111-1111-111111111111", "child value");
-    item.parent_id = Some("nonexistent-id".to_string());
+    let mut item = make_import_item("child-key", "child value");
+    item.parent_key = Some("nonexistent-key".to_string());
     let result = svc.import_kbs(vec![item]);
     assert_eq!(result.saved.len(), 0);
     assert_eq!(result.failed.len(), 1);
-    assert!(result.failed[0].reason.contains("nonexistent-id"));
+    assert!(result.failed[0].reason.contains("nonexistent-key"));
 }
 
 // ---- export_kbs tests ----
@@ -1665,36 +1777,36 @@ fn export_kbs_returns_empty_when_no_items() {
 
 #[test]
 fn export_kbs_returns_item_without_parent_field() {
-    let store = MockKbStore::with(vec![make_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]);
     let svc = make_svc_with_store(store);
     let items = svc.export_kbs(KbFilter::default()).unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].id, "id-1");
-    assert!(items[0].parent_id.is_none());
+    assert_eq!(items[0].key, "rust-ownership");
+    assert!(items[0].parent_key.is_none());
 }
 
 #[test]
-fn export_kbs_sets_parent_id_when_parent_in_set() {
-    let parent = make_kb("parent-id");
-    let child = make_kb_with_parent("child-id", "parent-id");
+fn export_kbs_sets_parent_key_when_parent_in_set() {
+    let parent = make_kb("parent-id", "parent-key");
+    let child = make_kb_with_parent("child-id", "child-key", "parent-id");
     let store = MockKbStore::with(vec![parent, child]);
     let svc = make_svc_with_store(store);
 
     let items = svc.export_kbs(KbFilter::default()).unwrap();
     assert_eq!(items.len(), 2);
 
-    let parent_pos = items.iter().position(|i| i.id == "parent-id").unwrap();
-    let child_pos = items.iter().position(|i| i.id == "child-id").unwrap();
+    let parent_pos = items.iter().position(|i| i.key == "parent-key").unwrap();
+    let child_pos = items.iter().position(|i| i.key == "child-key").unwrap();
     assert!(parent_pos < child_pos, "parent must appear before child");
 
-    assert_eq!(items[child_pos].parent_id, Some("parent-id".to_string()));
+    assert_eq!(items[child_pos].parent_key, Some("parent-key".to_string()));
 }
 
 #[test]
 fn export_kbs_omits_parent_field_when_parent_not_in_set() {
-    let mut parent = make_kb("parent-id");
+    let mut parent = make_kb("parent-id", "parent-key");
     parent.category = "excluded".to_string();
-    let child = make_kb_with_parent("child-id", "parent-id");
+    let child = make_kb_with_parent("child-id", "child-key", "parent-id");
     // child category is "concept" (default from make_kb)
 
     let store = MockKbStore::with(vec![parent, child]);
@@ -1706,36 +1818,37 @@ fn export_kbs_omits_parent_field_when_parent_not_in_set() {
     };
     let items = svc.export_kbs(filter).unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].id, "child-id");
+    assert_eq!(items[0].key, "child-key");
     assert!(
-        items[0].parent_id.is_none(),
-        "parent is excluded from set, so ParentId field must be omitted"
+        items[0].parent_key.is_none(),
+        "parent is excluded from set, so Parent field must be omitted"
     );
 }
 
 #[test]
 fn export_kbs_orders_multi_level_hierarchy() {
-    let grandparent = make_kb("gp-id");
-    let parent = make_kb_with_parent("p-id", "gp-id");
-    let child = make_kb_with_parent("c-id", "p-id");
+    let grandparent = make_kb("gp-id", "gp-key");
+    let parent = make_kb_with_parent("p-id", "p-key", "gp-id");
+    let child = make_kb_with_parent("c-id", "c-key", "p-id");
     let store = MockKbStore::with(vec![child.clone(), parent.clone(), grandparent.clone()]);
     let svc = make_svc_with_store(store);
 
     let items = svc.export_kbs(KbFilter::default()).unwrap();
     assert_eq!(items.len(), 3);
 
-    let gp_pos = items.iter().position(|i| i.id == "gp-id").unwrap();
-    let p_pos = items.iter().position(|i| i.id == "p-id").unwrap();
-    let c_pos = items.iter().position(|i| i.id == "c-id").unwrap();
+    let gp_pos = items.iter().position(|i| i.key == "gp-key").unwrap();
+    let p_pos = items.iter().position(|i| i.key == "p-key").unwrap();
+    let c_pos = items.iter().position(|i| i.key == "c-key").unwrap();
     assert!(gp_pos < p_pos, "grandparent must be before parent");
     assert!(p_pos < c_pos, "parent must be before child");
 }
 
 // ---- media category tests ----
 
-fn make_media_kb(id: &str) -> Kb {
+fn make_media_kb(id: &str, key: &str) -> Kb {
     Kb {
         id: id.to_string(),
+        key: key.to_string(),
         value: "a media file".to_string(),
         notes: String::new(),
         category: "media".to_string(),
@@ -1750,9 +1863,9 @@ fn make_media_kb(id: &str) -> Kb {
     }
 }
 
-fn make_media_new_kb(media_url: Option<&str>) -> NewKb {
+fn make_media_new_kb(key: &str, media_url: Option<&str>) -> NewKb {
     NewKb {
-        id: None,
+        key: key.to_string(),
         value: "a media file".to_string(),
         notes: String::new(),
         category: "media".to_string(),
@@ -1780,10 +1893,10 @@ fn add_kb_media_copies_local_file_before_save() {
             base_dir: "/base".to_string(),
         },
     );
-    let result = svc.add_kb(make_media_new_kb(Some("/tmp/photo.jpg")));
+    let result = svc.add_kb(make_media_new_kb("photo", Some("/tmp/photo.jpg")));
     assert!(result.is_ok());
     assert_eq!(media_store.stored.borrow().len(), 1);
-    assert!(media_store.stored.borrow()[0].ends_with(".jpg"));
+    assert!(media_store.stored.borrow()[0].contains("photo.jpg"));
 }
 
 #[test]
@@ -1799,7 +1912,7 @@ fn add_kb_media_requires_media_url() {
         },
     );
     assert!(matches!(
-        svc.add_kb(make_media_new_kb(None)),
+        svc.add_kb(make_media_new_kb("photo", None)),
         Err(Error::MediaUrlRequired(_))
     ));
 }
@@ -1817,7 +1930,7 @@ fn add_kb_media_fails_when_store_media_fails() {
         },
     );
     assert!(matches!(
-        svc.add_kb(make_media_new_kb(Some("/tmp/photo.jpg"))),
+        svc.add_kb(make_media_new_kb("photo", Some("/tmp/photo.jpg"))),
         Err(Error::MediaCopyError(_))
     ));
 }
@@ -1835,7 +1948,10 @@ fn add_kb_media_uses_fetcher_for_http_urls() {
             base_dir: "/base".to_string(),
         },
     );
-    let result = svc.add_kb(make_media_new_kb(Some("https://example.com/image.jpg")));
+    let result = svc.add_kb(make_media_new_kb(
+        "remote-photo",
+        Some("https://example.com/image.jpg"),
+    ));
     assert!(result.is_ok());
     assert_eq!(media_store.stored.borrow().len(), 1);
 }
@@ -1843,7 +1959,7 @@ fn add_kb_media_uses_fetcher_for_http_urls() {
 #[test]
 fn delete_kb_media_deletes_file_first() {
     let media_store = MockMediaStore::default();
-    let store = MockKbStore::with(vec![make_media_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_media_kb("id-1", "photo")]);
     let svc = KBService::new(
         store,
         ServiceDeps {
@@ -1856,12 +1972,12 @@ fn delete_kb_media_deletes_file_first() {
     );
     assert!(svc.delete_kb("id-1").is_ok());
     assert_eq!(media_store.deleted.borrow().len(), 1);
-    assert!(media_store.deleted.borrow()[0].ends_with("id-1.jpg"));
+    assert!(media_store.deleted.borrow()[0].contains("photo.jpg"));
 }
 
 #[test]
 fn delete_kb_media_aborts_when_file_delete_fails() {
-    let store = MockKbStore::with(vec![make_media_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_media_kb("id-1", "photo")]);
     let svc = KBService::new(
         store,
         ServiceDeps {
@@ -1883,7 +1999,7 @@ fn delete_kb_media_aborts_when_file_delete_fails() {
 #[test]
 fn delete_kb_non_media_skips_file_delete() {
     let media_store = MockMediaStore::default();
-    let store = MockKbStore::with(vec![make_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_kb("id-1", "regular-entry")]);
     let svc = KBService::new(
         store,
         ServiceDeps {
@@ -1900,10 +2016,11 @@ fn delete_kb_non_media_skips_file_delete() {
 
 #[test]
 fn update_kb_media_blocks_path_change() {
-    let store = MockKbStore::with(vec![make_media_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_media_kb("id-1", "photo")]);
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: None,
         notes: None,
         category: None,
@@ -1922,10 +2039,11 @@ fn update_kb_media_blocks_path_change() {
 
 #[test]
 fn update_kb_media_allows_non_path_changes() {
-    let store = MockKbStore::with(vec![make_media_kb("id-1")]);
+    let store = MockKbStore::with(vec![make_media_kb("id-1", "photo")]);
     let svc = make_svc_with_store(store);
     let update = KbUpdate {
         id: "id-1".to_string(),
+        key: None,
         value: Some("updated description".to_string()),
         notes: None,
         category: None,
@@ -1957,16 +2075,16 @@ fn make_svc_with_media_store(
     )
 }
 
-fn make_export_media_item(id: &str, namespace: &str, ext: &str) -> ExportKbItem {
+fn make_export_media_item(key: &str, namespace: &str, ext: &str) -> ExportKbItem {
     ExportKbItem {
-        id: id.to_string(),
+        key: key.to_string(),
         value: String::new(),
         notes: String::new(),
         category: "media".to_string(),
         reference: String::new(),
         namespace: namespace.to_string(),
         tags: vec![],
-        parent_id: None,
+        parent_key: None,
         path: None,
         media_extension: Some(ext.to_string()),
     }
@@ -2030,7 +2148,7 @@ fn export_media_bulk_copies_namespace_when_media_and_namespace() {
 fn export_media_copies_item_by_item_for_other_filter() {
     let media_store = MockMediaStore::default();
     let svc = make_svc_with_media_store(media_store.clone());
-    let item = make_export_media_item("photo-id", "swe", "jpg");
+    let item = make_export_media_item("photo", "swe", "jpg");
     let params = ExportMediaParams {
         target_dir: "/target".to_string(),
         category: Some("concept".to_string()),
@@ -2043,7 +2161,7 @@ fn export_media_copies_item_by_item_for_other_filter() {
     assert!(media_store.dirs_copied.borrow().is_empty());
     let stored = media_store.stored.borrow();
     assert_eq!(stored.len(), 1);
-    assert!(stored[0].contains("/target/media/swe/photo-id.jpg"));
+    assert!(stored[0].contains("/target/media/swe/photo.jpg"));
 }
 
 #[test]
@@ -2051,14 +2169,14 @@ fn export_media_skips_non_media_items_in_item_by_item() {
     let media_store = MockMediaStore::default();
     let svc = make_svc_with_media_store(media_store.clone());
     let non_media = ExportKbItem {
-        id: "concept-id".to_string(),
+        key: "concept-key".to_string(),
         value: String::new(),
         notes: String::new(),
         category: "concept".to_string(),
         reference: String::new(),
         namespace: "swe".to_string(),
         tags: vec![],
-        parent_id: None,
+        parent_key: None,
         path: None,
         media_extension: None,
     };
@@ -2076,9 +2194,9 @@ fn export_media_skips_non_media_items_in_item_by_item() {
 
 #[test]
 fn get_kbs_without_keyword_filters_by_date_range() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "key-1");
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "key-2");
     kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
     let store = MockKbStore::with(vec![kb1, kb2]);
     let svc = KBService::new(
@@ -2098,15 +2216,15 @@ fn get_kbs_without_keyword_filters_by_date_range() {
     };
     let results = svc.get_kbs(filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].id, "id-2");
+    assert_eq!(results[0].key, "key-2");
 }
 
 #[test]
 fn get_kbs_with_keyword_and_date_range_filter_returns_matching_entries() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "rust-memory");
     kb1.tags = vec!["rust".to_string()];
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "rust-ownership");
     kb2.tags = vec!["rust".to_string()];
     kb2.created_on = "2026-01-10T00:00:00+0000".to_string();
     let store = MockKbStore::with(vec![kb1, kb2]);
@@ -2128,16 +2246,16 @@ fn get_kbs_with_keyword_and_date_range_filter_returns_matching_entries() {
     };
     let results = svc.get_kbs(filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].id, "id-2");
+    assert_eq!(results[0].key, "rust-ownership");
 }
 
 #[test]
 fn count_kbs_filters_by_date_range() {
-    let mut kb1 = make_kb("id-1");
+    let mut kb1 = make_kb("id-1", "key-1");
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2");
+    let mut kb2 = make_kb("id-2", "key-2");
     kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
-    let mut kb3 = make_kb("id-3");
+    let mut kb3 = make_kb("id-3", "key-3");
     kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
     let store = MockKbStore::with(vec![kb1, kb2, kb3]);
     let svc = KBService::new(

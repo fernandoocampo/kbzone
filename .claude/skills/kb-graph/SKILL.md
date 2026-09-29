@@ -24,10 +24,10 @@ allowed-tools:
 |---|---|---|
 | Connect two entries with a note on why | link | `kb link <from> <to> --note "..." --out json` |
 | Remove a connection | unlink | `kb unlink <from> <to>` |
-| See what's directly (one hop) connected to an entry | related | `kb related <id> --json` |
-| Trace a multi-hop chain of connections | tree | `kb tree <id> --json` |
+| See what's directly (one hop) connected to an entry | related | `kb related <key-or-id> --json` |
+| Trace a multi-hop chain of connections | tree | `kb tree <key-or-id> --json` |
 
-`<from>`/`<to>`/`<id>` are all internal UUIDs — entries have no other identifier. If the user named an entry by description rather than its id (e.g. "link the ownership note to the borrowing note"), resolve each one to an id first via the `kb-search`/`kb-manage-entry` skills (`kb search`/`kb ask` for a lookup, `kb get --id <id>` to confirm) before calling any command below — there is no key-based shortcut.
+`<from>`/`<to>`/`<key-or-id>` all accept either a `key` or an internal UUID — no need to resolve to an ID first.
 
 ## Link
 
@@ -48,7 +48,7 @@ No `--out` flag on this command — only plain success/error text. Errors if no 
 ## Related (one-hop)
 
 ```bash
-kb related <id> --direction both --json
+kb related <key-or-id> --direction both --json
 ```
 
 - `--direction` is `out` (this entry → others), `in` (others → this entry), or `both` (default).
@@ -58,7 +58,7 @@ kb related <id> --direction both --json
 ## Tree (transitive)
 
 ```bash
-kb tree <id> --direction out --depth 10 --json
+kb tree <key-or-id> --direction out --depth 10 --json
 ```
 
 - `--direction` is `out` (default) or `in` — there is **no `both`** option for `tree` (unlike `related`).
@@ -68,7 +68,7 @@ kb tree <id> --direction out --depth 10 --json
 
 ## Note on `kb graph` (interactive view)
 
-There's also a `kb graph <id>` command that opens an interactive visual graph (vis-network) in the default browser, for drag/click exploration. It's deliberately **not** wrapped here — it produces no JSON, needs internet access to load the viz library, and opens a browser window rather than returning a result. If the user wants a visual/interactive exploration rather than a structured answer, tell them to run `kb graph <id> [--direction out|in|both] [--depth N]` themselves.
+There's also a `kb graph <key-or-id>` command that opens an interactive visual graph (vis-network) in the default browser, for drag/click exploration. It's deliberately **not** wrapped here — it produces no JSON, needs internet access to load the viz library, and opens a browser window rather than returning a result. If the user wants a visual/interactive exploration rather than a structured answer, tell them to run `kb graph <key-or-id> [--direction out|in|both] [--depth N]` themselves.
 
 ## Output to present
 

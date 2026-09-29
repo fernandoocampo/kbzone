@@ -1,12 +1,11 @@
 use std::sync::{Arc, Mutex, Once};
 
-use chrono::Local;
 use rusqlite::{Connection, params};
 
 use crate::domain::{
     EdgeDirection, EmbeddingInput, GraphNode, IncomingEdge, Kb, KbEdge, KbFilter, KbItem,
-    MediaPathParams, OutgoingEdge, RelatedEdges, RelatedQuery, RemoveEdgeParams, ScoredKbItem,
-    SemanticQuery, TreeNode, TreeQuery, media_file_path,
+    OutgoingEdge, RelatedEdges, RelatedQuery, RemoveEdgeParams, ScoredKbItem, SemanticQuery,
+    TreeNode, TreeQuery,
 };
 use crate::errors::Error;
 use crate::ports::{KbGraph, KbStore, VectorStore};
@@ -19,6 +18,7 @@ const CREATE_KBS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS kbs (
     INTERNAL_ID  INTEGER PRIMARY KEY AUTOINCREMENT,
     KB_ID        TEXT NOT NULL UNIQUE,
+    KB_KEY       TEXT NOT NULL UNIQUE,
     KB_VALUE     TEXT NOT NULL,
     NOTES        TEXT NOT NULL DEFAULT '',
     CATEGORY     TEXT NOT NULL DEFAULT '',
@@ -28,42 +28,6 @@ CREATE TABLE IF NOT EXISTS kbs (
     CREATED_ON   TEXT NOT NULL,
     KB_PATH      TEXT DEFAULT NULL
 )";
-
-/// One-time migration DDL: rebuilds `kbs` without `KB_KEY` (and its `UNIQUE`
-/// constraint). SQLite's `ALTER TABLE ... DROP COLUMN` refuses to drop a
-/// column that's part of a `UNIQUE` constraint, so this uses the standard
-/// SQLite "create new table, copy rows, drop old, rename" rebuild pattern
-/// instead of the additive `ALTER TABLE ADD COLUMN` style every other
-/// migration in this file uses. Run inside a transaction by
-/// `rebuild_kbs_table_without_key`. `INTERNAL_ID` is copied explicitly (not
-/// left to `AUTOINCREMENT`) because `tags_idx` is an FTS5 external-content
-/// table keyed on `content_rowid='INTERNAL_ID'` — reassigning it would
-/// silently desync keyword search from its backing rows.
-const REBUILD_KBS_TABLE_WITHOUT_KEY: &str = "
-CREATE TABLE kbs_new (
-    INTERNAL_ID     INTEGER PRIMARY KEY AUTOINCREMENT,
-    KB_ID           TEXT NOT NULL UNIQUE,
-    KB_VALUE        TEXT NOT NULL,
-    NOTES           TEXT NOT NULL DEFAULT '',
-    CATEGORY        TEXT NOT NULL DEFAULT '',
-    NAMESPACE       TEXT NOT NULL DEFAULT '',
-    REFERENCE       TEXT NOT NULL DEFAULT '',
-    TAG_VALUES      TEXT NOT NULL DEFAULT '',
-    CREATED_ON      TEXT NOT NULL,
-    KB_PATH         TEXT DEFAULT NULL,
-    PARENT_KB_ID    TEXT DEFAULT NULL,
-    MEDIA_EXTENSION TEXT DEFAULT NULL,
-    METADATA        TEXT DEFAULT NULL
-);
-INSERT INTO kbs_new
-    (INTERNAL_ID, KB_ID, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE,
-     TAG_VALUES, CREATED_ON, KB_PATH, PARENT_KB_ID, MEDIA_EXTENSION, METADATA)
-    SELECT INTERNAL_ID, KB_ID, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE,
-           TAG_VALUES, CREATED_ON, KB_PATH, PARENT_KB_ID, MEDIA_EXTENSION, METADATA
-    FROM kbs;
-DROP TABLE kbs;
-ALTER TABLE kbs_new RENAME TO kbs;
-";
 
 const CREATE_FTS_TABLE: &str = "
 CREATE VIRTUAL TABLE IF NOT EXISTS tags_idx
@@ -92,26 +56,30 @@ END";
 // CRUD DML constants
 // ---------------------------------------------------------------------------
 
-const GET_KB_BY_ID: &str = "SELECT KB_ID, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+const GET_KB_BY_ID: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
                              REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
                              FROM kbs WHERE KB_ID = ?1";
 
-const INSERT_KB: &str = "INSERT INTO kbs \
-                          (KB_ID, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA) \
-                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+const GET_KB_BY_KEY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+                              REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
+                              FROM kbs WHERE KB_KEY = ?1";
 
-const UPDATE_KB: &str = "UPDATE kbs SET KB_VALUE=?1, NOTES=?2, CATEGORY=?3, \
-                          NAMESPACE=?4, REFERENCE=?5, TAG_VALUES=?6, PARENT_KB_ID=?7, KB_PATH=?8, MEDIA_EXTENSION=?9, METADATA=?10 \
-                          WHERE KB_ID=?11";
+const INSERT_KB: &str = "INSERT INTO kbs \
+                          (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA) \
+                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
+
+const UPDATE_KB: &str = "UPDATE kbs SET KB_KEY=?1, KB_VALUE=?2, NOTES=?3, CATEGORY=?4, \
+                          NAMESPACE=?5, REFERENCE=?6, TAG_VALUES=?7, PARENT_KB_ID=?8, KB_PATH=?9, MEDIA_EXTENSION=?10, METADATA=?11 \
+                          WHERE KB_ID=?12";
 
 const DELETE_KB: &str = "DELETE FROM kbs WHERE KB_ID=?1";
 
-const GET_RANDOM_BY_CATEGORY: &str = "SELECT KB_ID, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+const GET_RANDOM_BY_CATEGORY: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
                                       REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
                                       FROM kbs WHERE LOWER(CATEGORY) = LOWER(?1) \
                                       ORDER BY RANDOM() LIMIT 1";
 
-const GET_RANDOM_BY_CATEGORY_AND_NAMESPACE: &str = "SELECT KB_ID, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+const GET_RANDOM_BY_CATEGORY_AND_NAMESPACE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
                                                      REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA \
                                                      FROM kbs WHERE LOWER(CATEGORY) = LOWER(?1) AND NAMESPACE = ?2 \
                                                      ORDER BY RANDOM() LIMIT 1";
@@ -130,10 +98,10 @@ const GET_DISTINCT_NAMESPACES: &str =
 const GET_DISTINCT_NAMESPACES_FILTERED: &str = "SELECT DISTINCT NAMESPACE FROM kbs WHERE NAMESPACE != '' AND LOWER(NAMESPACE) LIKE ?1 \
      ORDER BY NAMESPACE ASC";
 
-const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
+const LIST_KBS_FULL_BASE: &str = "SELECT KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, \
                                    REFERENCE, TAG_VALUES, CREATED_ON, PARENT_KB_ID, KB_PATH, MEDIA_EXTENSION, METADATA FROM kbs";
 
-const SEARCH_FTS_BASE: &str = "SELECT k.KB_ID, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
+const SEARCH_FTS_BASE: &str = "SELECT k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE, k.TAG_VALUES \
                                 FROM kbs k \
                                 JOIN tags_idx ON tags_idx.rowid = k.INTERNAL_ID \
                                 WHERE tags_idx MATCH ?1";
@@ -176,7 +144,7 @@ const SEARCH_KNN_BY_NAMESPACE: &str = "SELECT kb_id, distance FROM kb_embeddings
 
 /// Step 2 of semantic search: fetch KB item metadata by ID.
 const GET_KB_ITEM_BY_ID: &str =
-    "SELECT KB_ID, CATEGORY, NAMESPACE, TAG_VALUES FROM kbs WHERE KB_ID = ?1";
+    "SELECT KB_ID, KB_KEY, CATEGORY, NAMESPACE, TAG_VALUES FROM kbs WHERE KB_ID = ?1";
 
 /// `category` is not a partition key (see `SEARCH_KNN`'s doc comment on why), so
 /// candidates are over-fetched by this multiplier, capped, before post-filtering.
@@ -223,12 +191,12 @@ const INSERT_EDGE: &str = "INSERT INTO kb_edges \
 const DELETE_EDGE: &str = "DELETE FROM kb_edges WHERE FROM_KB_ID = ?1 AND TO_KB_ID = ?2";
 
 const GET_OUTGOING_EDGES: &str = "SELECT e.EDGE_ID, e.NOTE, e.CREATED_ON, \
-                                   k.KB_ID, k.CATEGORY, k.NAMESPACE \
+                                   k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE \
                                    FROM kb_edges e JOIN kbs k ON k.KB_ID = e.TO_KB_ID \
                                    WHERE e.FROM_KB_ID = ?1 ORDER BY e.CREATED_ON ASC";
 
 const GET_INCOMING_EDGES: &str = "SELECT e.EDGE_ID, e.NOTE, e.CREATED_ON, \
-                                   k.KB_ID, k.CATEGORY, k.NAMESPACE \
+                                   k.KB_ID, k.KB_KEY, k.CATEGORY, k.NAMESPACE \
                                    FROM kb_edges e JOIN kbs k ON k.KB_ID = e.FROM_KB_ID \
                                    WHERE e.TO_KB_ID = ?1 ORDER BY e.CREATED_ON ASC";
 
@@ -249,7 +217,7 @@ WITH RECURSIVE walk(id, depth, parent_id, note) AS (
     FROM kb_edges e JOIN walk w ON e.{parent_col} = w.id
     WHERE w.depth < ?2
 )
-SELECT w.id, w.depth, w.parent_id, w.note
+SELECT w.id, k.KB_KEY, w.depth, w.parent_id, w.note
 FROM walk w JOIN kbs k ON k.KB_ID = w.id
 ORDER BY w.depth ASC";
 
@@ -295,7 +263,6 @@ fn register_vec_extension() {
 #[derive(Debug, Clone)]
 pub struct SqliteStore {
     conn: Arc<Mutex<Connection>>,
-    db_path: String,
 }
 
 impl SqliteStore {
@@ -310,175 +277,8 @@ impl SqliteStore {
         let conn = Connection::open(path).map_err(|e| Error::StorageInitError(e.to_string()))?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
-            db_path: db_path.to_string(),
         })
     }
-
-    /// Directory holding the database file — the base dir media files are stored under.
-    fn base_dir(&self) -> String {
-        std::path::Path::new(&self.db_path)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default()
-    }
-}
-
-// ---------------------------------------------------------------------------
-// One-time migration: drop KB_KEY
-// ---------------------------------------------------------------------------
-
-impl SqliteStore {
-    /// Detects the pre-key-removal schema (`KB_KEY` still present) and, if
-    /// found, backs up the database file, renames on-disk media files from
-    /// the old `{key}.{ext}` naming to the new `{id}.{ext}` naming (while
-    /// `KB_KEY` is still queryable), then rebuilds `kbs` without the column.
-    /// No-op on a fresh install or an already-migrated database.
-    fn migrate_drop_key_column(&self, conn: &Connection) -> Result<(), Error> {
-        if !table_has_column(conn, "kbs", "KB_KEY")? {
-            return Ok(());
-        }
-        eprintln!(
-            "Migrating kbs table to remove the KB_KEY column (id is now the sole \
-             identifier) — backing up database first..."
-        );
-        backup_database_file(&self.db_path, conn)?;
-        rename_media_files_for_key_removal(conn, &self.base_dir())?;
-        rebuild_kbs_table_without_key(conn)?;
-        eprintln!(
-            "Migration complete. Run `kb reindex` to rebuild embeddings \
-             (the embedding text formula no longer includes the old key)."
-        );
-        Ok(())
-    }
-}
-
-/// Returns `true` if `table` has a column named `column` (case-insensitive).
-fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, Error> {
-    let sql = format!("PRAGMA table_info({table})");
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| Error::StorageInitError(e.to_string()))?;
-    let mut rows = stmt
-        .query([])
-        .map_err(|e| Error::StorageInitError(e.to_string()))?;
-    while let Some(row) = rows
-        .next()
-        .map_err(|e| Error::StorageInitError(e.to_string()))?
-    {
-        let name: String = row
-            .get(1)
-            .map_err(|e| Error::StorageInitError(e.to_string()))?;
-        if name.eq_ignore_ascii_case(column) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-/// Writes a full point-in-time copy of the database file to `{db_path}.bak-{timestamp}`
-/// before destructive DDL runs. No-op for an in-memory (`:memory:`) database.
-fn backup_database_file(db_path: &str, conn: &Connection) -> Result<(), Error> {
-    if db_path == ":memory:" {
-        return Ok(());
-    }
-    let timestamp = Local::now().format("%Y%m%d%H%M%S");
-    let backup_path = format!("{db_path}.bak-{timestamp}");
-    conn.execute("VACUUM INTO ?1", params![backup_path])
-        .map_err(|e| Error::StorageInitError(e.to_string()))?;
-    eprintln!("Backup written to {backup_path}");
-    Ok(())
-}
-
-/// Renames on-disk media files from the pre-migration `{key}.{ext}` path to
-/// the post-migration `{id}.{ext}` path, for every media entry. Best-effort:
-/// a single file's rename failure is logged and skipped rather than aborting
-/// the whole migration.
-fn rename_media_files_for_key_removal(conn: &Connection, base_dir: &str) -> Result<(), Error> {
-    const SELECT_MEDIA_FOR_RENAME: &str = "SELECT KB_ID, KB_KEY, NAMESPACE, KB_PATH, MEDIA_EXTENSION \
-                                             FROM kbs WHERE LOWER(CATEGORY) = 'media' AND MEDIA_EXTENSION IS NOT NULL";
-    let mut stmt = conn
-        .prepare(SELECT_MEDIA_FOR_RENAME)
-        .map_err(|e| Error::StorageInitError(e.to_string()))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, String>(4)?,
-            ))
-        })
-        .map_err(|e| Error::StorageInitError(e.to_string()))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| Error::StorageInitError(e.to_string()))?;
-
-    for (id, key, namespace, path, extension) in rows {
-        let old_path =
-            legacy_media_file_path(base_dir, &namespace, path.as_deref(), &key, &extension);
-        let new_path = media_file_path(&MediaPathParams {
-            base_dir,
-            namespace: &namespace,
-            path: path.as_deref(),
-            id: &id,
-            extension: Some(&extension),
-        });
-        if old_path == new_path {
-            continue;
-        }
-        if let Some(parent) = std::path::Path::new(&new_path).parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Err(e) = std::fs::rename(&old_path, &new_path) {
-            eprintln!("Warning: could not rename media file '{old_path}' -> '{new_path}': {e}");
-        }
-    }
-    Ok(())
-}
-
-/// Builds the pre-migration `{key}.{ext}` media path. Duplicates
-/// `media_file_path`'s formula on purpose — it's the *old* naming scheme,
-/// only needed transiently by this one-time migration, and doesn't belong
-/// in the permanent domain helper.
-fn legacy_media_file_path(
-    base_dir: &str,
-    namespace: &str,
-    path: Option<&str>,
-    key: &str,
-    extension: &str,
-) -> String {
-    let file_name = if extension.is_empty() {
-        key.to_string()
-    } else {
-        format!("{key}.{extension}")
-    };
-    let mut result = format!("{base_dir}/media/{namespace}");
-    if let Some(p) = path {
-        let trimmed = p.trim_start_matches('/');
-        if !trimmed.is_empty() {
-            result = format!("{result}/{trimmed}");
-        }
-    }
-    format!("{result}/{file_name}")
-}
-
-/// Rebuilds `kbs` without `KB_KEY`, transactionally, then re-creates the
-/// triggers `DROP TABLE kbs` auto-drops (`CREATE TRIGGER IF NOT EXISTS`
-/// makes this safe to run unconditionally).
-fn rebuild_kbs_table_without_key(conn: &Connection) -> Result<(), Error> {
-    conn.execute_batch(&format!("BEGIN;{REBUILD_KBS_TABLE_WITHOUT_KEY}COMMIT;"))
-        .map_err(|e| Error::StorageInitError(e.to_string()))?;
-
-    for ddl in &[
-        CREATE_TRIGGER_AI,
-        CREATE_TRIGGER_AD,
-        CREATE_TRIGGER_AU,
-        CREATE_TRIGGER_AD_EDGES,
-    ] {
-        conn.execute_batch(ddl)
-            .map_err(|e| Error::StorageInitError(e.to_string()))?;
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -486,11 +286,12 @@ fn rebuild_kbs_table_without_key(conn: &Connection) -> Result<(), Error> {
 // ---------------------------------------------------------------------------
 
 fn row_to_kb_item(row: &rusqlite::Row) -> rusqlite::Result<KbItem> {
-    let tag_values: String = row.get(3).unwrap_or_default();
+    let tag_values: String = row.get(4).unwrap_or_default();
     Ok(KbItem {
         id: row.get(0)?,
-        category: row.get(1)?,
-        namespace: row.get(2)?,
+        key: row.get(1)?,
+        category: row.get(2)?,
+        namespace: row.get(3)?,
         tags: if tag_values.is_empty() {
             vec![]
         } else {
@@ -549,11 +350,6 @@ impl KbStore for SqliteStore {
         {
             return Err(Error::StorageInitError(e.to_string()));
         }
-        // One-time migration: drop KB_KEY (needs the full rebuild pattern above,
-        // since ALTER TABLE ADD COLUMN can't remove a UNIQUE-constrained column).
-        // Must run after the ALTER TABLE steps above so every column being
-        // rebuilt already exists on the pre-migration table.
-        self.migrate_drop_key_column(&conn)?;
         Ok(())
     }
 
@@ -565,6 +361,23 @@ impl KbStore for SqliteStore {
 
         let mut rows = stmt
             .query(params![id])
+            .map_err(|e| Error::GetKBError(e.to_string()))?;
+
+        if let Some(row) = rows.next().map_err(|e| Error::GetKBError(e.to_string()))? {
+            Ok(Some(row_to_kb(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn get_kb_by_key(&self, key: &str) -> Result<Option<Kb>, Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        let mut stmt = conn
+            .prepare(GET_KB_BY_KEY)
+            .map_err(|e| Error::GetKBError(e.to_string()))?;
+
+        let mut rows = stmt
+            .query(params![key])
             .map_err(|e| Error::GetKBError(e.to_string()))?;
 
         if let Some(row) = rows.next().map_err(|e| Error::GetKBError(e.to_string()))? {
@@ -596,6 +409,7 @@ impl KbStore for SqliteStore {
             INSERT_KB,
             params![
                 kb.id,
+                kb.key,
                 kb.value,
                 kb.notes,
                 kb.category,
@@ -621,6 +435,7 @@ impl KbStore for SqliteStore {
             .execute(
                 UPDATE_KB,
                 params![
+                    kb.key,
                     kb.value,
                     kb.notes,
                     kb.category,
@@ -816,7 +631,7 @@ impl SqliteStore {
             build_filter_clauses(filter);
 
         let sql = format!(
-            "SELECT KB_ID, CATEGORY, NAMESPACE, TAG_VALUES \
+            "SELECT KB_ID, KB_KEY, CATEGORY, NAMESPACE, TAG_VALUES \
              FROM kbs{} ORDER BY CREATED_ON DESC{}{}",
             where_clause, limit_clause, offset_clause
         );
@@ -883,8 +698,8 @@ impl SqliteStore {
 // ---------------------------------------------------------------------------
 
 fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
-    let tag_values: String = row.get(6).map_err(|e| Error::GetKBError(e.to_string()))?;
-    let metadata_raw: Option<String> = row.get(11).map_err(|e| Error::GetKBError(e.to_string()))?;
+    let tag_values: String = row.get(7).map_err(|e| Error::GetKBError(e.to_string()))?;
+    let metadata_raw: Option<String> = row.get(12).map_err(|e| Error::GetKBError(e.to_string()))?;
     let metadata: std::collections::BTreeMap<String, String> = match metadata_raw {
         Some(s) if !s.trim().is_empty() => {
             serde_json::from_str(&s).map_err(|e| Error::GetKBError(e.to_string()))?
@@ -893,26 +708,27 @@ fn row_to_kb(row: &rusqlite::Row) -> Result<Kb, Error> {
     };
     Ok(Kb {
         id: row.get(0).map_err(|e| Error::GetKBError(e.to_string()))?,
-        value: row.get(1).map_err(|e| Error::GetKBError(e.to_string()))?,
-        notes: row.get(2).map_err(|e| Error::GetKBError(e.to_string()))?,
-        category: row.get(3).map_err(|e| Error::GetKBError(e.to_string()))?,
-        namespace: row.get(4).map_err(|e| Error::GetKBError(e.to_string()))?,
-        reference: row.get(5).map_err(|e| Error::GetKBError(e.to_string()))?,
+        key: row.get(1).map_err(|e| Error::GetKBError(e.to_string()))?,
+        value: row.get(2).map_err(|e| Error::GetKBError(e.to_string()))?,
+        notes: row.get(3).map_err(|e| Error::GetKBError(e.to_string()))?,
+        category: row.get(4).map_err(|e| Error::GetKBError(e.to_string()))?,
+        namespace: row.get(5).map_err(|e| Error::GetKBError(e.to_string()))?,
+        reference: row.get(6).map_err(|e| Error::GetKBError(e.to_string()))?,
         tags: if tag_values.is_empty() {
             vec![]
         } else {
             tag_values.split_whitespace().map(str::to_string).collect()
         },
         metadata,
-        created_on: row.get(7).map_err(|e| Error::GetKBError(e.to_string()))?,
+        created_on: row.get(8).map_err(|e| Error::GetKBError(e.to_string()))?,
         parent: row
-            .get::<_, Option<String>>(8)
-            .map_err(|e| Error::GetKBError(e.to_string()))?,
-        path: row
             .get::<_, Option<String>>(9)
             .map_err(|e| Error::GetKBError(e.to_string()))?,
-        media_extension: row
+        path: row
             .get::<_, Option<String>>(10)
+            .map_err(|e| Error::GetKBError(e.to_string()))?,
+        media_extension: row
+            .get::<_, Option<String>>(11)
             .map_err(|e| Error::GetKBError(e.to_string()))?,
     })
 }
@@ -1300,8 +1116,9 @@ fn row_to_outgoing_edge(row: &rusqlite::Row) -> rusqlite::Result<OutgoingEdge> {
         created_on: row.get(2)?,
         to: GraphNode {
             id: row.get(3)?,
-            category: row.get(4)?,
-            namespace: row.get(5)?,
+            key: row.get(4)?,
+            category: row.get(5)?,
+            namespace: row.get(6)?,
         },
     })
 }
@@ -1313,8 +1130,9 @@ fn row_to_incoming_edge(row: &rusqlite::Row) -> rusqlite::Result<IncomingEdge> {
         created_on: row.get(2)?,
         from: GraphNode {
             id: row.get(3)?,
-            category: row.get(4)?,
-            namespace: row.get(5)?,
+            key: row.get(4)?,
+            category: row.get(5)?,
+            namespace: row.get(6)?,
         },
     })
 }
@@ -1322,9 +1140,10 @@ fn row_to_incoming_edge(row: &rusqlite::Row) -> rusqlite::Result<IncomingEdge> {
 fn row_to_tree_node(row: &rusqlite::Row) -> rusqlite::Result<TreeNode> {
     Ok(TreeNode {
         id: row.get(0)?,
-        depth: row.get(1)?,
-        parent_id: row.get(2)?,
-        note: row.get(3)?,
+        key: row.get(1)?,
+        depth: row.get(2)?,
+        parent_id: row.get(3)?,
+        note: row.get(4)?,
     })
 }
 

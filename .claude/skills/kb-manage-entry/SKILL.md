@@ -3,8 +3,8 @@ name: kb-manage-entry
 description: >
   CRUD on single entries in the kbzone knowledge base (SQLite-backed personal
   KB, binary `kb`): add, get, update, delete. Use whenever the user wants to
-  save/add/remember something new, fetch/look up a specific entry by ID,
-  edit/correct/update an existing entry's fields, or delete/remove/forget
+  save/add/remember something new, fetch/look up a specific entry by key or
+  ID, edit/correct/update an existing entry's fields, or delete/remove/forget
   an entry — not just when they say "add". Always drives the CLI with its
   structured-output flags (`--json` for add, `--out json` for get/update/
   delete) and returns parsed JSON, never scraped plain text.
@@ -20,11 +20,11 @@ allowed-tools:
 | User wants to... | Action | Command |
 |---|---|---|
 | Save / remember / add something new | add | `kb add --json '<entry>'` |
-| Look up / fetch / show a specific entry | get | `kb get --id <id> --out json` |
+| Look up / fetch / show a specific entry | get | `kb get --key <key>\|--id <id> --out json` |
 | Change / edit / correct / rename an entry | update | `kb update --id <id> ... --out json` |
 | Remove / delete / forget an entry | delete | `kb delete --id <id> --out json` |
 
-`get`, `update`, and `delete` are all identified by `--id` only — entries have no other identifier, so there's no key-based lookup anywhere in this skill. If the user refers to an entry by description rather than its id, resolve it first via the `kb-search` skill (`kb search`/`kb ask`), then use the id it returns.
+`update` and `delete` are identified by `--id` only (no `--key` flag exists on either) — if the user refers to the entry by key, resolve it first with `get` (see below).
 
 ## Add
 
@@ -49,15 +49,12 @@ Ask clarifying questions if any of these are unclear:
 ### Build and save
 
 ```bash
-kb add --json '{"value":"Each value has a single owner.","category":"concept","namespace":"rust","tags":["rust","memory"]}'
+kb add --json '{"key":"rust-ownership","value":"Each value has a single owner.","category":"concept","namespace":"rust","tags":["rust","memory"]}'
 ```
-
-`kb add` returns the created entry's auto-generated `id` (a UUID) — there's
-no user-defined identifier to supply; use the returned `id` for any
-follow-up `get`/`update`/`delete`/`link` call.
 
 | Field | Required | Description |
 |---|---|---|
+| `key` | **yes** | Unique string identifier (e.g. `rust-ownership`) |
 | `value` | **yes** | Main content / answer. **For bookmarks: must be the URL** |
 | `category` | **yes** | Entry type |
 | `tags` | **yes** | Non-empty array; blank entries rejected, exact duplicates deduped |
@@ -75,6 +72,7 @@ JSON Schema:
 {
   "type": "object",
   "properties": {
+    "key": { "type": "string", "minLength": 1 },
     "value": { "type": "string", "minLength": 1 },
     "category": { "type": "string", "minLength": 1 },
     "tags": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
@@ -86,32 +84,32 @@ JSON Schema:
     "media_url": { "type": ["string", "null"], "default": null },
     "metadata": { "type": "object", "additionalProperties": { "type": "string" }, "propertyNames": { "minLength": 1 }, "default": {} }
   },
-  "required": ["value", "category", "tags"],
+  "required": ["key", "value", "category", "tags"],
   "additionalProperties": false
 }
 ```
 
-Failure modes to surface verbatim: `missing required field: value/category`, `tags must be a non-empty array`, `metadata keys must not be blank`, `InvalidJsonInput`.
+Failure modes to surface verbatim: `missing required field: key/value/category`, `tags must be a non-empty array`, `metadata keys must not be blank`, `InvalidJsonInput`.
 
 ## Get
 
 ```bash
+kb get --key <key> --out json
 kb get --id <id> --out json
 ```
 
-Returns the full entry (`id`, `value`, `notes`, `category`, `namespace`, `reference`, `tags`, `metadata`, `created_on`, `parent`, `path`, `media_extension`). `--out yaml` is also available; prefer `json` for parsing.
+Returns the full entry (`id`, `key`, `value`, `notes`, `category`, `namespace`, `reference`, `tags`, `metadata`, `created_on`, `parent`, `path`, `media_extension`). `--out yaml` is also available; prefer `json` for parsing.
 
 Add `--with-out-connections`, `--with-in-connections`, or `--with-all-connections` when the user also wants to see this entry's relationships in the same call — this saves a separate lookup via the kb-graph skill.
 
-If the id doesn't exist, the CLI prints `Not found.` — report that plainly rather than treating it as a crash.
+If the key doesn't exist, the CLI prints `Not found.` — report that plainly rather than treating it as a crash.
 
 ## Update
 
-Requires the target's `--id`. If the user hasn't given the id (they described the entry instead), resolve it first via the `kb-search` skill:
+Requires the target's `--id`. If the user gave a key instead:
 
 ```bash
-kb search --keyword <term> --out json    # or kb ask "<description>" --out json — find the id
-kb get --id <id> --out json              # confirm it's the right entry
+kb get --key <key> --out json   # resolve id
 kb update --id <id> --value "new value" --out json
 ```
 
@@ -119,7 +117,7 @@ Only pass flags for fields that are actually changing — omitted flags leave th
 
 ## Delete
 
-Also identified by `--id`; resolve it via `kb-search`/`kb get` first if the user named the entry rather than gave its id.
+Also identified by `--id`; resolve key → id via `get` first if needed.
 
 ```bash
 kb delete --id <id> --out json

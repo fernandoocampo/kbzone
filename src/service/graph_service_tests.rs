@@ -37,6 +37,15 @@ impl KbStore for MockKbStore {
         Ok(self.data.borrow().get(id).cloned())
     }
 
+    fn get_kb_by_key(&self, key: &str) -> Result<Option<Kb>, Error> {
+        Ok(self
+            .data
+            .borrow()
+            .values()
+            .find(|kb| kb.key == key)
+            .cloned())
+    }
+
     fn get_kbs(&self, _filter: &KbFilter) -> Result<Vec<KbItem>, Error> {
         Ok(vec![])
     }
@@ -111,6 +120,7 @@ impl MockKbGraph {
     fn node_for(&self, id: &str) -> GraphNode {
         self.nodes.borrow().get(id).cloned().unwrap_or(GraphNode {
             id: id.to_string(),
+            key: String::new(),
             category: String::new(),
             namespace: String::new(),
         })
@@ -189,9 +199,10 @@ impl KbGraph for MockKbGraph {
 
 // ---- fixtures ----
 
-fn make_kb(id: &str) -> Kb {
+fn make_kb(id: &str, key: &str) -> Kb {
     Kb {
         id: id.to_string(),
+        key: key.to_string(),
         value: "value".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -219,14 +230,17 @@ fn make_kb_edge(id: &str, from_id: &str, to_id: &str, note: &str) -> KbEdge {
 // ---- link tests ----
 
 #[test]
-fn link_resolves_id_and_creates_edge() {
-    let store = MockKbStore::with(vec![make_kb("car-id"), make_kb("engine-id")]);
+fn link_resolves_key_and_creates_edge() {
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     let edge = svc
         .link(LinkParams {
-            from_id: "car-id".to_string(),
-            to_id: "engine-id".to_string(),
+            from_key_or_id: "car".to_string(),
+            to_key_or_id: "engine".to_string(),
             note: "has an engine".to_string(),
             out: None,
         })
@@ -237,13 +251,33 @@ fn link_resolves_id_and_creates_edge() {
 }
 
 #[test]
+fn link_resolves_id_when_key_lookup_fails() {
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let edge = svc
+        .link(LinkParams {
+            from_key_or_id: "car-id".to_string(),
+            to_key_or_id: "engine-id".to_string(),
+            note: String::new(),
+            out: None,
+        })
+        .unwrap();
+    assert_eq!(edge.from_id, "car-id");
+    assert_eq!(edge.to_id, "engine-id");
+}
+
+#[test]
 fn link_rejects_self_loop() {
-    let store = MockKbStore::with(vec![make_kb("car-id")]);
+    let store = MockKbStore::with(vec![make_kb("car-id", "car")]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     let result = svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "car-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "car".to_string(),
         note: String::new(),
         out: None,
     });
@@ -252,12 +286,12 @@ fn link_rejects_self_loop() {
 
 #[test]
 fn link_errors_when_from_not_found() {
-    let store = MockKbStore::with(vec![make_kb("engine-id")]);
+    let store = MockKbStore::with(vec![make_kb("engine-id", "engine")]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     let result = svc.link(LinkParams {
-        from_id: "no-such".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "no-such".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: String::new(),
         out: None,
     });
@@ -266,12 +300,12 @@ fn link_errors_when_from_not_found() {
 
 #[test]
 fn link_errors_when_to_not_found() {
-    let store = MockKbStore::with(vec![make_kb("car-id")]);
+    let store = MockKbStore::with(vec![make_kb("car-id", "car")]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     let result = svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "no-such".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "no-such".to_string(),
         note: String::new(),
         out: None,
     });
@@ -280,20 +314,23 @@ fn link_errors_when_to_not_found() {
 
 #[test]
 fn link_propagates_duplicate_edge_error_from_store() {
-    let store = MockKbStore::with(vec![make_kb("car-id"), make_kb("engine-id")]);
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: String::new(),
         out: None,
     })
     .unwrap();
 
     let result = svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: "again".to_string(),
         out: None,
     });
@@ -304,26 +341,32 @@ fn link_propagates_duplicate_edge_error_from_store() {
 
 #[test]
 fn unlink_removes_existing_edge() {
-    let store = MockKbStore::with(vec![make_kb("car-id"), make_kb("engine-id")]);
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: String::new(),
         out: None,
     })
     .unwrap();
 
-    assert!(svc.unlink("car-id", "engine-id").is_ok());
+    assert!(svc.unlink("car", "engine").is_ok());
 }
 
 #[test]
 fn unlink_errors_when_edge_missing() {
-    let store = MockKbStore::with(vec![make_kb("car-id"), make_kb("engine-id")]);
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
-    let result = svc.unlink("car-id", "engine-id");
+    let result = svc.unlink("car", "engine");
     assert!(matches!(result, Err(Error::EdgeNotFound)));
 }
 
@@ -331,54 +374,54 @@ fn unlink_errors_when_edge_missing() {
 
 #[test]
 fn related_returns_node_plus_filtered_edges_for_direction_out() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
     let store = MockKbStore::with(vec![car.clone(), engine.clone()]);
     let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
     let svc = GraphService::new(store, graph);
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: "has an engine".to_string(),
         out: None,
     })
     .unwrap();
 
-    let result = svc.related("car-id", EdgeDirection::Out).unwrap();
-    assert_eq!(result.node.id, "car-id");
+    let result = svc.related("car", EdgeDirection::Out).unwrap();
+    assert_eq!(result.node.key, "car");
     assert_eq!(result.outgoing.len(), 1);
-    assert_eq!(result.outgoing[0].to.id, "engine-id");
+    assert_eq!(result.outgoing[0].to.key, "engine");
     assert!(result.incoming.is_empty());
 }
 
 #[test]
 fn related_returns_node_plus_filtered_edges_for_direction_in() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
     let store = MockKbStore::with(vec![car.clone(), engine.clone()]);
     let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
     let svc = GraphService::new(store, graph);
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: "has an engine".to_string(),
         out: None,
     })
     .unwrap();
 
-    let result = svc.related("engine-id", EdgeDirection::In).unwrap();
+    let result = svc.related("engine", EdgeDirection::In).unwrap();
     assert_eq!(result.incoming.len(), 1);
-    assert_eq!(result.incoming[0].from.id, "car-id");
+    assert_eq!(result.incoming[0].from.key, "car");
     assert!(result.outgoing.is_empty());
 }
 
 #[test]
 fn related_returns_node_plus_filtered_edges_for_direction_both() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
-    let kit = make_kb("kit-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let kit = make_kb("kit-id", "spare-parts-kit");
     let store = MockKbStore::with(vec![car.clone(), engine.clone(), kit.clone()]);
     let graph = MockKbGraph::with_nodes(vec![
         GraphNode::from(&car),
@@ -388,21 +431,21 @@ fn related_returns_node_plus_filtered_edges_for_direction_both() {
     let svc = GraphService::new(store, graph);
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: String::new(),
         out: None,
     })
     .unwrap();
     svc.link(LinkParams {
-        from_id: "kit-id".to_string(),
-        to_id: "car-id".to_string(),
+        from_key_or_id: "spare-parts-kit".to_string(),
+        to_key_or_id: "car".to_string(),
         note: String::new(),
         out: None,
     })
     .unwrap();
 
-    let result = svc.related("car-id", EdgeDirection::Both).unwrap();
+    let result = svc.related("car", EdgeDirection::Both).unwrap();
     assert_eq!(result.outgoing.len(), 1);
     assert_eq!(result.incoming.len(), 1);
 }
@@ -411,11 +454,11 @@ fn related_returns_node_plus_filtered_edges_for_direction_both() {
 
 #[test]
 fn tree_rejects_direction_both() {
-    let store = MockKbStore::with(vec![make_kb("car-id")]);
+    let store = MockKbStore::with(vec![make_kb("car-id", "car")]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     let result = svc.tree(TreeWalkParams {
-        id: "car-id".to_string(),
+        key_or_id: "car".to_string(),
         direction: EdgeDirection::Both,
         depth: 10,
     });
@@ -424,10 +467,11 @@ fn tree_rejects_direction_both() {
 
 #[test]
 fn tree_returns_root_and_flat_node_list() {
-    let store = MockKbStore::with(vec![make_kb("car-id")]);
+    let store = MockKbStore::with(vec![make_kb("car-id", "car")]);
     let graph = MockKbGraph::new();
     graph.set_tree_nodes(vec![TreeNode {
         id: "engine-id".to_string(),
+        key: "engine".to_string(),
         depth: 1,
         parent_id: "car-id".to_string(),
         note: "has an engine".to_string(),
@@ -436,30 +480,30 @@ fn tree_returns_root_and_flat_node_list() {
 
     let result = svc
         .tree(TreeWalkParams {
-            id: "car-id".to_string(),
+            key_or_id: "car".to_string(),
             direction: EdgeDirection::Out,
             depth: 10,
         })
         .unwrap();
-    assert_eq!(result.root.id, "car-id");
+    assert_eq!(result.root.key, "car");
     assert_eq!(result.direction, "out");
     assert_eq!(result.nodes.len(), 1);
-    assert_eq!(result.nodes[0].id, "engine-id");
+    assert_eq!(result.nodes[0].key, "engine");
 }
 
 // ---- export_graph tests ----
 
 #[test]
 fn export_graph_single_hop_out_direction_includes_root_and_target() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
     let store = MockKbStore::with(vec![car.clone(), engine.clone()]);
     let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
     let svc = GraphService::new(store, graph);
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: "has an engine".to_string(),
         out: None,
     })
@@ -467,17 +511,17 @@ fn export_graph_single_hop_out_direction_includes_root_and_target() {
 
     let result = svc
         .export_graph(GraphViewParams {
-            id: "car-id".to_string(),
+            key_or_id: "car".to_string(),
             direction: EdgeDirection::Out,
             depth: 1,
         })
         .unwrap();
 
     assert_eq!(result.root_id, "car-id");
-    assert_eq!(result.root_id, "car-id");
+    assert_eq!(result.root_key, "car");
     assert_eq!(result.nodes.len(), 2);
-    assert!(result.nodes.iter().any(|n| n.id == "car-id"));
-    assert!(result.nodes.iter().any(|n| n.id == "engine-id"));
+    assert!(result.nodes.iter().any(|n| n.key == "car"));
+    assert!(result.nodes.iter().any(|n| n.key == "engine"));
     assert_eq!(result.edges.len(), 1);
     assert_eq!(result.edges[0].from_id, "car-id");
     assert_eq!(result.edges[0].to_id, "engine-id");
@@ -486,9 +530,9 @@ fn export_graph_single_hop_out_direction_includes_root_and_target() {
 
 #[test]
 fn export_graph_respects_depth_limit() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
-    let piston = make_kb("piston-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let piston = make_kb("piston-id", "piston");
     let store = MockKbStore::with(vec![car.clone(), engine.clone(), piston.clone()]);
     let graph = MockKbGraph::with_nodes(vec![
         GraphNode::from(&car),
@@ -498,15 +542,15 @@ fn export_graph_respects_depth_limit() {
     let svc = GraphService::new(store, graph);
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: String::new(),
         out: None,
     })
     .unwrap();
     svc.link(LinkParams {
-        from_id: "engine-id".to_string(),
-        to_id: "piston-id".to_string(),
+        from_key_or_id: "engine".to_string(),
+        to_key_or_id: "piston".to_string(),
         note: String::new(),
         out: None,
     })
@@ -514,22 +558,22 @@ fn export_graph_respects_depth_limit() {
 
     let result = svc
         .export_graph(GraphViewParams {
-            id: "car-id".to_string(),
+            key_or_id: "car".to_string(),
             direction: EdgeDirection::Out,
             depth: 1,
         })
         .unwrap();
 
     assert_eq!(result.nodes.len(), 2);
-    assert!(!result.nodes.iter().any(|n| n.id == "piston-id"));
+    assert!(!result.nodes.iter().any(|n| n.key == "piston"));
     assert_eq!(result.edges.len(), 1);
 }
 
 #[test]
 fn export_graph_direction_both_merges_outgoing_and_incoming() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
-    let kit = make_kb("kit-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let kit = make_kb("kit-id", "spare-parts-kit");
     let store = MockKbStore::with(vec![car.clone(), engine.clone(), kit.clone()]);
     let graph = MockKbGraph::with_nodes(vec![
         GraphNode::from(&car),
@@ -539,15 +583,15 @@ fn export_graph_direction_both_merges_outgoing_and_incoming() {
     let svc = GraphService::new(store, graph);
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: String::new(),
         out: None,
     })
     .unwrap();
     svc.link(LinkParams {
-        from_id: "kit-id".to_string(),
-        to_id: "car-id".to_string(),
+        from_key_or_id: "spare-parts-kit".to_string(),
+        to_key_or_id: "car".to_string(),
         note: String::new(),
         out: None,
     })
@@ -555,7 +599,7 @@ fn export_graph_direction_both_merges_outgoing_and_incoming() {
 
     let result = svc
         .export_graph(GraphViewParams {
-            id: "car-id".to_string(),
+            key_or_id: "car".to_string(),
             direction: EdgeDirection::Both,
             depth: 1,
         })
@@ -567,9 +611,9 @@ fn export_graph_direction_both_merges_outgoing_and_incoming() {
 
 #[test]
 fn export_graph_dedups_node_reached_via_multiple_paths() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
-    let wheel = make_kb("wheel-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
+    let wheel = make_kb("wheel-id", "wheel");
     let store = MockKbStore::with(vec![car.clone(), engine.clone(), wheel.clone()]);
     let graph = MockKbGraph::with_nodes(vec![
         GraphNode::from(&car),
@@ -579,22 +623,22 @@ fn export_graph_dedups_node_reached_via_multiple_paths() {
     let svc = GraphService::new(store, graph);
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: String::new(),
         out: None,
     })
     .unwrap();
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "wheel-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "wheel".to_string(),
         note: String::new(),
         out: None,
     })
     .unwrap();
     svc.link(LinkParams {
-        from_id: "engine-id".to_string(),
-        to_id: "wheel-id".to_string(),
+        from_key_or_id: "engine".to_string(),
+        to_key_or_id: "wheel".to_string(),
         note: String::new(),
         out: None,
     })
@@ -602,7 +646,7 @@ fn export_graph_dedups_node_reached_via_multiple_paths() {
 
     let result = svc
         .export_graph(GraphViewParams {
-            id: "car-id".to_string(),
+            key_or_id: "car".to_string(),
             direction: EdgeDirection::Out,
             depth: 2,
         })
@@ -614,15 +658,15 @@ fn export_graph_dedups_node_reached_via_multiple_paths() {
 
 #[test]
 fn export_graph_depth_zero_returns_only_root() {
-    let car = make_kb("car-id");
-    let engine = make_kb("engine-id");
+    let car = make_kb("car-id", "car");
+    let engine = make_kb("engine-id", "engine");
     let store = MockKbStore::with(vec![car.clone(), engine.clone()]);
     let graph = MockKbGraph::with_nodes(vec![GraphNode::from(&car), GraphNode::from(&engine)]);
     let svc = GraphService::new(store, graph);
 
     svc.link(LinkParams {
-        from_id: "car-id".to_string(),
-        to_id: "engine-id".to_string(),
+        from_key_or_id: "car".to_string(),
+        to_key_or_id: "engine".to_string(),
         note: String::new(),
         out: None,
     })
@@ -630,7 +674,7 @@ fn export_graph_depth_zero_returns_only_root() {
 
     let result = svc
         .export_graph(GraphViewParams {
-            id: "car-id".to_string(),
+            key_or_id: "car".to_string(),
             direction: EdgeDirection::Out,
             depth: 0,
         })
@@ -645,7 +689,7 @@ fn export_graph_unknown_root_returns_kb_not_found() {
     let svc = GraphService::new(MockKbStore::new(), MockKbGraph::new());
 
     let result = svc.export_graph(GraphViewParams {
-        id: "does-not-exist".to_string(),
+        key_or_id: "does-not-exist".to_string(),
         direction: EdgeDirection::Out,
         depth: 1,
     });
@@ -663,8 +707,8 @@ fn export_edges_returns_empty_when_no_kbs_match_filter() {
 }
 
 #[test]
-fn export_edges_returns_edge_with_ids_when_both_endpoints_in_filtered_set() {
-    let store = MockKbStore::with(vec![make_kb("a-id"), make_kb("b-id")]);
+fn export_edges_returns_edge_with_keys_when_both_endpoints_in_filtered_set() {
+    let store = MockKbStore::with(vec![make_kb("a-id", "car"), make_kb("b-id", "engine")]);
     let graph = MockKbGraph::new();
     graph
         .add_edge(&make_kb_edge("e1", "a-id", "b-id", "has an engine"))
@@ -674,16 +718,16 @@ fn export_edges_returns_edge_with_ids_when_both_endpoints_in_filtered_set() {
     let edges = svc.export_edges(&KbFilter::default()).unwrap();
 
     assert_eq!(edges.len(), 1);
-    assert_eq!(edges[0].from_id, "a-id");
-    assert_eq!(edges[0].to_id, "b-id");
+    assert_eq!(edges[0].from_key, "car");
+    assert_eq!(edges[0].to_key, "engine");
     assert_eq!(edges[0].note, "has an engine");
 }
 
 #[test]
 fn export_edges_omits_edge_when_target_kb_outside_filtered_set() {
-    // Simulates the "split pair" scenario: only "a-id" survived the filter
+    // Simulates the "split pair" scenario: only "car" survived the filter
     // that produced the exported `kbs` set.
-    let store = MockKbStore::with(vec![make_kb("a-id")]);
+    let store = MockKbStore::with(vec![make_kb("a-id", "car")]);
     let graph = MockKbGraph::new();
     graph
         .add_edge(&make_kb_edge("e1", "a-id", "b-id", "has an engine"))
@@ -697,7 +741,11 @@ fn export_edges_omits_edge_when_target_kb_outside_filtered_set() {
 
 #[test]
 fn export_edges_sorts_output_deterministically() {
-    let store = MockKbStore::with(vec![make_kb("a-id"), make_kb("b-id"), make_kb("c-id")]);
+    let store = MockKbStore::with(vec![
+        make_kb("a-id", "zebra"),
+        make_kb("b-id", "apple"),
+        make_kb("c-id", "mango"),
+    ]);
     let graph = MockKbGraph::new();
     graph
         .add_edge(&make_kb_edge("e1", "a-id", "c-id", "n1"))
@@ -710,30 +758,33 @@ fn export_edges_sorts_output_deterministically() {
     let edges = svc.export_edges(&KbFilter::default()).unwrap();
 
     assert_eq!(edges.len(), 2);
-    assert_eq!(edges[0].from_id, "a-id");
-    assert_eq!(edges[1].from_id, "b-id");
+    assert_eq!(edges[0].from_key, "apple");
+    assert_eq!(edges[1].from_key, "zebra");
 }
 
 // ---------------------------------------------------------------------------
 // import_edges tests
 // ---------------------------------------------------------------------------
 
-fn make_import_edge_item(from_id: &str, to_id: &str, note: &str) -> ImportEdgeItem {
+fn make_import_edge_item(from_key: &str, to_key: &str, note: &str) -> ImportEdgeItem {
     ImportEdgeItem {
-        from_id: from_id.to_string(),
-        to_id: to_id.to_string(),
+        from_key: from_key.to_string(),
+        to_key: to_key.to_string(),
         note: note.to_string(),
     }
 }
 
 #[test]
-fn import_edges_resolves_ids_and_creates_edge() {
-    let store = MockKbStore::with(vec![make_kb("car-id"), make_kb("engine-id")]);
+fn import_edges_resolves_keys_and_creates_edge() {
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     let result = svc.import_edges(vec![make_import_edge_item(
-        "car-id",
-        "engine-id",
+        "car",
+        "engine",
         "has an engine",
     )]);
 
@@ -745,11 +796,26 @@ fn import_edges_resolves_ids_and_creates_edge() {
 }
 
 #[test]
-fn import_edges_reports_failure_when_from_id_not_found() {
-    let store = MockKbStore::with(vec![make_kb("engine-id")]);
+fn import_edges_resolves_id_when_key_lookup_fails() {
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
-    let result = svc.import_edges(vec![make_import_edge_item("no-such", "engine-id", "")]);
+    let result = svc.import_edges(vec![make_import_edge_item("car-id", "engine-id", "")]);
+
+    assert_eq!(result.saved.len(), 1);
+    assert_eq!(result.saved[0].from_id, "car-id");
+    assert_eq!(result.saved[0].to_id, "engine-id");
+}
+
+#[test]
+fn import_edges_reports_failure_when_from_key_not_found() {
+    let store = MockKbStore::with(vec![make_kb("engine-id", "engine")]);
+    let svc = GraphService::new(store, MockKbGraph::new());
+
+    let result = svc.import_edges(vec![make_import_edge_item("no-such", "engine", "")]);
 
     assert!(result.saved.is_empty());
     assert_eq!(result.failed.len(), 1);
@@ -757,11 +823,11 @@ fn import_edges_reports_failure_when_from_id_not_found() {
 }
 
 #[test]
-fn import_edges_reports_failure_when_to_id_not_found() {
-    let store = MockKbStore::with(vec![make_kb("car-id")]);
+fn import_edges_reports_failure_when_to_key_not_found() {
+    let store = MockKbStore::with(vec![make_kb("car-id", "car")]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
-    let result = svc.import_edges(vec![make_import_edge_item("car-id", "no-such", "")]);
+    let result = svc.import_edges(vec![make_import_edge_item("car", "no-such", "")]);
 
     assert!(result.saved.is_empty());
     assert_eq!(result.failed.len(), 1);
@@ -770,10 +836,10 @@ fn import_edges_reports_failure_when_to_id_not_found() {
 
 #[test]
 fn import_edges_rejects_self_loop() {
-    let store = MockKbStore::with(vec![make_kb("car-id")]);
+    let store = MockKbStore::with(vec![make_kb("car-id", "car")]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
-    let result = svc.import_edges(vec![make_import_edge_item("car-id", "car-id", "")]);
+    let result = svc.import_edges(vec![make_import_edge_item("car", "car", "")]);
 
     assert!(result.saved.is_empty());
     assert_eq!(result.failed.len(), 1);
@@ -781,12 +847,15 @@ fn import_edges_rejects_self_loop() {
 
 #[test]
 fn import_edges_reports_duplicate_edge_as_failure() {
-    let store = MockKbStore::with(vec![make_kb("car-id"), make_kb("engine-id")]);
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     let result = svc.import_edges(vec![
-        make_import_edge_item("car-id", "engine-id", "first"),
-        make_import_edge_item("car-id", "engine-id", "second"),
+        make_import_edge_item("car", "engine", "first"),
+        make_import_edge_item("car", "engine", "second"),
     ]);
 
     assert_eq!(result.saved.len(), 1);
@@ -795,13 +864,16 @@ fn import_edges_reports_duplicate_edge_as_failure() {
 
 #[test]
 fn import_edges_processes_mixed_batch_independently() {
-    let store = MockKbStore::with(vec![make_kb("car-id"), make_kb("engine-id")]);
+    let store = MockKbStore::with(vec![
+        make_kb("car-id", "car"),
+        make_kb("engine-id", "engine"),
+    ]);
     let svc = GraphService::new(store, MockKbGraph::new());
 
     let result = svc.import_edges(vec![
-        make_import_edge_item("car-id", "engine-id", "valid"),
-        make_import_edge_item("car-id", "no-such", "bad to"),
-        make_import_edge_item("car-id", "engine-id", "duplicate"),
+        make_import_edge_item("car", "engine", "valid"),
+        make_import_edge_item("car", "no-such", "bad to"),
+        make_import_edge_item("car", "engine", "duplicate"),
     ]);
 
     assert_eq!(result.saved.len(), 1);

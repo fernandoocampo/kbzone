@@ -39,7 +39,7 @@ kb ask "<natural language query>" --limit 10 --threshold 0.9 --category <cat> --
 - `--category` and `--namespace` are both optional and combine with AND semantics when both given. Only pass them when the user actually named a category/namespace to scope to — don't invent filters they didn't ask for, since narrowing an otherwise-open-ended question can hide the answer.
   - `--namespace` scopes the vector search itself (it's an exact-match partition filter), so it's cheap and precise — good default when the user says things like "in my rust notes" or names a project/domain.
   - `--category` is applied after the nearest-neighbor search as a filter, so it's still exact-match but slightly less precise at very small `--limit` values — if a `--category` filter returns fewer results than expected, retry with a higher `--limit` before concluding there's nothing relevant.
-- Response is a list of `{ "item": {...}, "score": <distance> }`; lower `score` = closer match. `item` here is a lighter DTO (id, category, namespace, tags) — follow up with `kb-manage-entry`'s `get` if the user needs the full value/notes.
+- Response is a list of `{ "item": {...}, "score": <distance> }`; lower `score` = closer match. `item` here is a lighter DTO (id, key, category, namespace, tags) — follow up with `kb-manage-entry`'s `get` if the user needs the full value/notes.
 
 ## Keyword / filter search — `kb search`
 
@@ -51,7 +51,7 @@ kb search --keyword <kw> --category <cat> --namespace <ns> --tags <t1,t2> --refe
 - `--start-date`/`--end-date` (`YYYY-MM-DD`) filter by the entry's `created_on` creation timestamp, inclusive on both ends. Only pass the ones the user actually asked for (e.g. "created this month", "since March 1st").
 - Only pass flags the user actually specified — don't invent filters they didn't ask for.
 - `--limit` default `20`, `--offset` default `0` for pagination.
-- JSON response has the structure: `{ "results": [...], "total": <count>, "duration_ms": <ms> }`. Each result item uses the lighter DTO shape (id, category, namespace, tags) — no value/notes/reference/metadata; use `get` for full detail.
+- JSON response has the structure: `{ "results": [...], "total": <count>, "duration_ms": <ms> }`. Each result item uses the lighter DTO shape (id, key, category, namespace, tags) — no value/notes/reference/metadata; use `get` for full detail.
 - `total` is the count of **all matching entries** (ignoring limit/offset), useful for pagination awareness.
 - `duration_ms` is the query execution time in milliseconds.
 
@@ -78,14 +78,14 @@ Unlike the earlier `kb quote` command (which only worked for the `quote` categor
 
 ## Output to present
 
-Summarize results as a readable list (id, category, tags, short snippet) unless the user asked for raw JSON. If nothing matched, say so plainly rather than treating an empty array as an error — it's the CLI's normal way of reporting no results.
+Summarize results as a readable list (key, category, tags, short snippet) unless the user asked for raw JSON. If nothing matched, say so plainly rather than treating an empty array as an error — it's the CLI's normal way of reporting no results.
 
 ## Follow-up: Getting full entry details
 
-Search results return a lightweight DTO with only `id`, `category`, `namespace`, and `tags` — there is no key. To fetch the complete entry (including `value`, `notes`, `reference`, and `metadata`), use:
+Search results return a lightweight DTO with only `id`, `key`, `category`, `namespace`, and `tags`. To fetch the complete entry (including `value`, `notes`, `reference`, and `metadata`), use:
 
 ```bash
-kb get --id <id> --out json
+kb get --key <key> --out json
 ```
 
-Use the `id` field from the search result. To fetch multiple entries, run `kb get --id` once per entry.
+Use the `key` field from the search result, not the `id`. To fetch multiple entries, run `kb get --key` once per entry.

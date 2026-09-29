@@ -1,11 +1,9 @@
 use super::*;
 
-const SAMPLE_ID: &str = "11111111-1111-1111-1111-111111111111";
-const SAMPLE_PARENT_ID: &str = "22222222-2222-2222-2222-222222222222";
-
 fn make_kb(value: &str) -> Kb {
     Kb {
         id: "id-1".to_string(),
+        key: "k8s-pods".to_string(),
         value: value.to_string(),
         notes: String::new(),
         category: "command".to_string(),
@@ -21,9 +19,10 @@ fn make_kb(value: &str) -> Kb {
 }
 
 #[test]
-fn embedding_text_contains_category_namespace_tags_and_value() {
+fn embedding_text_contains_key_category_namespace_tags_and_value() {
     let kb = make_kb("kubectl get pods");
     let text = kb.embedding_text();
+    assert!(text.contains("k8s-pods"));
     assert!(text.contains("command"));
     assert!(text.contains("k8s"));
     assert!(text.contains("kubernetes"));
@@ -36,17 +35,6 @@ fn embedding_text_contains_reference() {
     kb.reference = "test-ref".to_string();
     let text = kb.embedding_text();
     assert!(text.contains("test-ref"));
-}
-
-#[test]
-fn embedding_text_formula_matches_category_namespace_reference_tags_value_order() {
-    let mut kb = make_kb("kubectl get pods");
-    kb.reference = "test-ref".to_string();
-    let text = kb.embedding_text();
-    assert_eq!(
-        text,
-        "command k8s test-ref kubernetes pods kubectl get pods"
-    );
 }
 
 #[test]
@@ -63,16 +51,16 @@ fn embedding_text_truncates_value_at_200_chars() {
     assert!(value_part.len() <= 200);
 }
 
-fn make_import_item(id: &str, value: &str) -> ImportKbItem {
+fn make_import_item(key: &str, value: &str) -> ImportKbItem {
     ImportKbItem {
-        id: id.to_string(),
+        key: key.to_string(),
         value: value.to_string(),
         notes: String::new(),
         category: "concept".to_string(),
         reference: String::new(),
         namespace: "default".to_string(),
         tags: vec!["rust".to_string()],
-        parent_id: None,
+        parent_key: None,
         path: None,
         media_extension: None,
     }
@@ -80,37 +68,29 @@ fn make_import_item(id: &str, value: &str) -> ImportKbItem {
 
 #[test]
 fn import_kb_item_valid_passes_validation() {
-    let item = make_import_item(SAMPLE_ID, "memory management");
+    let item = make_import_item("rust-ownership", "memory management");
     assert!(item.validate().is_none());
 }
 
 #[test]
-fn import_kb_item_empty_id_fails_validation() {
+fn import_kb_item_empty_key_fails_validation() {
     let item = make_import_item("", "some value");
     let result = item.validate();
     assert!(result.is_some());
-    assert!(result.unwrap().contains("Id"));
+    assert!(result.unwrap().contains("Key"));
 }
 
 #[test]
-fn import_kb_item_blank_id_fails_validation() {
+fn import_kb_item_blank_key_fails_validation() {
     let item = make_import_item("   ", "some value");
     let result = item.validate();
     assert!(result.is_some());
-    assert!(result.unwrap().contains("Id"));
-}
-
-#[test]
-fn import_kb_item_non_uuid_id_fails_validation() {
-    let item = make_import_item("rust-ownership", "some value");
-    let result = item.validate();
-    assert!(result.is_some());
-    assert!(result.unwrap().contains("UUID"));
+    assert!(result.unwrap().contains("Key"));
 }
 
 #[test]
 fn import_kb_item_empty_value_fails_validation() {
-    let item = make_import_item(SAMPLE_ID, "");
+    let item = make_import_item("rust-ownership", "");
     let result = item.validate();
     assert!(result.is_some());
     assert!(result.unwrap().contains("Value"));
@@ -118,30 +98,30 @@ fn import_kb_item_empty_value_fails_validation() {
 
 #[test]
 fn import_kb_item_converts_to_new_kb() {
-    let item = make_import_item(SAMPLE_ID, "memory management");
+    let item = make_import_item("rust-ownership", "memory management");
     let new_kb = NewKb::from(item);
-    assert_eq!(new_kb.id, Some(SAMPLE_ID.to_string()));
+    assert_eq!(new_kb.key, "rust-ownership");
     assert_eq!(new_kb.value, "memory management");
 }
 
 #[test]
 fn import_kb_item_deserializes_from_yaml() {
-    let yaml = format!("Id: {SAMPLE_ID}\nValue: memory management\nCategory: concept\n");
-    let item: ImportKbItem = serde_yaml::from_str(&yaml).unwrap();
-    assert_eq!(item.id, SAMPLE_ID);
+    let yaml = "Key: rust-ownership\nValue: memory management\nCategory: concept\n";
+    let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(item.key, "rust-ownership");
     assert_eq!(item.value, "memory management");
 }
 
 #[test]
 fn import_kb_item_serializes_to_yaml() {
-    let item = make_import_item(SAMPLE_ID, "memory management");
+    let item = make_import_item("rust-ownership", "memory management");
     let yaml = serde_yaml::to_string(&item).unwrap();
-    assert!(yaml.contains(SAMPLE_ID));
+    assert!(yaml.contains("rust-ownership"));
     assert!(yaml.contains("memory management"));
 }
 
 #[test]
-fn import_kb_item_missing_id_fails_deserialization() {
+fn import_kb_item_missing_key_fails_deserialization() {
     let yaml = "Value: memory management\n";
     let result: Result<ImportKbItem, _> = serde_yaml::from_str(yaml);
     assert!(result.is_err());
@@ -150,7 +130,10 @@ fn import_kb_item_missing_id_fails_deserialization() {
 #[test]
 fn reindex_result_total_counts_both_outcomes() {
     let result = ReindexResult {
-        succeeded: vec!["id-1".to_string(), "id-2".to_string()],
+        succeeded: vec![
+            ("key-a".to_string(), "id-1".to_string()),
+            ("key-b".to_string(), "id-2".to_string()),
+        ],
         failed: vec![("id-3".to_string(), "not found".to_string())],
     };
     assert_eq!(result.total(), 3);
@@ -158,15 +141,15 @@ fn reindex_result_total_counts_both_outcomes() {
 
 #[test]
 fn import_kb_item_missing_value_fails_deserialization() {
-    let yaml = format!("Id: {SAMPLE_ID}\n");
-    let result: Result<ImportKbItem, _> = serde_yaml::from_str(&yaml);
+    let yaml = "Key: rust-ownership\n";
+    let result: Result<ImportKbItem, _> = serde_yaml::from_str(yaml);
     assert!(result.is_err());
 }
 
 #[test]
 fn import_kb_item_optional_fields_default_when_absent() {
-    let yaml = format!("Id: {SAMPLE_ID}\nValue: memory management\n");
-    let item: ImportKbItem = serde_yaml::from_str(&yaml).unwrap();
+    let yaml = "Key: rust-ownership\nValue: memory management\n";
+    let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
     assert!(item.notes.is_empty());
     assert!(item.category.is_empty());
     assert!(item.namespace.is_empty());
@@ -174,28 +157,26 @@ fn import_kb_item_optional_fields_default_when_absent() {
 }
 
 #[test]
-fn import_kb_item_deserializes_parent_id_from_yaml() {
-    let yaml = format!("Id: {SAMPLE_ID}\nValue: v\nParentId: {SAMPLE_PARENT_ID}\n");
-    let item: ImportKbItem = serde_yaml::from_str(&yaml).unwrap();
-    assert_eq!(item.parent_id, Some(SAMPLE_PARENT_ID.to_string()));
+fn import_kb_item_deserializes_parent_alias_from_yaml() {
+    let yaml = "Key: engine\nValue: v\nParent: car\n";
+    let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(item.parent_key, Some("car".to_string()));
 }
 
 #[test]
-fn import_kb_item_ignores_legacy_parent_field() {
-    // Clean break from the pre-removal format: `Parent`/`Key` are no longer
-    // recognized field names, and are silently dropped by serde's
-    // unknown-field-tolerant default rather than aliased.
-    let yaml = format!("Id: {SAMPLE_ID}\nValue: v\nParent: car\n");
-    let item: ImportKbItem = serde_yaml::from_str(&yaml).unwrap();
-    assert_eq!(item.parent_id, None);
+fn import_kb_item_still_deserializes_parent_key_field() {
+    let yaml = "Key: engine\nValue: v\nParentKey: car\n";
+    let item: ImportKbItem = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(item.parent_key, Some("car".to_string()));
 }
 
 #[test]
-fn import_kb_item_serializes_as_parent_id() {
-    let mut item = make_import_item(SAMPLE_ID, "v");
-    item.parent_id = Some(SAMPLE_PARENT_ID.to_string());
+fn import_kb_item_still_serializes_as_parent_key() {
+    let mut item = make_import_item("engine", "v");
+    item.parent_key = Some("car".to_string());
     let yaml = serde_yaml::to_string(&item).unwrap();
-    assert!(yaml.contains(&format!("ParentId: {SAMPLE_PARENT_ID}")));
+    assert!(yaml.contains("ParentKey: car"));
+    assert!(!yaml.contains("Parent:"));
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +245,7 @@ fn normalize_path_rejects_null_byte() {
 
 #[test]
 fn import_kb_item_with_invalid_path_fails_validation() {
-    let mut item = make_import_item(SAMPLE_ID, "memory management");
+    let mut item = make_import_item("rust-ownership", "memory management");
     item.path = Some("/a/../b".to_string());
     let result = item.validate();
     assert!(result.is_some());
@@ -273,7 +254,7 @@ fn import_kb_item_with_invalid_path_fails_validation() {
 
 #[test]
 fn import_kb_item_with_valid_path_passes_validation() {
-    let mut item = make_import_item(SAMPLE_ID, "memory management");
+    let mut item = make_import_item("rust-ownership", "memory management");
     item.path = Some("/personal/rust".to_string());
     let result = item.validate();
     assert!(result.is_none());
@@ -281,7 +262,7 @@ fn import_kb_item_with_valid_path_passes_validation() {
 
 #[test]
 fn import_kb_item_with_path_without_slash_passes_validation() {
-    let mut item = make_import_item(SAMPLE_ID, "memory management");
+    let mut item = make_import_item("rust-ownership", "memory management");
     item.path = Some("personal/rust".to_string());
     let result = item.validate();
     assert!(result.is_none());
@@ -297,7 +278,7 @@ fn media_file_path_with_namespace_and_path() {
         base_dir: "/home/user/kbzona",
         namespace: "english",
         path: Some("/idioms/funny"),
-        id: "lol-cat",
+        key: "lol-cat",
         extension: Some("jpg"),
     };
     let result = media_file_path(&params);
@@ -313,7 +294,7 @@ fn media_file_path_without_path() {
         base_dir: "/home/user/kbzona",
         namespace: "test",
         path: None,
-        id: "my-image",
+        key: "my-image",
         extension: Some("png"),
     };
     let result = media_file_path(&params);
@@ -326,7 +307,7 @@ fn media_file_path_with_url_source() {
         base_dir: "/home/user/kbzona",
         namespace: "docs",
         path: Some("/tutorials"),
-        id: "rust-book",
+        key: "rust-book",
         extension: Some("pdf"),
     };
     let result = media_file_path(&params);
@@ -342,7 +323,7 @@ fn media_file_path_with_no_extension() {
         base_dir: "/home/user/kbzona",
         namespace: "misc",
         path: None,
-        id: "readme",
+        key: "readme",
         extension: None,
     };
     let result = media_file_path(&params);
@@ -355,7 +336,7 @@ fn media_file_path_strips_leading_slash_from_path() {
         base_dir: "/home/user/kbzona",
         namespace: "english",
         path: Some("/idioms"),
-        id: "hello",
+        key: "hello",
         extension: Some("mp3"),
     };
     let result = media_file_path(&params);
@@ -368,36 +349,11 @@ fn media_file_path_with_empty_path() {
         base_dir: "/home/user/kbzona",
         namespace: "test",
         path: Some(""),
-        id: "file",
+        key: "file",
         extension: Some("txt"),
     };
     let result = media_file_path(&params);
     assert_eq!(result, "/home/user/kbzona/media/test/file.txt");
-}
-
-// ---------------------------------------------------------------------------
-// truncate_chars tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn truncate_chars_returns_unchanged_when_within_limit() {
-    assert_eq!(truncate_chars("hello", 10), "hello");
-}
-
-#[test]
-fn truncate_chars_returns_unchanged_when_exactly_at_limit() {
-    assert_eq!(truncate_chars("hello", 5), "hello");
-}
-
-#[test]
-fn truncate_chars_truncates_and_appends_ellipsis_when_over_limit() {
-    assert_eq!(truncate_chars("hello world", 5), "hello…");
-}
-
-#[test]
-fn truncate_chars_is_unicode_safe_at_multibyte_boundary() {
-    // 'é' is a 2-byte, 1-char UTF-8 sequence — byte slicing here would panic.
-    assert_eq!(truncate_chars("héllo", 3), "hél…");
 }
 
 #[test]
@@ -418,6 +374,7 @@ fn output_format_from_str_invalid_returns_error() {
 
 fn make_add_json_input() -> AddJsonInput {
     AddJsonInput {
+        key: "complexity-views".to_string(),
         value: "Fools ignore complexity.".to_string(),
         category: "quote".to_string(),
         tags: vec!["complexity".to_string(), "perlis".to_string()],
@@ -429,6 +386,13 @@ fn make_add_json_input() -> AddJsonInput {
         media_url: None,
         metadata: std::collections::BTreeMap::new(),
     }
+}
+
+#[test]
+fn add_json_input_validate_fails_when_key_blank() {
+    let mut input = make_add_json_input();
+    input.key = "   ".to_string();
+    assert!(matches!(input.validate(), Err(Error::InvalidJsonInput(_))));
 }
 
 #[test]
@@ -612,11 +576,12 @@ fn parse_metadata_input_only_invalid_tokens_returns_empty_vec() {
 #[test]
 fn try_from_add_json_input_builds_new_kb_with_trimmed_fields() {
     let mut input = make_add_json_input();
+    input.key = "  complexity-views  ".to_string();
     input.value = "  Fools ignore complexity.  ".to_string();
     input.category = "  quote  ".to_string();
     input.tags = vec!["a".to_string(), "a".to_string(), "b".to_string()];
     let new_kb = NewKb::try_from(input).expect("expected Ok NewKb");
-    assert_eq!(new_kb.id, None);
+    assert_eq!(new_kb.key, "complexity-views");
     assert_eq!(new_kb.value, "Fools ignore complexity.");
     assert_eq!(new_kb.category, "quote");
     assert_eq!(new_kb.tags, vec!["a".to_string(), "b".to_string()]);
@@ -642,6 +607,7 @@ fn try_from_add_json_input_rejects_invalid_path() {
 #[test]
 fn try_from_add_json_input_defaults_optional_fields() {
     let input = AddJsonInput {
+        key: "k".to_string(),
         value: "v".to_string(),
         category: "concept".to_string(),
         tags: vec!["t".to_string()],

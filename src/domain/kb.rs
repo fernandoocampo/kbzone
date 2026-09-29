@@ -26,6 +26,8 @@ pub fn file_extension(path: &str) -> Option<String> {
 pub struct Kb {
     /// Internal UUID, auto-generated on creation.
     pub id: String,
+    /// User-provided unique string identifier (e.g. `"rust-ownership"`).
+    pub key: String,
     /// The content/answer of this entry.
     pub value: String,
     /// Freeform large text with extra context or elaboration.
@@ -56,11 +58,12 @@ impl Kb {
         self.tags.join(" ")
     }
 
-    /// Builds the text used for embedding: category + namespace + reference + tags + first 200 chars of value.
+    /// Builds the text used for embedding: key + category + namespace + reference + tags + first 200 chars of value.
     pub fn embedding_text(&self) -> String {
         let truncated_value: String = self.value.chars().take(200).collect();
         format!(
-            "{} {} {} {} {}",
+            "{} {} {} {} {} {}",
+            self.key,
             self.category,
             self.namespace,
             self.reference,
@@ -68,15 +71,6 @@ impl Kb {
             truncated_value
         )
     }
-}
-
-/// Truncates a string to at most `max` characters, appending `…` if truncated.
-pub fn truncate_chars(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let truncated: String = s.chars().take(max).collect();
-    format!("{truncated}…")
 }
 
 /// Formats a BTreeMap of metadata as comma-separated `key=value` pairs.
@@ -91,6 +85,7 @@ pub fn format_metadata(metadata: &BTreeMap<String, String>) -> String {
 impl std::fmt::Display for Kb {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "ID        : {}", self.id)?;
+        writeln!(f, "Key       : {}", self.key)?;
         writeln!(f, "Value     : {}", self.value)?;
         writeln!(f, "Category  : {}", self.category)?;
         writeln!(f, "Namespace : {}", self.namespace)?;
@@ -167,10 +162,7 @@ pub struct RandomErrorResponse {
 /// DTO for creating a new KB entry.
 #[derive(Debug, Clone)]
 pub struct NewKb {
-    /// Preserves the source `id` on import so relationships (which reference
-    /// entries by id) survive an export/import round trip. `None` for every
-    /// other add path (`kb add`, `kb add --json`), which always get a fresh UUID.
-    pub id: Option<String>,
+    pub key: String,
     pub value: String,
     pub notes: String,
     pub category: String,
@@ -192,15 +184,15 @@ pub struct NewKb {
 }
 
 impl From<NewKb> for Kb {
-    /// Converts into a full `Kb`, generating a UUID (unless `id` was carried
-    /// through from an import) and timestamp, normalising category / namespace
-    /// to lowercase.
+    /// Converts into a full `Kb`, generating UUID and timestamp, normalising
+    /// key / category / namespace to lowercase.
     fn from(new: NewKb) -> Self {
         let media_extension = new
             .media_extension
             .or_else(|| new.media_url.as_deref().and_then(file_extension));
         Kb {
-            id: new.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+            id: Uuid::new_v4().to_string(),
+            key: new.key.to_lowercase(),
             value: new.value,
             notes: new.notes,
             category: new.category.to_lowercase(),
@@ -220,6 +212,7 @@ impl From<NewKb> for Kb {
 #[derive(Debug, Clone)]
 pub struct KbUpdate {
     pub id: String,
+    pub key: Option<String>,
     pub value: Option<String>,
     pub notes: Option<String>,
     pub category: Option<String>,
@@ -254,6 +247,7 @@ pub struct KbFilter {
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct KbItem {
     pub id: String,
+    pub key: String,
     pub category: String,
     pub namespace: String,
     pub tags: Vec<String>,
@@ -301,8 +295,8 @@ pub struct EmbeddingInput {
 /// YAML-serialisable representation of a KB entry produced by `kb export`.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExportKbItem {
-    #[serde(rename = "Id")]
-    pub id: String,
+    #[serde(rename = "Key")]
+    pub key: String,
     #[serde(rename = "Value")]
     pub value: String,
     #[serde(rename = "Notes")]
@@ -316,8 +310,8 @@ pub struct ExportKbItem {
     #[serde(rename = "Tags")]
     pub tags: Vec<String>,
     /// Only present when the parent is also in the exported set.
-    #[serde(rename = "ParentId", skip_serializing_if = "Option::is_none")]
-    pub parent_id: Option<String>,
+    #[serde(rename = "Parent", skip_serializing_if = "Option::is_none")]
+    pub parent_key: Option<String>,
     #[serde(rename = "Path", skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(rename = "MediaExtension", skip_serializing_if = "Option::is_none")]
@@ -335,8 +329,8 @@ pub struct ExportMediaParams {
 /// YAML-serialisable representation of a single KB entry used by `kb import`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ImportKbItem {
-    #[serde(rename = "Id")]
-    pub id: String,
+    #[serde(rename = "Key")]
+    pub key: String,
     #[serde(rename = "Value")]
     pub value: String,
     #[serde(rename = "Notes", default)]
@@ -349,9 +343,12 @@ pub struct ImportKbItem {
     pub namespace: String,
     #[serde(rename = "Tags", default)]
     pub tags: Vec<String>,
-    /// Id of the parent KB item. Validated to exist at import time.
-    #[serde(rename = "ParentId", default)]
-    pub parent_id: Option<String>,
+    /// Key of the parent KB item. Resolved to internal UUID at import time.
+    /// Accepts `Parent` too — the field name `kb export`'s `ExportKbItem`
+    /// writes it under — while still serializing back out as `ParentKey`
+    /// (used by the failed-items file format).
+    #[serde(rename = "ParentKey", alias = "Parent", default)]
+    pub parent_key: Option<String>,
     #[serde(rename = "Path", default)]
     pub path: Option<String>,
     #[serde(rename = "MediaExtension", default)]
@@ -359,13 +356,10 @@ pub struct ImportKbItem {
 }
 
 impl ImportKbItem {
-    /// Returns `Some(reason)` if required fields are missing/blank/malformed, `None` if valid.
+    /// Returns `Some(reason)` if required fields are missing/blank, `None` if valid.
     pub fn validate(&self) -> Option<String> {
-        if self.id.trim().is_empty() {
-            return Some("Id is empty".to_string());
-        }
-        if Uuid::parse_str(self.id.trim()).is_err() {
-            return Some("Id is not a valid UUID".to_string());
+        if self.key.trim().is_empty() {
+            return Some("Key is empty".to_string());
         }
         if self.value.trim().is_empty() {
             return Some("Value is empty".to_string());
@@ -383,7 +377,7 @@ impl ImportKbItem {
 impl From<ImportKbItem> for NewKb {
     fn from(item: ImportKbItem) -> Self {
         NewKb {
-            id: Some(item.id),
+            key: item.key,
             value: item.value,
             notes: item.notes,
             category: item.category,
@@ -391,7 +385,7 @@ impl From<ImportKbItem> for NewKb {
             namespace: item.namespace,
             tags: item.tags,
             metadata: BTreeMap::new(),
-            parent: None, // parent_id is validated against the store in the service layer
+            parent: None, // parent_key is resolved to UUID in the service layer
             path: item.path,
             media_url: None,
             media_extension: item.media_extension,
@@ -404,6 +398,7 @@ impl From<ImportKbItem> for NewKb {
 /// invalid `AddJsonInput` is a hard error, not a skip-and-report-later case.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct AddJsonInput {
+    pub key: String,
     pub value: String,
     pub category: String,
     pub tags: Vec<String>,
@@ -424,10 +419,15 @@ pub struct AddJsonInput {
 }
 
 impl AddJsonInput {
-    /// Hard-fails when a mandatory field (`value`/`category` blank
+    /// Hard-fails when a mandatory field (`key`/`value`/`category` blank
     /// after trim, or `tags` empty) is missing. Category and tags are
     /// strict because both feed the embedding text and back the vector index.
     pub fn validate(&self) -> Result<(), Error> {
+        if self.key.trim().is_empty() {
+            return Err(Error::InvalidJsonInput(
+                "missing required field: key".to_string(),
+            ));
+        }
         if self.value.trim().is_empty() {
             return Err(Error::InvalidJsonInput(
                 "missing required field: value".to_string(),
@@ -512,7 +512,7 @@ impl TryFrom<AddJsonInput> for NewKb {
             None => None,
         };
         Ok(NewKb {
-            id: None,
+            key: input.key.trim().to_string(),
             value: input.value.trim().to_string(),
             notes: input.notes,
             category: input.category.trim().to_string(),
@@ -533,19 +533,19 @@ pub struct MediaPathParams<'a> {
     pub base_dir: &'a str,
     pub namespace: &'a str,
     pub path: Option<&'a str>,
-    pub id: &'a str,
+    pub key: &'a str,
     /// File extension without the leading dot (e.g. `"jpg"`, `"pdf"`). `None` = no extension.
     pub extension: Option<&'a str>,
 }
 
 /// Computes the full filesystem path where a media file should be stored.
 ///
-/// Path: `{base_dir}/media/{namespace}/{path}/{id}.{ext}`
-/// Without path: `{base_dir}/media/{namespace}/{id}.{ext}`
+/// Path: `{base_dir}/media/{namespace}/{path}/{key}.{ext}`
+/// Without path: `{base_dir}/media/{namespace}/{key}.{ext}`
 pub fn media_file_path(params: &MediaPathParams<'_>) -> String {
     let file_name = match params.extension {
-        Some(ext) if !ext.is_empty() => format!("{}.{}", params.id, ext),
-        _ => params.id.to_string(),
+        Some(ext) if !ext.is_empty() => format!("{}.{}", params.key, ext),
+        _ => params.key.to_string(),
     };
 
     let mut result = format!("{}/media/{}", params.base_dir, params.namespace);
@@ -603,9 +603,9 @@ pub fn normalize_path(raw: &str) -> Result<String, Error> {
 
 /// Result of a reindex operation.
 pub struct ReindexResult {
-    /// ids of entries successfully re-indexed.
-    pub succeeded: Vec<String>,
-    /// (kb_id, error_message) for entries that failed.
+    /// (kb_key, kb_id) for entries successfully re-indexed.
+    pub succeeded: Vec<(String, String)>,
+    /// (kb_key_or_id, error_message) for entries that failed.
     pub failed: Vec<(String, String)>,
 }
 

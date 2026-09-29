@@ -143,7 +143,7 @@
       const isRoot = n.id === GRAPH.root_id;
       return {
         id: n.id,
-        label: n.label,
+        label: n.key,
         title: `${n.category || "(no category)"} / ${n.namespace || "(no namespace)"}`,
         color: colorFor(n.category),
         shape: "dot",
@@ -180,8 +180,7 @@
       }
     );
 
-    const rootLabel = nodesById.get(GRAPH.root_id)?.label ?? GRAPH.root_id;
-    document.getElementById("root-title").textContent = `kbzone graph — ${rootLabel}`;
+    document.getElementById("root-title").textContent = `kbzone graph — ${GRAPH.root_key}`;
     document.getElementById("root-meta").textContent =
       `${GRAPH.nodes.length} nodes, ${GRAPH.edges.length} edges`;
 
@@ -212,7 +211,7 @@
     function showDetails(node) {
       panel.innerHTML = "";
       const h2 = document.createElement("h2");
-      h2.textContent = node.value;
+      h2.textContent = node.key;
       panel.appendChild(h2);
 
       const dl = document.createElement("dl");
