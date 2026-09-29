@@ -99,11 +99,18 @@ that enforces it is not).
 
 Use these categories for business-logic entries:
 
-| Category | For | Example key |
+| Category | For | Example plan label* |
 |---|---|---|
 | `concept` | Domain entities, value objects, statuses, business rules/invariants | `order`, `order-status`, `order-line-item` |
 | `formula` | Calculations/business formulas | `order-total-calculation` |
 | `capability` | One single operation the service performs, in business terms | `order-create`, `order-cancel`, `order-search` |
+
+\* Entries have no user-defined key — `id` (a UUID) is the only identifier, and
+it's only assigned once `kb add` actually creates the entry. "Plan label" here
+means a short mnemonic *you* choose purely to refer to a not-yet-created entry
+within your plan document and link list (step 8) — it is never sent to `kb`
+and never appears in the kb itself. Once an entry is created, always address
+it by its real `id`.
 
 Reuse the predefined categories (`bookmark`, `command`, `media`, `quote`)
 only when something genuinely fits them (e.g. a `bookmark` for an external
@@ -113,11 +120,11 @@ and don't invent further new categories without asking first.
 
 **Every `capability` entry must link `--(part-of)-->` a `concept` entry**
 representing the aggregate/service it operates on (e.g. `order-create
---(part-of)--> order`). If no concept entry describing that aggregate/
-service exists yet, add one first (even a short overview is fine — the
-detail lives in the linked capabilities), then link each capability to it.
-This is what lets `kb related <aggregate-key> --direction in` return the
-full list of that aggregate's capabilities.
+--(part-of)--> order`, using plan labels). If no concept entry describing
+that aggregate/service exists yet, add one first (even a short overview is
+fine — the detail lives in the linked capabilities), then link each
+capability to it. This is what lets `kb related <aggregate-id>
+--direction in` return the full list of that aggregate's capabilities.
 
 **Anti-pattern — do not do this:** a single `capability` entry whose
 `value` lists several operations (e.g. "the service can create, cancel,
@@ -154,7 +161,7 @@ agent never deletes or unlinks (see Hard constraints).
 - `reference`: cite the source file/module the logic came from, e.g.
   `src/domain/order.rs`, so a human can go verify it.
 
-Examples:
+Examples (the quoted labels are plan-only mnemonics, not a kb field):
 ```
 concept    "order"                      value: "An order represents a customer's purchase request, holding line items and a status lifecycle."
                                          notes: "Cannot transition to shipped before payment is confirmed. Cancellation is only allowed before shipment..."
@@ -165,7 +172,7 @@ capability "order-create"               value: "Creates a new order from a custo
 capability "order-cancel"               value: "Cancels an order before it has shipped."
                                          notes: "Only allowed before shipment; automatically triggers a refund if payment was already captured..."
 ```
-(`order-create` and `order-cancel` each link `--(part-of)--> order`.)
+(`order-create` and `order-cancel` each link `--(part-of)--> order`, by plan label until step 9 resolves them to real ids.)
 
 ### 6. Check for existing entries before proposing new ones
 
@@ -182,8 +189,9 @@ kb ask "<concept or capability in plain language>" --namespace <ns> --out json
 
 If a close match already exists, don't propose a duplicate — propose either
 an update (folded into the plan below, clearly marked as "update existing
-entry `<key>`" instead of "create") or a link to it, and say why you think
-it's the same thing so the user can confirm or reject that judgment call.
+entry `<id>`" instead of "create" — the search/ask JSON result already gives
+you that id) or a link to it, and say why you think it's the same thing so
+the user can confirm or reject that judgment call.
 
 ### 7. Handle ambiguity
 
@@ -203,12 +211,14 @@ behavior) so the user can resolve it quickly, rather than asking vaguely.
 ### 8. Draft the plan and get approval
 
 Present, in your text output (not yet executed):
-- A table of entries to **create**: key, category, namespace, value, notes
+- A table of entries to **create**: plan label (mnemonic only — see step 4's
+  footnote; entries have no key field), category, namespace, value, notes
   (can be truncated for the table, full text is fine), tags, metadata.
 - A table of entries to **update** (from step 6), same shape, with the
-  existing key/id and what would change.
+  existing `id` and what would change.
 - A list of relationships to **link**, each as
-  `<from-key> --(relationship)--> <to-key>: <why>`, using this vocabulary
+  `<from-label> --(relationship)--> <to-label>: <why>` (plan labels — step 9
+  resolves these to real ids once the entries exist), using this vocabulary
   (extend it only when nothing fits, and say why):
   `is-a`, `has-part`, `part-of`, `depends-on`, `computed-by` / `computes-via`,
   `triggers`, `specializes`, `validates`, `produces`, `consumes`. Use
@@ -226,23 +236,29 @@ Create entries with the flag form of `kb add` (safer for shell quoting than
 building a JSON blob with embedded quotes/apostrophes):
 
 ```bash
-kb add --key <key> --value "<value>" --notes "<notes>" --category <category> \
+kb add --value "<value>" --notes "<notes>" --category <category> \
        --namespace <namespace> --tags <t1,t2,t3> --reference "<source file>" \
        --metadata "<k1=v1,k2=v2>" --out json
 ```
 
-For entries marked "update" in the plan, resolve the id first if you only
-have a key, then update only the fields that changed:
+`kb add` doesn't take an id — it generates one. As you create each entry,
+record the `id` from its JSON response against the plan label you used for
+it in step 8, so you can resolve the link list below. A plan with N new
+entries means N `kb add` calls before any `kb link` call, since every link
+needs both endpoints' real ids.
+
+For entries marked "update" in the plan, you already have the existing `id`
+from step 6's dedup search — no lookup needed:
 
 ```bash
-kb get --key <key> --out json
 kb update --id <id> --value "<new value>" --notes "<new notes>" --out json
 ```
 
-Then create the relationships:
+Then create the relationships, translating each plan-label pair from step 8
+into the real ids you collected above:
 
 ```bash
-kb link <from-key> <to-key> --note "<relationship>: <why>" --out json
+kb link <from-id> <to-id> --note "<relationship>: <why>" --out json
 ```
 
 ### 10. Verify and report
@@ -250,12 +266,13 @@ kb link <from-key> <to-key> --note "<relationship>: <why>" --out json
 Spot-check a few of the newly created/updated entries and links:
 
 ```bash
-kb get --key <key> --out json
-kb related <key> --json
+kb get --id <id> --out json
+kb related <id> --json
 ```
 
-Report back to the user: every key/id created or updated, every link
-created, and any `kb` errors surfaced verbatim. Mention that they can run
-`kb tree <key>` or `kb graph <key>` themselves to visualize the resulting
+Report back to the user: every id created or updated (with the plan label
+you used for it, so they can match your report back to the plan), every
+link created, and any `kb` errors surfaced verbatim. Mention that they can
+run `kb tree <id>` or `kb graph <id>` themselves to visualize the resulting
 graph (you don't run `kb graph` yourself — it opens an interactive browser
 view and needs internet).

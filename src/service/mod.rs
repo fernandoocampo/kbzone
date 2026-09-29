@@ -5,7 +5,7 @@
 //!   [`crate::ports::KbStore`], a [`crate::ports::VectorStore`], and an
 //!   [`crate::ports::EmbeddingProvider`] directly.
 //! - [`GraphService`] — graph-relationship (edge) service, owning a [`crate::ports::KbStore`]
-//!   (for key-or-id resolution) and a [`crate::ports::KbGraph`].
+//!   (for id existence checks) and a [`crate::ports::KbGraph`].
 
 pub(crate) mod graph_service;
 pub(crate) mod kb_service;

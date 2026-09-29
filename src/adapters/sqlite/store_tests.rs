@@ -7,13 +7,13 @@ fn in_memory_store() -> SqliteStore {
         .expect("in-memory connection");
     SqliteStore {
         conn: Arc::new(Mutex::new(conn)),
+        db_path: ":memory:".to_string(),
     }
 }
 
-fn make_kb(id: &str, key: &str) -> Kb {
+fn make_kb(id: &str) -> Kb {
     Kb {
         id: id.to_string(),
-        key: key.to_string(),
         value: "test value".to_string(),
         notes: String::new(),
         category: "concept".to_string(),
@@ -44,20 +44,11 @@ fn initialize_is_idempotent() {
 #[test]
 fn save_and_get_by_id() {
     let store = initialized_store();
-    let kb = make_kb("id-1", "rust-ownership");
+    let kb = make_kb("id-1");
     store.save_kb(&kb).unwrap();
     let fetched = store.get_kb_by_id("id-1").unwrap();
     assert!(fetched.is_some());
-    assert_eq!(fetched.unwrap().key, "rust-ownership");
-}
-
-#[test]
-fn save_and_get_by_key() {
-    let store = initialized_store();
-    let kb = make_kb("id-1", "rust-ownership");
-    store.save_kb(&kb).unwrap();
-    let fetched = store.get_kb_by_key("rust-ownership").unwrap();
-    assert!(fetched.is_some());
+    assert_eq!(fetched.unwrap().id, "id-1");
 }
 
 #[test]
@@ -69,8 +60,8 @@ fn get_by_id_returns_none_for_missing() {
 #[test]
 fn get_kbs_returns_all_saved_entries() {
     let store = initialized_store();
-    store.save_kb(&make_kb("id-1", "key-a")).unwrap();
-    store.save_kb(&make_kb("id-2", "key-b")).unwrap();
+    store.save_kb(&make_kb("id-1")).unwrap();
+    store.save_kb(&make_kb("id-2")).unwrap();
     let filter = KbFilter::default();
     let items = store.get_kbs(&filter).unwrap();
     assert_eq!(items.len(), 2);
@@ -79,9 +70,9 @@ fn get_kbs_returns_all_saved_entries() {
 #[test]
 fn get_kbs_filters_by_category() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-a");
+    let mut kb1 = make_kb("id-1");
     kb1.category = "bookmark".to_string();
-    let kb2 = make_kb("id-2", "key-b"); // category = "concept"
+    let kb2 = make_kb("id-2"); // category = "concept"
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
 
@@ -91,15 +82,15 @@ fn get_kbs_filters_by_category() {
     };
     let items = store.get_kbs(&filter).unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].key, "key-a");
+    assert_eq!(items[0].id, "id-1");
 }
 
 #[test]
 fn get_kbs_with_limit_and_offset() {
     let store = initialized_store();
-    store.save_kb(&make_kb("id-1", "key-a")).unwrap();
-    store.save_kb(&make_kb("id-2", "key-b")).unwrap();
-    store.save_kb(&make_kb("id-3", "key-c")).unwrap();
+    store.save_kb(&make_kb("id-1")).unwrap();
+    store.save_kb(&make_kb("id-2")).unwrap();
+    store.save_kb(&make_kb("id-3")).unwrap();
 
     let filter = KbFilter {
         limit: Some(2),
@@ -113,9 +104,9 @@ fn get_kbs_with_limit_and_offset() {
 #[test]
 fn get_kbs_filters_by_reference_without_keyword() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-a");
+    let mut kb1 = make_kb("id-1");
     kb1.reference = "The Rust Book".to_string();
-    let mut kb2 = make_kb("id-2", "key-b");
+    let mut kb2 = make_kb("id-2");
     kb2.reference = "other source".to_string();
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -126,13 +117,13 @@ fn get_kbs_filters_by_reference_without_keyword() {
     };
     let items = store.get_kbs(&filter).unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].key, "key-a");
+    assert_eq!(items[0].id, "id-1");
 }
 
 #[test]
 fn update_kb_changes_value() {
     let store = initialized_store();
-    let mut kb = make_kb("id-1", "rust-ownership");
+    let mut kb = make_kb("id-1");
     store.save_kb(&kb).unwrap();
     kb.value = "updated value".to_string();
     assert!(store.update_kb(&kb).unwrap());
@@ -143,7 +134,7 @@ fn update_kb_changes_value() {
 #[test]
 fn delete_kb_removes_entry() {
     let store = initialized_store();
-    store.save_kb(&make_kb("id-1", "rust-ownership")).unwrap();
+    store.save_kb(&make_kb("id-1")).unwrap();
     assert!(store.delete_kb("id-1").unwrap());
     assert_eq!(store.get_kb_by_id("id-1").unwrap(), None);
 }
@@ -157,7 +148,7 @@ fn delete_kb_returns_false_for_missing() {
 #[test]
 fn get_kbs_via_fts5_keyword() {
     let store = initialized_store();
-    let mut kb = make_kb("id-1", "rust-ownership");
+    let mut kb = make_kb("id-1");
     kb.tags = vec!["memory".to_string(), "rust".to_string()];
     store.save_kb(&kb).unwrap();
 
@@ -167,16 +158,16 @@ fn get_kbs_via_fts5_keyword() {
     };
     let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key, "rust-ownership");
+    assert_eq!(results[0].id, "id-1");
 }
 
 #[test]
 fn get_kbs_with_keyword_and_reference_filter() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "rust-ownership");
+    let mut kb1 = make_kb("id-1");
     kb1.tags = vec!["rust".to_string()];
     kb1.reference = "The Rust Book".to_string();
-    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    let mut kb2 = make_kb("id-2");
     kb2.tags = vec!["rust".to_string()];
     kb2.reference = "other source".to_string();
     store.save_kb(&kb1).unwrap();
@@ -189,13 +180,13 @@ fn get_kbs_with_keyword_and_reference_filter() {
     };
     let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key, "rust-ownership");
+    assert_eq!(results[0].id, "id-1");
 }
 
 #[test]
 fn get_kbs_with_keyword_reference_filter_returns_empty_when_no_match() {
     let store = initialized_store();
-    let mut kb = make_kb("id-1", "rust-ownership");
+    let mut kb = make_kb("id-1");
     kb.tags = vec!["rust".to_string()];
     kb.reference = "The Rust Book".to_string();
     store.save_kb(&kb).unwrap();
@@ -212,11 +203,11 @@ fn get_kbs_with_keyword_reference_filter_returns_empty_when_no_match() {
 #[test]
 fn get_kbs_with_keyword_and_limit() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "rust-ownership");
+    let mut kb1 = make_kb("id-1");
     kb1.tags = vec!["rust".to_string()];
-    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    let mut kb2 = make_kb("id-2");
     kb2.tags = vec!["rust".to_string()];
-    let mut kb3 = make_kb("id-3", "rust-borrowing");
+    let mut kb3 = make_kb("id-3");
     kb3.tags = vec!["rust".to_string()];
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -234,11 +225,11 @@ fn get_kbs_with_keyword_and_limit() {
 #[test]
 fn random_by_category_returns_matching_entry() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-q1", "stoic-quote");
+    let mut kb1 = make_kb("id-q1");
     kb1.category = "quote".to_string();
-    let mut kb2 = make_kb("id-q2", "zen-quote");
+    let mut kb2 = make_kb("id-q2");
     kb2.category = "quote".to_string();
-    let kb3 = make_kb("id-c1", "rust-concept"); // category = "concept"
+    let kb3 = make_kb("id-c1"); // category = "concept"
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
     store.save_kb(&kb3).unwrap();
@@ -250,7 +241,7 @@ fn random_by_category_returns_matching_entry() {
 #[test]
 fn random_by_category_is_case_insensitive() {
     let store = initialized_store();
-    let mut kb = make_kb("id-q1", "stoic-quote");
+    let mut kb = make_kb("id-q1");
     kb.category = "QUOTE".to_string();
     store.save_kb(&kb).unwrap();
 
@@ -261,7 +252,7 @@ fn random_by_category_is_case_insensitive() {
 #[test]
 fn random_by_category_returns_not_found_when_category_absent() {
     let store = initialized_store();
-    store.save_kb(&make_kb("id-c1", "rust-concept")).unwrap();
+    store.save_kb(&make_kb("id-c1")).unwrap();
 
     let result = store.random_by_category("nonexistent", None);
     assert!(matches!(result, Err(Error::RandomNotFound(_))));
@@ -270,10 +261,10 @@ fn random_by_category_returns_not_found_when_category_absent() {
 #[test]
 fn random_by_category_respects_namespace_filter() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-q1", "stoic-quote");
+    let mut kb1 = make_kb("id-q1");
     kb1.category = "quote".to_string();
     kb1.namespace = "ns1".to_string();
-    let mut kb2 = make_kb("id-q2", "zen-quote");
+    let mut kb2 = make_kb("id-q2");
     kb2.category = "quote".to_string();
     kb2.namespace = "ns2".to_string();
     store.save_kb(&kb1).unwrap();
@@ -302,7 +293,7 @@ fn initialize_vectors_is_idempotent() {
 #[test]
 fn save_and_delete_embedding() {
     let store = initialized_store_with_vectors(4);
-    let kb = make_kb("id-1", "rust-ownership");
+    let kb = make_kb("id-1");
     store.save_kb(&kb).unwrap();
 
     let input = EmbeddingInput {
@@ -318,7 +309,7 @@ fn save_and_delete_embedding() {
 #[test]
 fn search_similar_returns_closest_entry() {
     let store = initialized_store_with_vectors(4);
-    let kb = make_kb("id-1", "rust-ownership");
+    let kb = make_kb("id-1");
     store.save_kb(&kb).unwrap();
 
     let input = EmbeddingInput {
@@ -339,18 +330,18 @@ fn search_similar_returns_closest_entry() {
     };
     let results = store.search_similar(&query, &query_embedding).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].item.key, "rust-ownership");
+    assert_eq!(results[0].item.id, "id-1");
 }
 
 #[test]
 fn get_children_ids_returns_correct_children() {
     let store = initialized_store();
-    let parent = make_kb("parent-id", "parent-key");
-    let mut child1 = make_kb("child-id-1", "child-key-1");
+    let parent = make_kb("parent-id");
+    let mut child1 = make_kb("child-id-1");
     child1.parent = Some("parent-id".to_string());
-    let mut child2 = make_kb("child-id-2", "child-key-2");
+    let mut child2 = make_kb("child-id-2");
     child2.parent = Some("parent-id".to_string());
-    let unrelated = make_kb("other-id", "other-key");
+    let unrelated = make_kb("other-id");
     store.save_kb(&parent).unwrap();
     store.save_kb(&child1).unwrap();
     store.save_kb(&child2).unwrap();
@@ -365,7 +356,7 @@ fn get_children_ids_returns_correct_children() {
 #[test]
 fn get_children_ids_returns_empty_for_childless_entry() {
     let store = initialized_store();
-    store.save_kb(&make_kb("id-1", "key-1")).unwrap();
+    store.save_kb(&make_kb("id-1")).unwrap();
     let children = store.get_children_ids("id-1").unwrap();
     assert!(children.is_empty());
 }
@@ -373,8 +364,8 @@ fn get_children_ids_returns_empty_for_childless_entry() {
 #[test]
 fn save_and_retrieve_kb_with_parent() {
     let store = initialized_store();
-    let parent = make_kb("parent-id", "parent-key");
-    let mut child = make_kb("child-id", "child-key");
+    let parent = make_kb("parent-id");
+    let mut child = make_kb("child-id");
     child.parent = Some("parent-id".to_string());
     store.save_kb(&parent).unwrap();
     store.save_kb(&child).unwrap();
@@ -386,8 +377,8 @@ fn save_and_retrieve_kb_with_parent() {
 #[test]
 fn search_similar_threshold_excludes_distant_entries() {
     let store = initialized_store_with_vectors(4);
-    let kb1 = make_kb("id-1", "rust-ownership");
-    let kb2 = make_kb("id-2", "go-channels");
+    let kb1 = make_kb("id-1");
+    let kb2 = make_kb("id-2");
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
 
@@ -425,15 +416,15 @@ fn search_similar_threshold_excludes_distant_entries() {
     };
     let results = store.search_similar(&query, &query_embedding).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].item.key, "rust-ownership");
+    assert_eq!(results[0].item.id, "id-1");
 }
 
 #[test]
 fn search_similar_filters_by_namespace_partition() {
     let store = initialized_store_with_vectors(4);
-    let mut kb1 = make_kb("id-1", "work-note");
+    let mut kb1 = make_kb("id-1");
     kb1.namespace = "work".to_string();
-    let mut kb2 = make_kb("id-2", "personal-note");
+    let mut kb2 = make_kb("id-2");
     kb2.namespace = "personal".to_string();
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -471,15 +462,15 @@ fn search_similar_filters_by_namespace_partition() {
         .search_similar(&query, &[1.0f32, 0.0, 0.0, 0.0])
         .unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].item.key, "work-note");
+    assert_eq!(results[0].item.id, "id-1");
 }
 
 #[test]
 fn search_similar_filters_by_category_post_filter() {
     let store = initialized_store_with_vectors(4);
-    let mut kb1 = make_kb("id-1", "concept-note");
+    let mut kb1 = make_kb("id-1");
     kb1.category = "concept".to_string();
-    let mut kb2 = make_kb("id-2", "quote-note");
+    let mut kb2 = make_kb("id-2");
     kb2.category = "quote".to_string();
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -508,19 +499,19 @@ fn search_similar_filters_by_category_post_filter() {
         .search_similar(&query, &[1.0f32, 0.0, 0.0, 0.0])
         .unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].item.key, "quote-note");
+    assert_eq!(results[0].item.id, "id-2");
 }
 
 #[test]
 fn search_similar_combines_namespace_and_category_with_and_semantics() {
     let store = initialized_store_with_vectors(4);
-    let mut work_concept = make_kb("id-1", "work-concept");
+    let mut work_concept = make_kb("id-1");
     work_concept.namespace = "work".to_string();
     work_concept.category = "concept".to_string();
-    let mut work_quote = make_kb("id-2", "work-quote");
+    let mut work_quote = make_kb("id-2");
     work_quote.namespace = "work".to_string();
     work_quote.category = "quote".to_string();
-    let mut personal_concept = make_kb("id-3", "personal-concept");
+    let mut personal_concept = make_kb("id-3");
     personal_concept.namespace = "personal".to_string();
     personal_concept.category = "concept".to_string();
     store.save_kb(&work_concept).unwrap();
@@ -551,7 +542,7 @@ fn search_similar_combines_namespace_and_category_with_and_semantics() {
         .search_similar(&query, &[1.0f32, 0.0, 0.0, 0.0])
         .unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].item.key, "work-concept");
+    assert_eq!(results[0].item.id, "id-1");
 }
 
 #[test]
@@ -578,7 +569,7 @@ fn initialize_vectors_migrates_pre_partition_key_schema() {
         .initialize_vectors(4)
         .expect("should migrate the old schema instead of erroring");
 
-    let kb = make_kb("id-1", "rust-ownership");
+    let kb = make_kb("id-1");
     store.save_kb(&kb).unwrap();
     let input = EmbeddingInput {
         kb_id: "id-1".to_string(),
@@ -604,14 +595,14 @@ fn initialize_vectors_migrates_pre_partition_key_schema() {
 #[test]
 fn get_kbs_full_returns_all_fields() {
     let store = initialized_store();
-    let mut kb = make_kb("id-1", "rust-ownership");
+    let mut kb = make_kb("id-1");
     kb.notes = "some notes".to_string();
     kb.reference = "The Rust Book".to_string();
     store.save_kb(&kb).unwrap();
 
     let results = store.get_kbs_full(&KbFilter::default()).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key, "rust-ownership");
+    assert_eq!(results[0].id, "id-1");
     assert_eq!(results[0].value, "test value");
     assert_eq!(results[0].notes, "some notes");
     assert_eq!(results[0].reference, "The Rust Book");
@@ -622,8 +613,8 @@ fn get_kbs_full_returns_all_fields() {
 #[test]
 fn get_kbs_full_filters_by_category() {
     let store = initialized_store();
-    store.save_kb(&make_kb("id-1", "key-a")).unwrap(); // category = "concept"
-    let mut kb2 = make_kb("id-2", "key-b");
+    store.save_kb(&make_kb("id-1")).unwrap(); // category = "concept"
+    let mut kb2 = make_kb("id-2");
     kb2.category = "quote".to_string();
     store.save_kb(&kb2).unwrap();
 
@@ -633,15 +624,15 @@ fn get_kbs_full_filters_by_category() {
     };
     let results = store.get_kbs_full(&filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key, "key-b");
+    assert_eq!(results[0].id, "id-2");
 }
 
 #[test]
 fn get_kbs_full_respects_limit() {
     let store = initialized_store();
-    store.save_kb(&make_kb("id-1", "key-a")).unwrap();
-    store.save_kb(&make_kb("id-2", "key-b")).unwrap();
-    store.save_kb(&make_kb("id-3", "key-c")).unwrap();
+    store.save_kb(&make_kb("id-1")).unwrap();
+    store.save_kb(&make_kb("id-2")).unwrap();
+    store.save_kb(&make_kb("id-3")).unwrap();
 
     let filter = KbFilter {
         limit: Some(2),
@@ -654,11 +645,11 @@ fn get_kbs_full_respects_limit() {
 #[test]
 fn get_categories_returns_distinct_sorted_categories() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-a");
+    let mut kb1 = make_kb("id-1");
     kb1.category = "zebra".to_string();
-    let mut kb2 = make_kb("id-2", "key-b");
+    let mut kb2 = make_kb("id-2");
     kb2.category = "apple".to_string();
-    let mut kb3 = make_kb("id-3", "key-c");
+    let mut kb3 = make_kb("id-3");
     kb3.category = "apple".to_string(); // duplicate
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -671,7 +662,7 @@ fn get_categories_returns_distinct_sorted_categories() {
 #[test]
 fn get_categories_excludes_empty_category() {
     let store = initialized_store();
-    let mut kb = make_kb("id-1", "key-a");
+    let mut kb = make_kb("id-1");
     kb.category = String::new();
     store.save_kb(&kb).unwrap();
 
@@ -682,10 +673,10 @@ fn get_categories_excludes_empty_category() {
 #[test]
 fn get_categories_filters_by_namespace_when_given() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-a");
+    let mut kb1 = make_kb("id-1");
     kb1.category = "concept".to_string();
     kb1.namespace = "rust".to_string();
-    let mut kb2 = make_kb("id-2", "key-b");
+    let mut kb2 = make_kb("id-2");
     kb2.category = "quote".to_string();
     kb2.namespace = "personal".to_string();
     store.save_kb(&kb1).unwrap();
@@ -705,11 +696,11 @@ fn get_categories_returns_empty_vec_when_no_entries() {
 #[test]
 fn get_namespaces_returns_distinct_sorted_namespaces() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-a");
+    let mut kb1 = make_kb("id-1");
     kb1.namespace = "zebra".to_string();
-    let mut kb2 = make_kb("id-2", "key-b");
+    let mut kb2 = make_kb("id-2");
     kb2.namespace = "apple".to_string();
-    let mut kb3 = make_kb("id-3", "key-c");
+    let mut kb3 = make_kb("id-3");
     kb3.namespace = "apple".to_string(); // duplicate
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -722,7 +713,7 @@ fn get_namespaces_returns_distinct_sorted_namespaces() {
 #[test]
 fn get_namespaces_excludes_empty_namespace() {
     let store = initialized_store();
-    let mut kb = make_kb("id-1", "key-a");
+    let mut kb = make_kb("id-1");
     kb.namespace = String::new();
     store.save_kb(&kb).unwrap();
 
@@ -740,13 +731,13 @@ fn get_namespaces_returns_empty_vec_when_no_entries() {
 #[test]
 fn get_namespaces_filters_by_substring_when_given() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-a");
+    let mut kb1 = make_kb("id-1");
     kb1.namespace = "com.cubita.com".to_string();
-    let mut kb2 = make_kb("id-2", "key-b");
+    let mut kb2 = make_kb("id-2");
     kb2.namespace = "cubita.subdomain.service".to_string();
-    let mut kb3 = make_kb("id-3", "key-c");
+    let mut kb3 = make_kb("id-3");
     kb3.namespace = "com.sura.cubita".to_string();
-    let mut kb4 = make_kb("id-4", "key-d");
+    let mut kb4 = make_kb("id-4");
     kb4.namespace = "unrelated.namespace".to_string();
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -794,8 +785,8 @@ fn initialize_graph_is_idempotent() {
 #[test]
 fn add_edge_then_get_related_out() {
     let store = initialized_graph_store();
-    store.save_kb(&make_kb("car-id", "car")).unwrap();
-    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store.save_kb(&make_kb("car-id")).unwrap();
+    store.save_kb(&make_kb("engine-id")).unwrap();
     store
         .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
         .unwrap();
@@ -807,7 +798,7 @@ fn add_edge_then_get_related_out() {
         })
         .unwrap();
     assert_eq!(related.outgoing.len(), 1);
-    assert_eq!(related.outgoing[0].to.key, "engine");
+    assert_eq!(related.outgoing[0].to.id, "engine-id");
     assert_eq!(related.outgoing[0].note, "has an engine");
     assert!(related.incoming.is_empty());
 }
@@ -815,8 +806,8 @@ fn add_edge_then_get_related_out() {
 #[test]
 fn add_edge_then_get_related_in() {
     let store = initialized_graph_store();
-    store.save_kb(&make_kb("car-id", "car")).unwrap();
-    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store.save_kb(&make_kb("car-id")).unwrap();
+    store.save_kb(&make_kb("engine-id")).unwrap();
     store
         .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
         .unwrap();
@@ -828,18 +819,16 @@ fn add_edge_then_get_related_in() {
         })
         .unwrap();
     assert_eq!(related.incoming.len(), 1);
-    assert_eq!(related.incoming[0].from.key, "car");
+    assert_eq!(related.incoming[0].from.id, "car-id");
     assert!(related.outgoing.is_empty());
 }
 
 #[test]
 fn add_edge_then_get_related_both() {
     let store = initialized_graph_store();
-    store.save_kb(&make_kb("car-id", "car")).unwrap();
-    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
-    store
-        .save_kb(&make_kb("kit-id", "spare-parts-kit"))
-        .unwrap();
+    store.save_kb(&make_kb("car-id")).unwrap();
+    store.save_kb(&make_kb("engine-id")).unwrap();
+    store.save_kb(&make_kb("kit-id")).unwrap();
     store
         .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
         .unwrap();
@@ -865,8 +854,8 @@ fn add_edge_then_get_related_both() {
 #[test]
 fn add_edge_duplicate_returns_duplicate_edge_error() {
     let store = initialized_graph_store();
-    store.save_kb(&make_kb("car-id", "car")).unwrap();
-    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store.save_kb(&make_kb("car-id")).unwrap();
+    store.save_kb(&make_kb("engine-id")).unwrap();
     store
         .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
         .unwrap();
@@ -878,8 +867,8 @@ fn add_edge_duplicate_returns_duplicate_edge_error() {
 #[test]
 fn remove_edge_returns_true_when_deleted() {
     let store = initialized_graph_store();
-    store.save_kb(&make_kb("car-id", "car")).unwrap();
-    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store.save_kb(&make_kb("car-id")).unwrap();
+    store.save_kb(&make_kb("engine-id")).unwrap();
     store
         .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
         .unwrap();
@@ -908,8 +897,8 @@ fn remove_edge_returns_false_when_missing() {
 #[test]
 fn deleting_a_kb_cascades_edges_via_kbs_ad_edges_trigger() {
     let store = initialized_graph_store();
-    store.save_kb(&make_kb("car-id", "car")).unwrap();
-    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store.save_kb(&make_kb("car-id")).unwrap();
+    store.save_kb(&make_kb("engine-id")).unwrap();
     store
         .add_edge(&make_edge("edge-1", "car-id", "engine-id", "has an engine"))
         .unwrap();
@@ -929,14 +918,8 @@ fn deleting_a_kb_cascades_edges_via_kbs_ad_edges_trigger() {
 fn get_tree_respects_depth_bound() {
     let store = initialized_graph_store();
     // car -> engine -> camshaft -> bolt -> thread (chain of 5 nodes, 4 edges)
-    for (id, key) in [
-        ("car-id", "car"),
-        ("engine-id", "engine"),
-        ("camshaft-id", "camshaft"),
-        ("bolt-id", "bolt"),
-        ("thread-id", "thread"),
-    ] {
-        store.save_kb(&make_kb(id, key)).unwrap();
+    for id in ["car-id", "engine-id", "camshaft-id", "bolt-id", "thread-id"] {
+        store.save_kb(&make_kb(id)).unwrap();
     }
     store
         .add_edge(&make_edge("e1", "car-id", "engine-id", "n"))
@@ -965,8 +948,8 @@ fn get_tree_respects_depth_bound() {
 #[test]
 fn get_tree_direction_in_walks_backwards() {
     let store = initialized_graph_store();
-    store.save_kb(&make_kb("car-id", "car")).unwrap();
-    store.save_kb(&make_kb("engine-id", "engine")).unwrap();
+    store.save_kb(&make_kb("car-id")).unwrap();
+    store.save_kb(&make_kb("engine-id")).unwrap();
     store
         .add_edge(&make_edge("e1", "car-id", "engine-id", "has an engine"))
         .unwrap();
@@ -979,15 +962,15 @@ fn get_tree_direction_in_walks_backwards() {
         })
         .unwrap();
     assert_eq!(nodes.len(), 1);
-    assert_eq!(nodes[0].key, "car");
+    assert_eq!(nodes[0].id, "car-id");
     assert_eq!(nodes[0].parent_id, "engine-id");
 }
 
 #[test]
 fn get_tree_terminates_on_cycle() {
     let store = initialized_graph_store();
-    store.save_kb(&make_kb("a-id", "a")).unwrap();
-    store.save_kb(&make_kb("b-id", "b")).unwrap();
+    store.save_kb(&make_kb("a-id")).unwrap();
+    store.save_kb(&make_kb("b-id")).unwrap();
     store
         .add_edge(&make_edge("e1", "a-id", "b-id", "n"))
         .unwrap();
@@ -1010,7 +993,7 @@ fn get_tree_terminates_on_cycle() {
 #[test]
 fn get_tree_rejects_both_direction() {
     let store = initialized_graph_store();
-    store.save_kb(&make_kb("car-id", "car")).unwrap();
+    store.save_kb(&make_kb("car-id")).unwrap();
     let result = store.get_tree(&TreeQuery {
         kb_id: "car-id".to_string(),
         direction: EdgeDirection::Both,
@@ -1083,9 +1066,9 @@ fn get_edges_among_ids_returns_multiple_edges_within_the_set() {
 #[test]
 fn count_kbs_returns_total_matches_ignoring_limit() {
     let store = initialized_store();
-    store.save_kb(&make_kb("id-1", "key-a")).unwrap();
-    store.save_kb(&make_kb("id-2", "key-b")).unwrap();
-    store.save_kb(&make_kb("id-3", "key-c")).unwrap();
+    store.save_kb(&make_kb("id-1")).unwrap();
+    store.save_kb(&make_kb("id-2")).unwrap();
+    store.save_kb(&make_kb("id-3")).unwrap();
 
     let filter = KbFilter {
         limit: Some(1),
@@ -1099,9 +1082,9 @@ fn count_kbs_returns_total_matches_ignoring_limit() {
 #[test]
 fn count_kbs_filters_by_category() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-a");
+    let mut kb1 = make_kb("id-1");
     kb1.category = "bookmark".to_string();
-    let kb2 = make_kb("id-2", "key-b"); // category = "concept"
+    let kb2 = make_kb("id-2"); // category = "concept"
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
 
@@ -1116,7 +1099,7 @@ fn count_kbs_filters_by_category() {
 #[test]
 fn count_kbs_returns_zero_when_no_matches() {
     let store = initialized_store();
-    store.save_kb(&make_kb("id-1", "key-a")).unwrap();
+    store.save_kb(&make_kb("id-1")).unwrap();
 
     let filter = KbFilter {
         category: Some("nonexistent".to_string()),
@@ -1129,9 +1112,9 @@ fn count_kbs_returns_zero_when_no_matches() {
 #[test]
 fn count_kbs_via_fts5_keyword() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "rust-ownership");
+    let mut kb1 = make_kb("id-1");
     kb1.tags = vec!["memory".to_string(), "rust".to_string()];
-    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    let mut kb2 = make_kb("id-2");
     kb2.tags = vec!["rust".to_string()];
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -1149,10 +1132,10 @@ fn count_kbs_via_fts5_keyword() {
 #[test]
 fn count_kbs_with_keyword_and_reference_filter() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "rust-ownership");
+    let mut kb1 = make_kb("id-1");
     kb1.tags = vec!["rust".to_string()];
     kb1.reference = "The Rust Book".to_string();
-    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    let mut kb2 = make_kb("id-2");
     kb2.tags = vec!["rust".to_string()];
     kb2.reference = "other source".to_string();
     store.save_kb(&kb1).unwrap();
@@ -1170,11 +1153,11 @@ fn count_kbs_with_keyword_and_reference_filter() {
 #[test]
 fn get_kbs_filters_by_start_date_inclusive() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-1");
+    let mut kb1 = make_kb("id-1");
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2", "key-2");
+    let mut kb2 = make_kb("id-2");
     kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
-    let mut kb3 = make_kb("id-3", "key-3");
+    let mut kb3 = make_kb("id-3");
     kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -1186,18 +1169,18 @@ fn get_kbs_filters_by_start_date_inclusive() {
     };
     let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 2);
-    assert!(results.iter().any(|r| r.key == "key-2"));
-    assert!(results.iter().any(|r| r.key == "key-3"));
+    assert!(results.iter().any(|r| r.id == "id-2"));
+    assert!(results.iter().any(|r| r.id == "id-3"));
 }
 
 #[test]
 fn get_kbs_filters_by_end_date_inclusive() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-1");
+    let mut kb1 = make_kb("id-1");
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2", "key-2");
+    let mut kb2 = make_kb("id-2");
     kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
-    let mut kb3 = make_kb("id-3", "key-3");
+    let mut kb3 = make_kb("id-3");
     kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -1209,18 +1192,18 @@ fn get_kbs_filters_by_end_date_inclusive() {
     };
     let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 2);
-    assert!(results.iter().any(|r| r.key == "key-1"));
-    assert!(results.iter().any(|r| r.key == "key-2"));
+    assert!(results.iter().any(|r| r.id == "id-1"));
+    assert!(results.iter().any(|r| r.id == "id-2"));
 }
 
 #[test]
 fn get_kbs_filters_by_start_and_end_date_range() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-1");
+    let mut kb1 = make_kb("id-1");
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2", "key-2");
+    let mut kb2 = make_kb("id-2");
     kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
-    let mut kb3 = make_kb("id-3", "key-3");
+    let mut kb3 = make_kb("id-3");
     kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -1233,13 +1216,13 @@ fn get_kbs_filters_by_start_and_end_date_range() {
     };
     let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key, "key-2");
+    assert_eq!(results[0].id, "id-2");
 }
 
 #[test]
 fn get_kbs_date_range_excludes_entries_outside_range() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-1");
+    let mut kb1 = make_kb("id-1");
     kb1.created_on = "2025-12-31T00:00:00+0000".to_string();
     store.save_kb(&kb1).unwrap();
 
@@ -1255,10 +1238,10 @@ fn get_kbs_date_range_excludes_entries_outside_range() {
 #[test]
 fn get_kbs_via_fts5_keyword_filters_by_date_range() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-1");
+    let mut kb1 = make_kb("id-1");
     kb1.tags = vec!["rust".to_string()];
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2", "key-2");
+    let mut kb2 = make_kb("id-2");
     kb2.tags = vec!["rust".to_string()];
     kb2.created_on = "2026-01-10T00:00:00+0000".to_string();
     store.save_kb(&kb1).unwrap();
@@ -1271,17 +1254,17 @@ fn get_kbs_via_fts5_keyword_filters_by_date_range() {
     };
     let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key, "key-2");
+    assert_eq!(results[0].id, "id-2");
 }
 
 #[test]
 fn count_kbs_filters_by_date_range() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-1");
+    let mut kb1 = make_kb("id-1");
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2", "key-2");
+    let mut kb2 = make_kb("id-2");
     kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
-    let mut kb3 = make_kb("id-3", "key-3");
+    let mut kb3 = make_kb("id-3");
     kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -1299,10 +1282,10 @@ fn count_kbs_filters_by_date_range() {
 #[test]
 fn count_kbs_via_fts5_keyword_filters_by_date_range() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "rust-ownership");
+    let mut kb1 = make_kb("id-1");
     kb1.tags = vec!["rust".to_string()];
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2", "rust-lifetimes");
+    let mut kb2 = make_kb("id-2");
     kb2.tags = vec!["rust".to_string()];
     kb2.created_on = "2026-01-10T00:00:00+0000".to_string();
     store.save_kb(&kb1).unwrap();
@@ -1320,11 +1303,11 @@ fn count_kbs_via_fts5_keyword_filters_by_date_range() {
 #[test]
 fn get_kbs_full_filters_by_date_range() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-1");
+    let mut kb1 = make_kb("id-1");
     kb1.created_on = "2026-01-01T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2", "key-2");
+    let mut kb2 = make_kb("id-2");
     kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
-    let mut kb3 = make_kb("id-3", "key-3");
+    let mut kb3 = make_kb("id-3");
     kb3.created_on = "2026-01-10T00:00:00+0000".to_string();
     store.save_kb(&kb1).unwrap();
     store.save_kb(&kb2).unwrap();
@@ -1337,21 +1320,21 @@ fn get_kbs_full_filters_by_date_range() {
     };
     let results = store.get_kbs_full(&filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key, "key-2");
+    assert_eq!(results[0].id, "id-2");
 }
 
 #[test]
 fn get_kbs_date_range_combined_with_category_and_reference() {
     let store = initialized_store();
-    let mut kb1 = make_kb("id-1", "key-1");
+    let mut kb1 = make_kb("id-1");
     kb1.category = "concept".to_string();
     kb1.reference = "Book A".to_string();
     kb1.created_on = "2026-01-05T00:00:00+0000".to_string();
-    let mut kb2 = make_kb("id-2", "key-2");
+    let mut kb2 = make_kb("id-2");
     kb2.category = "quote".to_string();
     kb2.reference = "Book A".to_string();
     kb2.created_on = "2026-01-05T00:00:00+0000".to_string();
-    let mut kb3 = make_kb("id-3", "key-3");
+    let mut kb3 = make_kb("id-3");
     kb3.category = "concept".to_string();
     kb3.reference = "Book B".to_string();
     kb3.created_on = "2026-01-05T00:00:00+0000".to_string();
@@ -1368,5 +1351,199 @@ fn get_kbs_date_range_combined_with_category_and_reference() {
     };
     let results = store.get_kbs(&filter).unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key, "key-1");
+    assert_eq!(results[0].id, "id-1");
+}
+
+// ---------------------------------------------------------------------------
+// One-time migration: drop KB_KEY
+// ---------------------------------------------------------------------------
+
+/// Seeds a real on-disk SQLite file with the pre-key-removal schema (`KB_KEY`
+/// still present, `kb_edges` already created — the graph feature shipped
+/// before key removal, so a real pre-upgrade DB already has it), one plain
+/// entry and one media entry with a file on disk at the old `{key}.{ext}`
+/// path. Returns the db path as a string.
+fn seed_pre_key_removal_db(dir: &std::path::Path) -> String {
+    let db_path = dir.join("kbzona.db");
+    let db_path_str = db_path.to_str().unwrap().to_string();
+
+    let conn = Connection::open(&db_path).expect("open temp db");
+    conn.execute_batch(
+        "CREATE TABLE kbs (
+            INTERNAL_ID     INTEGER PRIMARY KEY AUTOINCREMENT,
+            KB_ID           TEXT NOT NULL UNIQUE,
+            KB_KEY          TEXT NOT NULL UNIQUE,
+            KB_VALUE        TEXT NOT NULL,
+            NOTES           TEXT NOT NULL DEFAULT '',
+            CATEGORY        TEXT NOT NULL DEFAULT '',
+            NAMESPACE       TEXT NOT NULL DEFAULT '',
+            REFERENCE       TEXT NOT NULL DEFAULT '',
+            TAG_VALUES      TEXT NOT NULL DEFAULT '',
+            CREATED_ON      TEXT NOT NULL,
+            KB_PATH         TEXT DEFAULT NULL,
+            PARENT_KB_ID    TEXT DEFAULT NULL,
+            MEDIA_EXTENSION TEXT DEFAULT NULL,
+            METADATA        TEXT DEFAULT NULL
+        );
+        CREATE VIRTUAL TABLE tags_idx USING fts5(TAG_VALUES, content='kbs', content_rowid='INTERNAL_ID');
+        CREATE TRIGGER kbs_ai AFTER INSERT ON kbs BEGIN
+            INSERT INTO tags_idx(rowid, TAG_VALUES) VALUES (new.INTERNAL_ID, new.TAG_VALUES);
+        END;
+        CREATE TRIGGER kbs_ad AFTER DELETE ON kbs BEGIN
+            INSERT INTO tags_idx(tags_idx, rowid, TAG_VALUES) VALUES ('delete', old.INTERNAL_ID, old.TAG_VALUES);
+        END;
+        CREATE TRIGGER kbs_au AFTER UPDATE ON kbs BEGIN
+            INSERT INTO tags_idx(tags_idx, rowid, TAG_VALUES) VALUES ('delete', old.INTERNAL_ID, old.TAG_VALUES);
+            INSERT INTO tags_idx(rowid, TAG_VALUES) VALUES (new.INTERNAL_ID, new.TAG_VALUES);
+        END;
+        CREATE TABLE kb_edges (
+            INTERNAL_ID   INTEGER PRIMARY KEY AUTOINCREMENT,
+            EDGE_ID       TEXT NOT NULL UNIQUE,
+            FROM_KB_ID    TEXT NOT NULL,
+            TO_KB_ID      TEXT NOT NULL,
+            NOTE          TEXT NOT NULL DEFAULT '',
+            CREATED_ON    TEXT NOT NULL,
+            UNIQUE(FROM_KB_ID, TO_KB_ID)
+        );
+        CREATE TRIGGER kbs_ad_edges AFTER DELETE ON kbs BEGIN
+            DELETE FROM kb_edges WHERE FROM_KB_ID = old.KB_ID OR TO_KB_ID = old.KB_ID;
+        END;",
+    )
+    .expect("create old schema");
+
+    conn.execute(
+        "INSERT INTO kbs (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, PARENT_KB_ID, MEDIA_EXTENSION, METADATA) \
+         VALUES ('note-id', 'rust-ownership', 'ownership rules', '', 'concept', 'default', '', 'rust memory', '2026-01-01T00:00:00+0000', NULL, NULL, NULL, NULL)",
+        [],
+    )
+    .expect("insert note row");
+    conn.execute(
+        "INSERT INTO kbs (KB_ID, KB_KEY, KB_VALUE, NOTES, CATEGORY, NAMESPACE, REFERENCE, TAG_VALUES, CREATED_ON, KB_PATH, PARENT_KB_ID, MEDIA_EXTENSION, METADATA) \
+         VALUES ('photo-id', 'car-photo', 'a car', '', 'media', 'default', '', '', '2026-01-01T00:00:00+0000', NULL, NULL, 'jpg', NULL)",
+        [],
+    )
+    .expect("insert media row");
+    drop(conn);
+
+    let old_media_path = dir.join("media").join("default").join("car-photo.jpg");
+    std::fs::create_dir_all(old_media_path.parent().unwrap()).expect("create media dir");
+    std::fs::write(&old_media_path, b"fake jpg bytes").expect("write old media file");
+
+    db_path_str
+}
+
+#[test]
+fn initialize_migrates_pre_key_removal_schema() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let db_path_str = seed_pre_key_removal_db(dir.path());
+    let old_media_path = dir
+        .path()
+        .join("media")
+        .join("default")
+        .join("car-photo.jpg");
+
+    let store = SqliteStore::new(&db_path_str).expect("open store");
+    store.initialize().expect("migration should succeed");
+
+    // KB_KEY column is gone.
+    {
+        let conn = store.conn.lock().unwrap();
+        assert!(!table_has_column(&conn, "kbs", "KB_KEY").unwrap());
+    }
+
+    // Non-key fields survive, addressable by id.
+    let note = store
+        .get_kb_by_id("note-id")
+        .unwrap()
+        .expect("note row survives migration");
+    assert_eq!(note.value, "ownership rules");
+    assert_eq!(note.category, "concept");
+    let photo = store
+        .get_kb_by_id("photo-id")
+        .unwrap()
+        .expect("media row survives migration");
+    assert_eq!(photo.media_extension.as_deref(), Some("jpg"));
+
+    // A backup file was written next to the original db.
+    let count_backups = || {
+        std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("kbzona.db.bak-")
+            })
+            .count()
+    };
+    assert_eq!(
+        count_backups(),
+        1,
+        "expected exactly one .bak-<timestamp> file next to the db"
+    );
+
+    // Media file moved from the old key-based path to the new id-based path.
+    assert!(
+        !old_media_path.exists(),
+        "old key-based media path should be gone"
+    );
+    let new_media_path = dir
+        .path()
+        .join("media")
+        .join("default")
+        .join("photo-id.jpg");
+    assert!(
+        new_media_path.exists(),
+        "media file should exist at the new id-based path"
+    );
+    assert_eq!(std::fs::read(&new_media_path).unwrap(), b"fake jpg bytes");
+
+    // FTS keyword search still finds the seeded row — regression check for
+    // INTERNAL_ID being preserved (not reassigned) across the table rebuild,
+    // since tags_idx is keyed on content_rowid='INTERNAL_ID'.
+    let results = store
+        .get_kbs(&KbFilter {
+            keyword: Some("memory".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, "note-id");
+
+    // A fresh save after migration works.
+    store.save_kb(&make_kb("new-id")).unwrap();
+    assert!(store.get_kb_by_id("new-id").unwrap().is_some());
+
+    // Re-running initialize() is a no-op: no second backup file, no error.
+    store
+        .initialize()
+        .expect("second initialize should be a no-op");
+    assert_eq!(
+        count_backups(),
+        1,
+        "second initialize should not create another backup"
+    );
+}
+
+#[test]
+fn initialize_skips_migration_on_fresh_schema() {
+    // A fresh install (schema created by initialize() itself) never had
+    // KB_KEY, so the migration must be a true no-op: no backup file.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let db_path = dir.path().join("kbzona.db");
+    let store = SqliteStore::new(db_path.to_str().unwrap()).expect("open store");
+    store.initialize().expect("initialize");
+
+    let has_backup = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("kbzona.db.bak-")
+        });
+    assert!(
+        !has_backup,
+        "a fresh install must not trigger the key-removal migration"
+    );
 }

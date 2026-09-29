@@ -83,7 +83,6 @@ impl App {
 
         match cli.command {
             Command::Add {
-                key,
                 value,
                 notes,
                 category,
@@ -99,7 +98,6 @@ impl App {
             } => handlers::handle_add(
                 &self.svc,
                 AddParams {
-                    key,
                     value,
                     notes,
                     category,
@@ -116,7 +114,6 @@ impl App {
             )?,
 
             Command::Get {
-                key,
                 id,
                 out,
                 with_out_connections,
@@ -128,7 +125,6 @@ impl App {
                     graph_svc: &self.graph_svc,
                 },
                 GetParams {
-                    key,
                     id,
                     base_dir: self.base_dir.clone(),
                     out,
@@ -140,7 +136,6 @@ impl App {
 
             Command::Update {
                 id,
-                key,
                 value,
                 notes,
                 category,
@@ -156,7 +151,6 @@ impl App {
                 UpdateParams {
                     update: KbUpdate {
                         id,
-                        key,
                         value,
                         notes,
                         category,
@@ -296,8 +290,8 @@ impl App {
             } => handlers::handle_link(
                 &self.graph_svc,
                 LinkParams {
-                    from_key_or_id: from,
-                    to_key_or_id: to,
+                    from_id: from,
+                    to_id: to,
                     note,
                     out,
                 },
@@ -308,27 +302,27 @@ impl App {
             }
 
             Command::Related {
-                key_or_id,
+                id,
                 direction,
                 json,
             } => handlers::handle_related(
                 &self.graph_svc,
                 RelatedParams {
-                    key_or_id,
+                    id,
                     direction,
                     json,
                 },
             )?,
 
             Command::Tree {
-                key_or_id,
+                id,
                 direction,
                 depth,
                 json,
             } => handlers::handle_tree(
                 &self.graph_svc,
                 TreeParams {
-                    key_or_id,
+                    id,
                     direction,
                     depth,
                     json,
@@ -336,13 +330,13 @@ impl App {
             )?,
 
             Command::Graph {
-                key_or_id,
+                id,
                 direction,
                 depth,
             } => handlers::handle_graph(
                 &self.graph_svc,
                 GraphViewCliParams {
-                    key_or_id,
+                    id,
                     direction,
                     depth,
                 },
