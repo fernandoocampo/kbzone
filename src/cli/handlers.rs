@@ -203,7 +203,6 @@ const KB_GIT_HASH: &str = match option_env!("KB_GIT_HASH") {
 // ---------------------------------------------------------------------------
 
 const COL_SCORE: usize = 8;
-const COL_ID: usize = 36;
 const COL_KEY: usize = 24;
 const COL_CAT: usize = 12;
 const COL_NS: usize = 14;
@@ -211,22 +210,17 @@ const COL_TAGS: usize = 30;
 
 fn print_table_header() {
     println!(
-        "{:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
-        "ID",
+        "{:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
         "KEY",
         "CATEGORY",
         "NAMESPACE",
         "TAGS",
-        id = COL_ID,
         key = COL_KEY,
         cat = COL_CAT,
         ns = COL_NS,
         tags = COL_TAGS,
     );
-    println!(
-        "{}",
-        "-".repeat(COL_ID + COL_KEY + COL_CAT + COL_NS + COL_TAGS + 8)
-    );
+    println!("{}", "-".repeat(COL_KEY + COL_CAT + COL_NS + COL_TAGS + 6));
 }
 
 // ---------------------------------------------------------------------------
@@ -953,13 +947,11 @@ pub fn handle_search<
     print_table_header();
     for item in items {
         println!(
-            "{:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
-            item.id,
+            "{:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
             item.key,
             item.category,
             item.namespace,
             item.tags.join(", "),
-            id = COL_ID,
             key = COL_KEY,
             cat = COL_CAT,
             ns = COL_NS,
@@ -1380,15 +1372,13 @@ fn write_failed_items(path: &str, content: &str) -> Result<(), Error> {
 
 fn print_scored_table_header() {
     println!(
-        "{:<score$}  {:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
+        "{:<score$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
         "DISTANCE",
-        "ID",
         "KEY",
         "CATEGORY",
         "NAMESPACE",
         "TAGS",
         score = COL_SCORE,
-        id = COL_ID,
         key = COL_KEY,
         cat = COL_CAT,
         ns = COL_NS,
@@ -1396,21 +1386,19 @@ fn print_scored_table_header() {
     );
     println!(
         "{}",
-        "-".repeat(COL_SCORE + COL_ID + COL_KEY + COL_CAT + COL_NS + COL_TAGS + 10)
+        "-".repeat(COL_SCORE + COL_KEY + COL_CAT + COL_NS + COL_TAGS + 8)
     );
 }
 
 fn print_scored_row(scored: &ScoredKbItem) {
     println!(
-        "{:<score$}  {:<id$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
+        "{:<score$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
         format!("{:.4}", scored.score),
-        scored.item.id,
         scored.item.key,
         scored.item.category,
         scored.item.namespace,
         scored.item.tags.join(", "),
         score = COL_SCORE,
-        id = COL_ID,
         key = COL_KEY,
         cat = COL_CAT,
         ns = COL_NS,
