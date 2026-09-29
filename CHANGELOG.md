@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.12.0](https://github.com/fernandoocampo/kbzone/compare/bfbeab15176e3c1f675a91395f620bafdfb4aa15..v0.12.0) - 2026-09-29
+
+- - -
+
 ## [v0.10.3](https://github.com/fernandoocampo/kbzone/compare/v0.10.2..v0.10.3) - 2026-09-28
 #### Features
 - add date range for search command - ([62e8d34](https://github.com/fernandoocampo/kbzone/commit/62e8d346e3d35bbcdd9772a064fa41e655064977)) - Fernando Ocampo
