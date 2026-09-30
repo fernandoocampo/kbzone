@@ -1,4 +1,4 @@
-.PHONY: build build-version test clean lint fmt fmt-check install check help
+.PHONY: build build-version test clean lint fmt fmt-check install check help vuln-check vuln-check-docker
 
 BIN_DIR    := bin
 BINARY     := $(BIN_DIR)/kb
@@ -28,6 +28,14 @@ clean:
 lint:
 	cargo clippy -- -D warnings
 
+## vuln-check: scan dependencies for known vulnerabilities via RustSec advisory DB (requires cargo-audit, e.g. `cargo install cargo-audit --locked`)
+vuln-check:
+	GIT_CONFIG_GLOBAL=/dev/null cargo audit
+
+## vuln-check-docker: same as vuln-check, but runs in a throwaway rust-slim container (no local cargo-audit install needed)
+vuln-check-docker:
+	docker run --rm -v "$(CURDIR)":/app -w /app rust:slim sh -c "cargo install cargo-audit --locked && cargo audit"
+
 ## fmt: format source code
 fmt:
 	cargo fmt
@@ -40,8 +48,8 @@ fmt-check:
 install:
 	cargo install --path .
 
-## check: run fmt-check + lint + test (CI gate)
-check: fmt-check lint test
+## check: run fmt-check + lint + test + vuln-check (CI gate)
+check: fmt-check lint test vuln-check
 
 ## help: list available targets
 help:

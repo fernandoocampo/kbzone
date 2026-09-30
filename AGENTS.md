@@ -134,7 +134,9 @@ deletes an entry's edges when it is deleted.
 - `make fmt`       — `cargo fmt` — Auto-format source
 - `make fmt-check` — `cargo fmt -- --check` — Check formatting (CI)
 - `make install`   — `cargo install --path .` — Install to `~/.cargo/bin`
-- `make check`     — fmt-check + lint + test — Full CI gate
+- `make vuln-check`        — `cargo audit` — Scan deps for known vulnerabilities via RustSec advisory DB (requires `cargo-audit` installed locally)
+- `make vuln-check-docker` — `cargo audit` run inside a throwaway `rust:slim` container — Same check, no local `cargo-audit` install needed
+- `make check`     — fmt-check + lint + test + vuln-check — Full CI gate
 - `make clean`     — `cargo clean && rm -rf bin` — Remove build artifacts
 
 ## Architecture Module Map
