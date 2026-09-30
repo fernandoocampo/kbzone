@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.16.1](https://github.com/fernandoocampo/kbzone/compare/b0b15f600169004a598f5fa8b893a3e474a1b536..v0.16.1) - 2026-09-30
+#### Bug Fixes
+- solve vulnerability issues - ([b0b15f6](https://github.com/fernandoocampo/kbzone/commit/b0b15f600169004a598f5fa8b893a3e474a1b536)) - Fernando Ocampo
+
+- - -
+
 ## [v0.16.0](https://github.com/fernandoocampo/kbzone/compare/860a3f274ac5fb51bde60e40de10edc9421403f0..v0.16.0) - 2026-09-29
 #### Features
 - add path filter for search - ([4542176](https://github.com/fernandoocampo/kbzone/commit/4542176a8b9dc701313208911c2b05b185b0f34e)) - Fernando Ocampo
