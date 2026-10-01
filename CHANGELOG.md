@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.17.0](https://github.com/fernandoocampo/kbzone/compare/b1b11c60cfb9942ab710c8c8387e60ca5aeec7f2..v0.17.0) - 2026-10-01
+#### Features
+- (**agents**) teach agent to extract policies and rules - ([b1b11c6](https://github.com/fernandoocampo/kbzone/commit/b1b11c60cfb9942ab710c8c8387e60ca5aeec7f2)) - Fernando Ocampo
+
+- - -
+
 ## [v0.16.1](https://github.com/fernandoocampo/kbzone/compare/b0b15f600169004a598f5fa8b893a3e474a1b536..v0.16.1) - 2026-09-30
 #### Bug Fixes
 - solve vulnerability issues - ([b0b15f6](https://github.com/fernandoocampo/kbzone/commit/b0b15f600169004a598f5fa8b893a3e474a1b536)) - Fernando Ocampo
