@@ -96,6 +96,7 @@ impl App {
                 path,
                 media_url,
                 json,
+                out,
             } => handlers::handle_add(
                 &self.svc,
                 AddParams {
@@ -112,6 +113,7 @@ impl App {
                     path: (!path.is_empty()).then_some(path),
                     media_url: (!media_url.is_empty()).then_some(media_url),
                     json,
+                    out,
                 },
             )?,
 

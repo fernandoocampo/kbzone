@@ -777,6 +777,7 @@ fn build_new_kb_non_interactive_all_fields_provided_no_prompt() {
         path: None,
         media_url: None,
         json: None,
+        out: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -804,6 +805,7 @@ fn handle_add_non_interactive_fails_without_key() {
         path: None,
         media_url: None,
         json: None,
+        out: None,
     };
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::MissingRequiredField(_))));
@@ -826,6 +828,7 @@ fn handle_add_non_interactive_fails_without_value() {
         path: None,
         media_url: None,
         json: None,
+        out: None,
     };
     let result = handle_add(&svc, params);
     assert!(matches!(result, Err(Error::MissingRequiredField(_))));
@@ -847,6 +850,7 @@ fn build_new_kb_non_interactive_builds_correctly() {
         path: None,
         media_url: None,
         json: None,
+        out: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -978,6 +982,7 @@ fn build_new_kb_non_interactive_uses_provided_reference() {
         path: None,
         media_url: None,
         json: None,
+        out: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -1001,6 +1006,7 @@ fn build_new_kb_non_interactive_uses_provided_tags() {
         path: None,
         media_url: None,
         json: None,
+        out: None,
     };
     let result = build_new_kb_non_interactive(params);
     assert!(result.is_ok());
@@ -1027,6 +1033,7 @@ fn add_params_with_json(json: Option<&str>) -> AddParams {
         path: None,
         media_url: None,
         json: json.map(str::to_string),
+        out: None,
     }
 }
 
@@ -1572,6 +1579,19 @@ fn handle_get_not_found_returns_ok() {
         params,
     );
     assert!(result.is_ok());
+}
+
+#[test]
+fn render_get_not_found_json_is_error_object() {
+    let json = render_get_not_found(OutputFormat::Json).expect("json render");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+    assert_eq!(value["error"], "not found");
+}
+
+#[test]
+fn render_get_not_found_yaml_is_error_object() {
+    let yaml = render_get_not_found(OutputFormat::Yaml).expect("yaml render");
+    assert!(yaml.contains("error: not found"));
 }
 
 #[test]
@@ -2444,4 +2464,52 @@ fn handle_link_self_loop_json_returns_error() {
     };
     let result = handle_link(&graph_svc, params);
     assert!(matches!(result, Err(Error::SelfLoopNotAllowed)));
+}
+
+#[test]
+fn handle_add_json_rejects_invalid_out_format_without_saving() {
+    let svc = make_svc();
+    let mut params = add_params_with_json(Some(
+        r#"{"key":"bad-out-key","value":"v","category":"concept","tags":["a"]}"#,
+    ));
+    params.out = Some("xml".to_string());
+    let result = handle_add(&svc, params);
+    assert!(result.is_err());
+    assert!(
+        svc.get_kb_by_key("bad-out-key")
+            .expect("lookup should succeed")
+            .is_none()
+    );
+}
+
+#[test]
+fn handle_add_json_accepts_yaml_out_format() {
+    let svc = make_svc();
+    let mut params = add_params_with_json(Some(
+        r#"{"key":"yaml-out-key","value":"v","category":"concept","tags":["a"]}"#,
+    ));
+    params.out = Some("yaml".to_string());
+    assert!(handle_add(&svc, params).is_ok());
+    assert!(
+        svc.get_kb_by_key("yaml-out-key")
+            .expect("lookup should succeed")
+            .is_some()
+    );
+}
+
+#[test]
+fn render_created_kb_renders_json_and_yaml() {
+    let svc = make_svc();
+    let params = add_params_with_json(Some(
+        r#"{"key":"render-key","value":"v","category":"concept","tags":["a"]}"#,
+    ));
+    handle_add(&svc, params).expect("add should succeed");
+    let kb = svc
+        .get_kb_by_key("render-key")
+        .expect("lookup should succeed")
+        .expect("entry should be persisted");
+    let yaml = render_created_kb(&kb, OutputFormat::Yaml).expect("yaml render");
+    assert!(yaml.contains("key: render-key"));
+    let json = render_created_kb(&kb, OutputFormat::Json).expect("json render");
+    assert!(json.contains("\"key\": \"render-key\""));
 }

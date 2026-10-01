@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use crate::cli::{browser, graph_view};
 use crate::domain::{
     AddJsonInput, CategoriesErrorResponse, DeleteConfirmation, DeleteErrorResponse, EdgeDirection,
-    ExportDocument, ExportMediaParams, GraphViewParams, ImportDocument, ImportEdgeItem,
-    ImportKbItem, KbFilter, KbRelationships, KbSearchResult, KbUpdate, KbWithRelationships,
-    LinkConfirmation, LinkErrorResponse, LinkParams, MediaPathParams, NamespacesErrorResponse,
-    NewKb, OutputFormat, RandomErrorResponse, RelatedResult, ScoredKbItem, SemanticQuery,
-    TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, build_metadata, format_metadata,
-    is_media_category, media_file_path, parse_metadata_input, suggest_tags,
+    ExportDocument, ExportMediaParams, GetErrorResponse, GraphViewParams, ImportDocument,
+    ImportEdgeItem, ImportKbItem, Kb, KbFilter, KbRelationships, KbSearchResult, KbUpdate,
+    KbWithRelationships, LinkConfirmation, LinkErrorResponse, LinkParams, MediaPathParams,
+    NamespacesErrorResponse, NewKb, OutputFormat, RandomErrorResponse, RelatedResult, ScoredKbItem,
+    SemanticQuery, TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, build_metadata,
+    format_metadata, is_media_category, media_file_path, parse_metadata_input, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -95,6 +95,7 @@ pub struct AddParams {
     pub path: Option<String>,
     pub media_url: Option<String>,
     pub json: Option<String>,
+    pub out: Option<String>,
 }
 
 pub struct ExportParams {
@@ -238,9 +239,21 @@ pub fn handle_add<
     svc: &KBService<S, V, E, M, F>,
     params: AddParams,
 ) -> Result<(), Error> {
+    let format: Option<OutputFormat> = params
+        .out
+        .as_deref()
+        .map(str::parse)
+        .transpose()
+        .map_err(Error::InvalidJsonInput)?;
     if let Some(json_str) = params.json.clone() {
         assert_no_conflicting_add_flags(&params)?;
-        return handle_add_json(svc, &json_str);
+        return handle_add_json(
+            svc,
+            AddJsonRequest {
+                json: &json_str,
+                format: format.unwrap_or(OutputFormat::Json),
+            },
+        );
     }
     let new_kb = if params.interactive {
         build_new_kb_interactive(params)?
@@ -256,6 +269,10 @@ pub fn handle_add<
         AddDecision::Save(kb) => *kb,
     };
     let kb = svc.add_kb(new_kb)?;
+    if let Some(format) = format {
+        println!("{}", render_created_kb(&kb, format)?);
+        return Ok(());
+    }
     println!("--- Created successfully ---");
     print!("{kb}");
     let suggestions = suggested_tags_for(
@@ -301,9 +318,26 @@ fn assert_no_conflicting_add_flags(params: &AddParams) -> Result<(), Error> {
     Ok(())
 }
 
+struct AddJsonRequest<'a> {
+    json: &'a str,
+    format: OutputFormat,
+}
+
+fn render_created_kb(kb: &Kb, format: OutputFormat) -> Result<String, Error> {
+    match format {
+        OutputFormat::Json => {
+            serde_json::to_string_pretty(kb).map_err(|e| Error::InvalidJsonInput(e.to_string()))
+        }
+        OutputFormat::Yaml => {
+            serde_yaml::to_string(kb).map_err(|e| Error::InvalidJsonInput(e.to_string()))
+        }
+    }
+}
+
 /// One-shot, non-interactive path for `kb add --json`: parses, validates and
-/// saves the entry, then prints only the created entry as JSON — no prompts,
-/// no "Created successfully" header, no tag-suggestion hint.
+/// saves the entry, then prints only the created entry (JSON by default, or
+/// YAML via `--out yaml`) — no prompts, no "Created successfully" header,
+/// no tag-suggestion hint.
 fn handle_add_json<
     S: KbStore,
     V: VectorStore,
@@ -312,15 +346,13 @@ fn handle_add_json<
     F: MediaFetcher,
 >(
     svc: &KBService<S, V, E, M, F>,
-    json_str: &str,
+    request: AddJsonRequest<'_>,
 ) -> Result<(), Error> {
     let input: AddJsonInput =
-        serde_json::from_str(json_str).map_err(|e| Error::InvalidJsonInput(e.to_string()))?;
+        serde_json::from_str(request.json).map_err(|e| Error::InvalidJsonInput(e.to_string()))?;
     let new_kb = NewKb::try_from(input)?;
     let kb = svc.add_kb(new_kb)?;
-    let json =
-        serde_json::to_string_pretty(&kb).map_err(|e| Error::InvalidJsonInput(e.to_string()))?;
-    println!("{json}");
+    println!("{}", render_created_kb(&kb, request.format)?);
     Ok(())
 }
 
@@ -644,6 +676,22 @@ fn resolve_relationship_direction(flags: RelationshipFlags) -> Option<EdgeDirect
     }
 }
 
+/// Structured "not found" body for `kb get --out json|yaml`, so callers can
+/// parse every outcome (the exit code stays `0`, as with the plain-text path).
+fn render_get_not_found(format: OutputFormat) -> Result<String, Error> {
+    let resp = GetErrorResponse {
+        error: "not found".to_string(),
+    };
+    match format {
+        OutputFormat::Json => serde_json::to_string_pretty(&resp)
+            .map(|json| format!("{json}\n"))
+            .map_err(|e| Error::GetKBError(e.to_string())),
+        OutputFormat::Yaml => {
+            serde_yaml::to_string(&resp).map_err(|e| Error::GetKBError(e.to_string()))
+        }
+    }
+}
+
 pub fn handle_get<S, V, E, M, F, G>(
     services: GetServices<S, V, E, M, F, G>,
     params: GetParams,
@@ -675,7 +723,10 @@ where
     let kb = match kb {
         Some(kb) => kb,
         None => {
-            println!("Not found.");
+            match format {
+                Some(format) => print!("{}", render_get_not_found(format)?),
+                None => println!("Not found."),
+            }
             return Ok(());
         }
     };

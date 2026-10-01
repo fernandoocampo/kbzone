@@ -310,14 +310,18 @@ before writing anything.
 
 ### 9. Execute (only after approval)
 
-Create entries with the flag form of `kb add` (safer for shell quoting than
-building a JSON blob with embedded quotes/apostrophes):
+**Always** create entries with `kb add --json '<entry>' --out json`. Never
+use the field-flag form (`--key`, `--value`, ...): without `--json`, `kb add`
+stops at an interactive save confirmation on stdin and hangs. `--json` is
+non-interactive and cannot be combined with the field flags. Single-quote the
+JSON and escape any apostrophe in the text as `'\''`:
 
 ```bash
-kb add --key <key> --value "<value>" --notes "<notes>" --category <category> \
-       --namespace <namespace> --tags <t1,t2,t3> --reference "<source file>" \
-       --metadata "<k1=v1,k2=v2>" --out json
+kb add --json '{"key":"<key>","value":"<value>","notes":"<notes>","category":"<category>","namespace":"<namespace>","tags":["<t1>","<t2>","<t3>"],"reference":"<source file>","metadata":{"<k1>":"<v1>","<k2>":"<v2>"}}' --out json
 ```
+
+`key`, `value`, `category` and `tags` (non-empty array) are required; the rest
+are optional. Do not pipe anything into `kb add` on stdin.
 
 For entries marked "update" in the plan, resolve the id first if you only
 have a key, then update only the fields that changed:
@@ -326,6 +330,13 @@ have a key, then update only the fields that changed:
 kb get --key <key> --out json
 kb update --id <id> --value "<new value>" --notes "<new notes>" --out json
 ```
+
+**Never rely on the exit code of `kb get`** — it is `0` even when the key
+doesn't exist. Always pass `--out json` and decide from the output: a missing
+key returns `{"error": "not found"}`, while an existing entry returns an
+object with its `id` and `key`. Treat `error` present (or any non-JSON output)
+as "does not exist". Apply the same check whenever you use `kb get` to verify an
+entry exists, including before `kb link` and in step 10.
 
 Create entries in dependency order: concepts, then capabilities and
 formulas, then policies, then rules, so every link target exists. Then

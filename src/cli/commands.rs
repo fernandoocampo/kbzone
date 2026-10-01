@@ -84,6 +84,12 @@ pub enum Command {
             help = "Full entry as a JSON object (mutually exclusive with the other add flags)"
         )]
         json: Option<String>,
+
+        #[arg(
+            long,
+            help = "Output format for the created entry: json | yaml (default: plain text; json with --json)"
+        )]
+        out: Option<String>,
     },
 
     /// Get a single entry by key or ID.

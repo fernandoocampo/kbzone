@@ -141,6 +141,12 @@ pub struct DeleteErrorResponse {
     pub error: String,
 }
 
+/// Structured response for a `get` that matched no entry.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GetErrorResponse {
+    pub error: String,
+}
+
 /// JSON error response for a failed `categories` operation.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CategoriesErrorResponse {
