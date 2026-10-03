@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.18.1](https://github.com/fernandoocampo/kbzone/compare/4598f6a057c4405c29013dc2a0a66a98367fc1b9..v0.18.1) - 2026-10-03
+#### Bug Fixes
+- update table output format - ([f5d26d7](https://github.com/fernandoocampo/kbzone/commit/f5d26d75d18237c1e88d04a14e9eca122b8c5445)) - Fernando Ocampo
+#### Miscellaneous Chores
+- add architect agent - ([4598f6a](https://github.com/fernandoocampo/kbzone/commit/4598f6a057c4405c29013dc2a0a66a98367fc1b9)) - Fernando Ocampo
+
+- - -
+
 ## [v0.18.0](https://github.com/fernandoocampo/kbzone/compare/cbc2d212e620b6fa9aee95a54f55cd57b1433559..v0.18.0) - 2026-10-01
 #### Features
 - adjust add and get to return json outputs - ([cbc2d21](https://github.com/fernandoocampo/kbzone/commit/cbc2d212e620b6fa9aee95a54f55cd57b1433559)) - Fernando Ocampo
