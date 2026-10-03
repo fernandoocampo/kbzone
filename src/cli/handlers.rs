@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::cli::table::render_table;
 use crate::cli::{browser, graph_view};
 use crate::domain::{
     AddJsonInput, CategoriesErrorResponse, DeleteConfirmation, DeleteErrorResponse, EdgeDirection,
@@ -204,26 +205,8 @@ const KB_GIT_HASH: &str = match option_env!("KB_GIT_HASH") {
 // Column widths for tabular output
 // ---------------------------------------------------------------------------
 
-const COL_SCORE: usize = 8;
 const COL_KEY: usize = 24;
 const COL_CAT: usize = 12;
-const COL_NS: usize = 14;
-const COL_TAGS: usize = 30;
-
-fn print_table_header() {
-    println!(
-        "{:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
-        "KEY",
-        "CATEGORY",
-        "NAMESPACE",
-        "TAGS",
-        key = COL_KEY,
-        cat = COL_CAT,
-        ns = COL_NS,
-        tags = COL_TAGS,
-    );
-    println!("{}", "-".repeat(COL_KEY + COL_CAT + COL_NS + COL_TAGS + 6));
-}
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -1000,20 +983,21 @@ pub fn handle_search<
         println!("No entries found.");
         return Ok(());
     }
-    print_table_header();
-    for item in items {
-        println!(
-            "{:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
-            item.key,
-            item.category,
-            item.namespace,
-            item.tags.join(", "),
-            key = COL_KEY,
-            cat = COL_CAT,
-            ns = COL_NS,
-            tags = COL_TAGS,
-        );
-    }
+    let rows: Vec<Vec<String>> = items
+        .iter()
+        .map(|item| {
+            vec![
+                item.key.clone(),
+                item.category.clone(),
+                item.namespace.clone(),
+                item.tags.join(", "),
+            ]
+        })
+        .collect();
+    print!(
+        "{}",
+        render_table(&["KEY", "CATEGORY", "NAMESPACE", "TAGS"], &rows)
+    );
     Ok(())
 }
 
@@ -1073,10 +1057,7 @@ pub fn handle_ask<
         println!("No semantic matches found.");
         return Ok(());
     }
-    print_scored_table_header();
-    for scored in results {
-        print_scored_row(&scored);
-    }
+    print_scored_table(&results);
     Ok(())
 }
 
@@ -1426,39 +1407,22 @@ fn write_failed_items(path: &str, content: &str) -> Result<(), Error> {
 // Scored-result table helpers
 // ---------------------------------------------------------------------------
 
-fn print_scored_table_header() {
-    println!(
-        "{:<score$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
-        "DISTANCE",
-        "KEY",
-        "CATEGORY",
-        "NAMESPACE",
-        "TAGS",
-        score = COL_SCORE,
-        key = COL_KEY,
-        cat = COL_CAT,
-        ns = COL_NS,
-        tags = COL_TAGS,
-    );
-    println!(
+fn print_scored_table(results: &[ScoredKbItem]) {
+    let rows: Vec<Vec<String>> = results
+        .iter()
+        .map(|scored| {
+            vec![
+                format!("{:.4}", scored.score),
+                scored.item.key.clone(),
+                scored.item.category.clone(),
+                scored.item.namespace.clone(),
+                scored.item.tags.join(", "),
+            ]
+        })
+        .collect();
+    print!(
         "{}",
-        "-".repeat(COL_SCORE + COL_KEY + COL_CAT + COL_NS + COL_TAGS + 8)
-    );
-}
-
-fn print_scored_row(scored: &ScoredKbItem) {
-    println!(
-        "{:<score$}  {:<key$}  {:<cat$}  {:<ns$}  {:<tags$}",
-        format!("{:.4}", scored.score),
-        scored.item.key,
-        scored.item.category,
-        scored.item.namespace,
-        scored.item.tags.join(", "),
-        score = COL_SCORE,
-        key = COL_KEY,
-        cat = COL_CAT,
-        ns = COL_NS,
-        tags = COL_TAGS,
+        render_table(&["DISTANCE", "KEY", "CATEGORY", "NAMESPACE", "TAGS"], &rows)
     );
 }
 

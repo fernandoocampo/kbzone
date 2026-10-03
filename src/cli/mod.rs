@@ -9,3 +9,4 @@ pub mod browser;
 pub mod commands;
 pub mod graph_view;
 pub mod handlers;
+pub(crate) mod table;
