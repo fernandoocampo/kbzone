@@ -22,7 +22,7 @@ allowed-tools:
 | User intent | Mode | Command |
 |---|---|---|
 | Open-ended / conceptual question ("what do I know about X", "how do I do Y") | semantic | `kb ask` |
-| Filter by keyword, category, namespace (supports `*` wildcards), tags, or reference | keyword | `kb search` |
+| Filter by keyword, category, namespace/path/key (support `*` wildcards), tags, or reference | keyword | `kb search` |
 | "what categories exist" / "what kinds of things have I saved" | categories | `kb categories` |
 | "give me a random quote/idiom/concept" | random | `kb random` |
 
@@ -44,11 +44,12 @@ kb ask "<natural language query>" --limit 10 --threshold 0.9 --category <cat> --
 ## Keyword / filter search — `kb search`
 
 ```bash
-kb search --keyword <kw> --category <cat> --namespace <ns> --tags <t1,t2> --reference <ref> --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> --limit 20 --offset 0 --out json
+kb search --keyword <kw> --category <cat> --namespace <ns> --path <path> --key <key> --tags <t1,t2> --reference <ref> --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> --limit 20 --offset 0 --out json
 ```
 
 - `--keyword` runs an FTS5 full-text match; the other flags are exact/contains filters and combine with it (AND semantics).
 - `--namespace` supports `*` glob wildcards (any number, any position — translated to SQL `%`) and matches case-insensitively whenever a `*` is used, e.g. `--namespace 'company.domain.*'` (prefix), `--namespace '*.domain.subdomain'` (suffix), `--namespace '*.domain.subdomain.*'` (contains). A plain value with no `*` is an exact match. This wildcard support is `search`-specific — it does not apply to `ask`'s `--namespace`.
+- `--key` supports `*` glob wildcards on the entry key (same behavior as `--path`: always case-insensitive, `*` at any position), e.g. `--key 'user-*'` (prefix), `--key '*-handler'` (suffix), `--key '*auth*'` (contains). A plain value with no `*` is an exact match. Use it when the user remembers part of an entry's key name.
 - `--start-date`/`--end-date` (`YYYY-MM-DD`) filter by the entry's `created_on` creation timestamp, inclusive on both ends. Only pass the ones the user actually asked for (e.g. "created this month", "since March 1st").
 - Only pass flags the user actually specified — don't invent filters they didn't ask for.
 - `--limit` default `20`, `--offset` default `0` for pagination.

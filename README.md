@@ -199,6 +199,9 @@ kb search --start-date 2026-01-01 --end-date 2026-01-31        # Entries created
 kb search --namespace "company.domain.*"                      # Wildcard: prefix match
 kb search --namespace "*.domain.subdomain"                     # Wildcard: suffix match
 kb search --namespace "*.domain.subdomain.*"                   # Wildcard: contains match
+kb search --key "user-*"                                      # Key pattern: prefix match
+kb search --key "*-handler"                                   # Key pattern: suffix match
+kb search --key "*auth*" --namespace "svc.*"                  # Key pattern: contains, combined with namespace
 ```
 
 `--namespace` accepts `*` glob wildcards (any number, any position) and matches
@@ -206,6 +209,9 @@ case-insensitively whenever a `*` is used; a plain value with no `*` is still an
 exact, case-sensitive match. This wildcard support is specific to `search` —
 `export`, `ask`, `categories`, and `random` keep exact-match `--namespace`
 filtering.
+
+`--key` works the same way as `--path`: `*` wildcards match the entry key at any
+position and are always case-insensitive; a plain value with no `*` is an exact match.
 
 Filters are cumulative — multiple filters are combined with AND logic. Use `--keyword` for full-text tag search (powered by SQLite FTS5). Use `--start-date`/`--end-date` (`YYYY-MM-DD`) to filter by creation date, inclusive on both ends. Use `--out` to format results as `json` or `yaml` (default: plain text).
 

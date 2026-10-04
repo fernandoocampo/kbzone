@@ -191,8 +191,12 @@ kb search --namespace <ns> --category integration --out json
 kb search --namespace <ns> --category adr --out json
 kb search --namespace <ns> --category policy --out json
 kb search --namespace <ns> --category rule --out json
+kb search --namespace <ns> --key '*<key fragment>*' --out json
 kb ask "<architecture topic in plain language>" --namespace <ns> --out json
 ```
+
+`--key` takes `*` wildcards (case-insensitive) — use it to spot an entry whose
+key resembles the one you are about to propose.
 
 If a close match exists, propose an update (marked "update existing entry
 `<key>`") or a link instead of a duplicate, and say why you think it is the

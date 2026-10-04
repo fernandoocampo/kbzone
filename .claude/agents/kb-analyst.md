@@ -77,8 +77,10 @@ the kb — you only read, synthesize, and explain what's already there.
      (e.g. a few `concept`, `formula`, `capability` entries) and
      synthesize; don't dump every entry verbatim.
    - *"Explain formula X" / "what does concept Y mean?"* — locate it with
-     `kb search --namespace <ns> --keyword <term> --out json` or, for
-     vaguer phrasing, `kb ask "<question>" --namespace <ns> --out json`,
+     `kb search --namespace <ns> --keyword <term> --out json`, by part of
+     its key name via `kb search --namespace <ns> --key '*<fragment>*'
+     --out json` (`*` wildcards, case-insensitive), or, for vaguer
+     phrasing, `kb ask "<question>" --namespace <ns> --out json`,
      then fetch the full entry with `kb get --key <key> --out json`.
    - *Relationship questions ("how does X relate to Y", "what connects to
      X")* — `kb related <key> --direction both --json` for one hop, or

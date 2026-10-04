@@ -953,6 +953,18 @@ fn build_list_filters(
         idx += 1;
     }
 
+    if let Some(k) = filter.key.as_deref().filter(|k| !k.is_empty()) {
+        let (cond, val) = build_wildcard_condition(ConditionArgs {
+            value: k,
+            idx,
+            column: "KB_KEY",
+            mode: WildcardMatch::Wildcard,
+        });
+        conditions.push(cond);
+        params.push(val);
+        idx += 1;
+    }
+
     if let Some(tags) = &filter.tags {
         for tag in tags {
             // Use LIKE for tag substring matching in the space-separated string.
@@ -1009,6 +1021,18 @@ fn build_fts_extra_filters(filter: &KbFilter) -> (String, Vec<String>) {
             value: p,
             idx,
             column: "k.KB_PATH",
+            mode: WildcardMatch::Wildcard,
+        });
+        conditions.push(cond);
+        params.push(val);
+        idx += 1;
+    }
+
+    if let Some(k) = filter.key.as_deref().filter(|k| !k.is_empty()) {
+        let (cond, val) = build_wildcard_condition(ConditionArgs {
+            value: k,
+            idx,
+            column: "k.KB_KEY",
             mode: WildcardMatch::Wildcard,
         });
         conditions.push(cond);

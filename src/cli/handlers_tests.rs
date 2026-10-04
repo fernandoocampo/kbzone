@@ -1819,6 +1819,7 @@ fn search_params(out: Option<&str>) -> SearchParams {
         category: None,
         namespace: None,
         path: None,
+        key: None,
         tags: Vec::new(),
         reference: None,
         start_date: None,
@@ -1827,6 +1828,18 @@ fn search_params(out: Option<&str>) -> SearchParams {
         offset: 0,
         out: out.map(str::to_string),
     }
+}
+
+#[test]
+fn handle_search_with_key_filter_succeeds() {
+    let svc = make_svc();
+    seed_kb(&svc, "search-test-key");
+    let params = SearchParams {
+        key: Some("search-test-*".to_string()),
+        ..search_params(None)
+    };
+    let result = handle_search(&svc, params);
+    assert!(result.is_ok());
 }
 
 #[test]

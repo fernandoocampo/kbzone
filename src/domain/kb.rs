@@ -241,6 +241,7 @@ pub struct KbFilter {
     pub category: Option<String>,
     pub namespace: Option<String>,
     pub path: Option<String>,
+    pub key: Option<String>,
     pub tags: Option<Vec<String>>,
     pub keyword: Option<String>,
     pub reference: Option<String>,

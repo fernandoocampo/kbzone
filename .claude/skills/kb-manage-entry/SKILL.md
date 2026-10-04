@@ -36,7 +36,7 @@ Ask clarifying questions if any of these are unclear:
 - **Value vs. notes** (critical for readability + semantic search optimization):
   - For `bookmark`: `value` **must be the URL**, `notes` is the description/what-to-find/why-useful
   - For other categories: 
-    - `value` = **core content, concise** (1–2 sentences max: essential idea, main command, key insight, direct answer)
+    - `value` = **core content, concise** (1–4 sentences max: essential idea, main command, key insight, direct answer)
     - `notes` = elaboration, context, implementation details, assumptions, background
   - **Why**: `value` is what `kb get` shows first and what semantic search (`kb ask`) ranks on; `notes` are there for context on-demand.
   - **Examples**: 

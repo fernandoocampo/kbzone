@@ -249,9 +249,13 @@ kb search --namespace <ns> --category concept --out json
 kb search --namespace <ns> --category capability --out json
 kb search --namespace <ns> --category policy --out json
 kb search --namespace <ns> --category rule --out json
+kb search --namespace <ns> --key '*<key fragment>*' --out json
 kb ask "<concept or capability in plain language>" --namespace <ns> --out json
 kb ask "<rule in plain language, e.g. null customer id on order create>" --namespace <ns> --out json
 ```
+
+`--key` takes `*` wildcards (case-insensitive) — use it to spot an entry whose
+key resembles the one you are about to propose.
 
 Policies that are likely shared across services (e.g. a common
 authorization policy) should also be checked across all namespaces. When an

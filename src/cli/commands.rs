@@ -178,7 +178,7 @@ pub enum Command {
         out: Option<String>,
     },
 
-    /// Search entries by keyword, category, namespace, tags, or reference.
+    /// Search entries by keyword, category, namespace, path, key, tags, or reference.
     Search {
         #[arg(long, help = "Keyword to search for in tags (FTS5)")]
         keyword: Option<String>,
@@ -197,6 +197,12 @@ pub enum Command {
             help = "Filter by path; supports '*' wildcards for prefix/suffix/contains matching (e.g. '/personal/cars/*', '*/engines', '*/cars/*')"
         )]
         path: Option<String>,
+
+        #[arg(
+            long,
+            help = "Filter by key; supports '*' wildcards for prefix/suffix/contains matching (e.g. 'user-*', '*-handler', '*auth*')"
+        )]
+        key: Option<String>,
 
         /// Comma-separated tags to filter by
         #[arg(long, value_delimiter = ',', help = "Filter by tags (comma-separated)")]

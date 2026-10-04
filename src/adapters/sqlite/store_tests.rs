@@ -507,6 +507,133 @@ fn get_kbs_filters_by_path_wildcard_is_case_insensitive() {
     assert_eq!(items[0].key, "key-a");
 }
 
+fn store_with_keys(keys: &[&str]) -> SqliteStore {
+    let store = initialized_store();
+    for (i, key) in keys.iter().enumerate() {
+        store
+            .save_kb(&make_kb(&format!("id-{i}"), key))
+            .expect("save kb");
+    }
+    store
+}
+
+fn sorted_keys(store: &SqliteStore, filter: &KbFilter) -> Vec<String> {
+    let mut keys: Vec<String> = store
+        .get_kbs(filter)
+        .unwrap()
+        .into_iter()
+        .map(|i| i.key)
+        .collect();
+    keys.sort();
+    keys
+}
+
+fn key_filter(pattern: &str) -> KbFilter {
+    KbFilter {
+        key: Some(pattern.to_string()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn get_kbs_filters_by_key_glob_prefix_suffix_and_contains() {
+    let store = store_with_keys(&["user-auth", "user-profile", "admin-auth", "billing"]);
+
+    assert_eq!(
+        sorted_keys(&store, &key_filter("user-*")),
+        vec!["user-auth".to_string(), "user-profile".to_string()]
+    );
+    assert_eq!(
+        sorted_keys(&store, &key_filter("*-auth")),
+        vec!["admin-auth".to_string(), "user-auth".to_string()]
+    );
+    assert_eq!(
+        sorted_keys(&store, &key_filter("*er-a*")),
+        vec!["user-auth".to_string()]
+    );
+}
+
+#[test]
+fn get_kbs_filters_by_key_glob_with_internal_wildcard() {
+    let store = store_with_keys(&["a-b-c", "a-x-c", "a-b-d"]);
+
+    assert_eq!(
+        sorted_keys(&store, &key_filter("a-*-c")),
+        vec!["a-b-c".to_string(), "a-x-c".to_string()]
+    );
+}
+
+#[test]
+fn get_kbs_filters_by_key_exact_without_wildcard() {
+    let store = store_with_keys(&["user-auth", "user-auth-extra"]);
+
+    assert_eq!(
+        sorted_keys(&store, &key_filter("user-auth")),
+        vec!["user-auth".to_string()]
+    );
+}
+
+#[test]
+fn get_kbs_filters_by_key_wildcard_is_case_insensitive() {
+    let store = store_with_keys(&["user-auth"]);
+
+    assert_eq!(
+        sorted_keys(&store, &key_filter("USER-*")),
+        vec!["user-auth".to_string()]
+    );
+}
+
+#[test]
+fn get_kbs_filters_by_key_wildcard_escapes_like_special_chars() {
+    let store = store_with_keys(&["my_key", "myXkey"]);
+
+    assert_eq!(
+        sorted_keys(&store, &key_filter("my_*")),
+        vec!["my_key".to_string()]
+    );
+}
+
+#[test]
+fn get_kbs_filters_by_key_combined_with_namespace() {
+    let store = initialized_store();
+    let mut kb1 = make_kb("id-1", "user-auth");
+    kb1.namespace = "svc.a".to_string();
+    let mut kb2 = make_kb("id-2", "user-profile");
+    kb2.namespace = "svc.b".to_string();
+    store.save_kb(&kb1).unwrap();
+    store.save_kb(&kb2).unwrap();
+
+    let filter = KbFilter {
+        key: Some("user-*".to_string()),
+        namespace: Some("svc.a".to_string()),
+        ..Default::default()
+    };
+    assert_eq!(sorted_keys(&store, &filter), vec!["user-auth".to_string()]);
+}
+
+#[test]
+fn get_and_count_kbs_filter_by_key_glob_with_keyword_fts() {
+    let store = store_with_keys(&["user-auth", "user-profile", "admin-auth"]);
+
+    let filter = KbFilter {
+        keyword: Some("rust".to_string()),
+        key: Some("*-auth".to_string()),
+        ..Default::default()
+    };
+    assert_eq!(
+        sorted_keys(&store, &filter),
+        vec!["admin-auth".to_string(), "user-auth".to_string()]
+    );
+    assert_eq!(store.count_kbs(&filter).unwrap(), 2);
+}
+
+#[test]
+fn count_kbs_filters_by_key_glob_without_keyword() {
+    let store = store_with_keys(&["user-auth", "user-profile", "admin-auth"]);
+
+    assert_eq!(store.count_kbs(&key_filter("user-*")).unwrap(), 2);
+}
+
 #[test]
 fn get_kbs_filters_by_path_wildcard_escapes_like_special_chars() {
     let store = initialized_store();
