@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.19.0](https://github.com/fernandoocampo/kbzone/compare/3a2d2c3f7d2f28a095ab3834a947d94d1c7c86a4..v0.19.0) - 2026-10-04
+#### Features
+- add key filter to search command - ([3a2d2c3](https://github.com/fernandoocampo/kbzone/commit/3a2d2c3f7d2f28a095ab3834a947d94d1c7c86a4)) - Fernando Ocampo
+
+- - -
+
 ## [v0.18.1](https://github.com/fernandoocampo/kbzone/compare/4598f6a057c4405c29013dc2a0a66a98367fc1b9..v0.18.1) - 2026-10-03
 #### Bug Fixes
 - update table output format - ([f5d26d7](https://github.com/fernandoocampo/kbzone/commit/f5d26d75d18237c1e88d04a14e9eca122b8c5445)) - Fernando Ocampo
