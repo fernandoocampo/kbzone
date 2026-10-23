@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.20.0](https://github.com/fernandoocampo/kbzone/compare/27cf1716441f4dfe622dc8f29e6962e155b31e47..v0.20.0) - 2026-10-23
+#### Features
+- add ask models - ([8a7c647](https://github.com/fernandoocampo/kbzone/commit/8a7c64776c355e0c6b41afd3510fb3cb919a5f6b)) - Fernando Ocampo
+#### Miscellaneous Chores
+- add DS_Store to gitignore - ([27cf171](https://github.com/fernandoocampo/kbzone/commit/27cf1716441f4dfe622dc8f29e6962e155b31e47)) - Fernando Ocampo
+
+- - -
+
 ## [v0.19.0](https://github.com/fernandoocampo/kbzone/compare/3a2d2c3f7d2f28a095ab3834a947d94d1c7c86a4..v0.19.0) - 2026-10-04
 #### Features
 - add key filter to search command - ([3a2d2c3](https://github.com/fernandoocampo/kbzone/commit/3a2d2c3f7d2f28a095ab3834a947d94d1c7c86a4)) - Fernando Ocampo
