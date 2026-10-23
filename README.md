@@ -18,7 +18,7 @@ A personal knowledge base CLI tool with semantic search, built in Rust. Store no
 - **Reindex** — rebuild embeddings for all entries at any time
 - **Random** — print a random entry from any category (e.g., `quote`, `english-idioms`)
 
-All data is stored locally in a SQLite file. Embeddings are generated on-device using [FastEmbed](https://github.com/Anush008/fastembed-rs) (BAAI/bge-small-en-v1.5, 384 dimensions). No internet connection is required.
+All data is stored locally in a SQLite file. Embeddings are generated on-device using [FastEmbed](https://github.com/Anush008/fastembed-rs) (BAAI/bge-small-en-v1.5 by default, 384 dimensions; other models are selectable, see [Embedding model](#embedding-model)). The model is downloaded on first use; after that no internet connection is required.
 
 ## Prerequisites
 
@@ -47,7 +47,11 @@ On first run, `kb` creates a default config file at `~/.kbzona/config.yaml`:
 db_path: ~/.kbzona/kbzona.db
 embedding:
   provider: fastembed
+  model: bge-small-en-v1.5
+  indexed_model: bge-small-en-v1.5
 ```
+
+`model` is the embedding model you want (see below). `indexed_model` is maintained by `kb`: it records which model the stored embeddings were built with, so don't edit it by hand.
 
 **Override the base directory** with the `KBZONA_HOME` environment variable:
 
@@ -56,6 +60,24 @@ export KBZONA_HOME=/path/to/custom/dir
 ```
 
 The embedding model cache is stored alongside the database at `{db_path_parent}/fastembed_cache/`.
+
+### Embedding model
+
+| Model | Dimensions | Notes |
+|---|---|---|
+| `bge-small-en-v1.5` (default) | 384 | Small and fast; English |
+| `bge-base-en-v1.5` | 768 | Larger, usually better recall; English |
+| `nomic-embed-text-v1.5` | 768 | Longer context; English |
+| `multilingual-e5-small` | 384 | Many languages |
+
+```sh
+kb model list                       # supported models; which is configured and which built the index
+kb model set bge-base-en-v1.5       # switch model and re-index every entry
+```
+
+`kb model set` downloads the model if needed, rebuilds the whole vector index with it, and updates `config.yaml`. This takes longer for larger models and bigger knowledge bases.
+
+You can also set `embedding.model` in `config.yaml` by hand (best done before adding entries). If it differs from the model the index was built with, `kb ask`, `kb add`, `kb update` and `kb import` stop with an error asking you to run `kb reindex`; `kb reindex` then rebuilds the index for the configured model.
 
 ## Data Model
 
@@ -223,7 +245,7 @@ kb ask "kubernetes pod commands" --limit 5
 kb ask "alfred north whitehead" --threshold 0.85
 ```
 
-Finds entries by meaning, not just keywords. Returns results ranked by distance (lower = closer match). Use `--threshold` to filter out weakly related results (default: `0.9`).
+Finds entries by meaning, not just keywords. Returns results ranked by distance (lower = closer match). Use `--threshold` to filter out weakly related results. When omitted, a default suited to the configured embedding model is used (`0.9` for `bge-small-en-v1.5`; see `kb model list` for the models).
 
 ### Best practices for `kb ask`
 
@@ -234,22 +256,23 @@ Finds entries by meaning, not just keywords. Returns results ranked by distance 
 The following fields are combined into the embedding text at index time:
 
 ```
-{key} {category} {namespace} {reference} {tags} {value[0..200]}
+{key} {category} {namespace} {reference} {tags} {value[0..1000]} {notes[0..500]}
 ```
 
 To get the best recall:
 
 - **More context = better results** — a full name or phrase (e.g. `"alfred north whitehead"`) produces a much closer match than a single word (`"alfred"`). Short or ambiguous queries yield flat distance distributions where many unrelated entries score similarly.
-- **Write descriptive values** — only the first 200 characters are embedded, so lead with the most important information.
+- **Write descriptive values** — only the first 1000 characters of the value (and the first 500 of the notes) are embedded, so lead with the most important information.
 - **Fill in `reference`** — author, book title, or person's name. Queries like `kb ask "Chauncey quotes"` will match entries whose reference contains "Chauncey".
 - **Use `tags` for domain keywords** — tags are included in the embedding and also power `kb search --keyword`.
 - **Set `category` and `namespace`** — these are lightweight signals that help group semantically related entries.
-- **Tune `--threshold` to control precision** — the default of `0.9` filters out weakly related results. Lower it (e.g. `--threshold 0.85`) for stricter matching; raise it (e.g. `--threshold 0.95`) if you're getting too few results.
+- **Tune `--threshold` to control precision** — the default depends on the embedding model (`0.9` for the default `bge-small-en-v1.5`) and filters out weakly related results. Lower it (e.g. `--threshold 0.85`) for stricter matching; raise it (e.g. `--threshold 0.95`) if you're getting too few results. Distances are not comparable between models, so re-tune after switching.
 
 **When to re-run `kb reindex`**
 
 - After a bulk `kb import`
-- After upgrading `kbzone` when the embedding text formula changes (e.g. this release adds `reference`)
+- After upgrading `kbzone` when the embedding text formula changes (e.g. the release that adds `notes` and a longer `value`)
+- After changing `embedding.model` in `config.yaml` by hand (`kb model set` does this for you)
 - If embedding generation failed silently during `add`/`update` (check for missing results in `kb ask`)
 
 **`kb ask` vs `kb search`**
@@ -345,7 +368,7 @@ Tags:
 kb reindex
 ```
 
-Use this after an import or if embedding generation failed during `add`/`update`. Embedding failures are non-fatal — entries are always saved; only the vector index may be missing.
+Drops and rebuilds the whole vector index for the configured embedding model. Use this after an import, after changing the model by hand, or if embedding generation failed during `add`/`update`. Embedding failures are non-fatal — entries are always saved; only the vector index may be missing.
 
 ### Print a random entry from a category
 
@@ -512,7 +535,8 @@ src/
   ports/vector_store.rs          VectorStore trait
   service/kb_service.rs          Business logic + unit tests
   adapters/sqlite/store.rs       SqliteStore (implements KbStore + VectorStore) + integration tests
-  adapters/fastembed/provider.rs FastEmbedProvider (BAAI/bge-small-en-v1.5, 384 dims)
+  adapters/fastembed/provider.rs FastEmbedProvider (local fastembed model)
+  adapters/fastembed/model.rs    SupportedModel (curated models, dims, prefixes, default threshold)
   cli/commands.rs                Clap subcommands
   cli/handlers.rs                Command handlers + output formatting
   application/config.rs          Config loading (YAML)

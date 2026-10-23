@@ -15,6 +15,19 @@ pub struct Cli {
     pub command: Command,
 }
 
+/// Actions of `kb model`.
+#[derive(Subcommand, Debug)]
+pub enum ModelAction {
+    /// List the supported embedding models and show which one is configured and indexed.
+    List,
+
+    /// Switch to another embedding model and re-index every entry with it.
+    Set {
+        #[arg(help = "Model name (see `kb model list`), e.g. bge-base-en-v1.5")]
+        name: String,
+    },
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Add a new knowledge base entry.
@@ -246,10 +259,9 @@ pub enum Command {
 
         #[arg(
             long,
-            default_value = "0.9",
-            help = "Maximum distance to include (0.0–1.0). Lower = stricter matching. Results with a distance above this threshold are excluded. Use a higher value (e.g. 0.95) to see more results."
+            help = "Maximum distance to include (0.0–1.0). Lower = stricter matching. Results with a distance above this threshold are excluded. Use a higher value (e.g. 0.95) to see more results. Defaults to the configured embedding model's own default."
         )]
-        threshold: f32,
+        threshold: Option<f32>,
 
         #[arg(long, help = "Filter by category")]
         category: Option<String>,
@@ -263,6 +275,12 @@ pub enum Command {
 
     /// Re-generate embeddings for all existing KB entries.
     Reindex,
+
+    /// Show or change the embedding model used for semantic search.
+    Model {
+        #[command(subcommand)]
+        action: ModelAction,
+    },
 
     /// Print a random entry from a category (e.g. quote, english-idioms).
     Random {

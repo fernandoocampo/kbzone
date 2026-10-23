@@ -4,12 +4,13 @@ use crate::cli::table::render_table;
 use crate::cli::{browser, graph_view};
 use crate::domain::{
     AddJsonInput, CategoriesErrorResponse, DeleteConfirmation, DeleteErrorResponse, EdgeDirection,
-    ExportDocument, ExportMediaParams, GetErrorResponse, GraphViewParams, ImportDocument,
-    ImportEdgeItem, ImportKbItem, Kb, KbFilter, KbRelationships, KbSearchResult, KbUpdate,
-    KbWithRelationships, LinkConfirmation, LinkErrorResponse, LinkParams, MediaPathParams,
-    NamespacesErrorResponse, NewKb, OutputFormat, RandomErrorResponse, RelatedResult, ScoredKbItem,
-    SemanticQuery, TagSuggestionInput, TreeNode, TreeResult, TreeWalkParams, build_metadata,
-    format_metadata, is_media_category, media_file_path, parse_metadata_input, suggest_tags,
+    EmbeddingModelInfo, ExportDocument, ExportMediaParams, GetErrorResponse, GraphViewParams,
+    ImportDocument, ImportEdgeItem, ImportKbItem, Kb, KbFilter, KbRelationships, KbSearchResult,
+    KbUpdate, KbWithRelationships, LinkConfirmation, LinkErrorResponse, LinkParams,
+    MediaPathParams, NamespacesErrorResponse, NewKb, OutputFormat, RandomErrorResponse,
+    RelatedResult, ScoredKbItem, SemanticQuery, TagSuggestionInput, TreeNode, TreeResult,
+    TreeWalkParams, build_metadata, format_metadata, is_media_category, media_file_path,
+    parse_metadata_input, suggest_tags,
 };
 use crate::errors::Error;
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, MediaFetcher, MediaStore, VectorStore};
@@ -76,6 +77,14 @@ pub struct SearchParams {
     pub limit: i64,
     pub offset: i64,
     pub out: Option<String>,
+}
+
+pub struct ModelListParams {
+    pub models: Vec<EmbeddingModelInfo>,
+    /// Model named in `config.yaml`.
+    pub configured: String,
+    /// Model the stored embeddings were built with.
+    pub indexed: String,
 }
 
 pub struct AskParams {
@@ -1029,7 +1038,7 @@ pub fn handle_ask<
         .map_or_else(|| "default".to_string(), |l| l.to_string());
     let threshold_display = query
         .threshold
-        .map_or_else(|| "none".to_string(), |t| format!("{:.2}", t));
+        .map_or_else(|| "model default".to_string(), |t| format!("{:.2}", t));
     let category_display = query.category.clone().unwrap_or_else(|| "any".to_string());
     let namespace_display = query.namespace.clone().unwrap_or_else(|| "any".to_string());
     let start = std::time::Instant::now();
@@ -1233,6 +1242,45 @@ pub fn handle_reindex<
         result.succeeded.len(),
         result.failed.len()
     );
+    Ok(())
+}
+
+/// Renders the `kb model list` table, marking the configured and indexed models and
+/// warning when they differ.
+fn render_model_list(params: &ModelListParams) -> String {
+    let mut out = String::new();
+    for model in &params.models {
+        let marker = match (
+            model.name == params.configured,
+            model.name == params.indexed,
+        ) {
+            (true, true) => "configured, indexed",
+            (true, false) => "configured",
+            (false, true) => "indexed",
+            (false, false) => "",
+        };
+        out.push_str(&format!(
+            "{:<24} {:>4} dims  {}\n",
+            model.name, model.dimensions, marker
+        ));
+    }
+    if params.configured != params.indexed {
+        out.push_str(&format!(
+            "\nEmbeddings were built with '{}' but '{}' is configured: run `kb reindex`.\n",
+            params.indexed, params.configured
+        ));
+    }
+    out
+}
+
+pub fn handle_model_list(params: ModelListParams) -> Result<(), Error> {
+    print!("{}", render_model_list(&params));
+    Ok(())
+}
+
+/// Confirms a completed `kb model set`.
+pub fn handle_model_set_done(model: &str) -> Result<(), Error> {
+    println!("Embedding model set to '{model}' and all entries re-indexed.");
     Ok(())
 }
 
@@ -1544,7 +1592,7 @@ const NOTE_TRUNCATE_LEN: usize = 40;
 const TREE_COL_KEY: usize = 12;
 
 /// Truncates to `NOTE_TRUNCATE_LEN` *characters* (not bytes), char-safe via
-/// `.chars()` — same technique as `Kb::embedding_text`'s `.chars().take(200)`.
+/// `.chars()` — same technique as `Kb::embedding_text`.
 fn truncate_note(note: &str) -> String {
     if note.chars().count() <= NOTE_TRUNCATE_LEN {
         return note.to_string();

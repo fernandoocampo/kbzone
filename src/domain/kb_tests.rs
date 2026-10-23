@@ -38,17 +38,25 @@ fn embedding_text_contains_reference() {
 }
 
 #[test]
-fn embedding_text_truncates_value_at_200_chars() {
-    let long_value = "x".repeat(300);
-    let kb = make_kb(&long_value);
+fn embedding_text_truncates_value_at_embedding_value_chars() {
+    let kb = make_kb(&"x".repeat(EMBEDDING_VALUE_CHARS + 300));
     let text = kb.embedding_text();
-    let value_part: String = text
-        .split_whitespace()
-        .last()
-        .unwrap_or("")
-        .chars()
-        .collect();
-    assert!(value_part.len() <= 200);
+    assert_eq!(text.matches('x').count(), EMBEDDING_VALUE_CHARS);
+}
+
+#[test]
+fn embedding_text_contains_notes() {
+    let mut kb = make_kb("kubectl get pods");
+    kb.notes = "lists every pod in the current namespace".to_string();
+    assert!(kb.embedding_text().contains("lists every pod"));
+}
+
+#[test]
+fn embedding_text_truncates_notes_at_embedding_notes_chars() {
+    let mut kb = make_kb("kubectl get pods");
+    kb.notes = "z".repeat(EMBEDDING_NOTES_CHARS + 300);
+    let text = kb.embedding_text();
+    assert_eq!(text.matches('z').count(), EMBEDDING_NOTES_CHARS);
 }
 
 #[test]

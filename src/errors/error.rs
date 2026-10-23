@@ -94,6 +94,8 @@ pub enum AppError {
     StorageError(String),
     #[error("embedding setup error: {0}")]
     EmbeddingSetupError(String),
+    #[error("embedding index is out of date: {0}")]
+    IndexOutOfDate(String),
     #[error("command failed: {0}")]
     CommandError(#[from] Error),
 }

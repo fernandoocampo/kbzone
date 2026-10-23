@@ -52,23 +52,37 @@ pub struct Kb {
     pub label: Option<String>,
 }
 
+/// Maximum number of `value` characters fed to the embedding model.
+pub const EMBEDDING_VALUE_CHARS: usize = 1000;
+
+/// Maximum number of `notes` characters fed to the embedding model.
+pub const EMBEDDING_NOTES_CHARS: usize = 500;
+
+/// Maximum distance a semantic match may have when neither the caller nor the
+/// embedding model specifies a threshold.
+pub const DEFAULT_SEMANTIC_THRESHOLD: f32 = 0.9;
+
 impl Kb {
     /// Joins tags with a space for SQLite storage.
     pub fn tags_as_string(&self) -> String {
         self.tags.join(" ")
     }
 
-    /// Builds the text used for embedding: key + category + namespace + reference + tags + first 200 chars of value.
+    /// Builds the text used for embedding: key + category + namespace + reference + tags +
+    /// the first `EMBEDDING_VALUE_CHARS` chars of value + the first `EMBEDDING_NOTES_CHARS`
+    /// chars of notes.
     pub fn embedding_text(&self) -> String {
-        let truncated_value: String = self.value.chars().take(200).collect();
+        let truncated_value: String = self.value.chars().take(EMBEDDING_VALUE_CHARS).collect();
+        let truncated_notes: String = self.notes.chars().take(EMBEDDING_NOTES_CHARS).collect();
         format!(
-            "{} {} {} {} {} {}",
+            "{} {} {} {} {} {} {}",
             self.key,
             self.category,
             self.namespace,
             self.reference,
             self.tags.join(" "),
-            truncated_value
+            truncated_value,
+            truncated_notes
         )
     }
 }
@@ -289,6 +303,13 @@ pub struct SemanticQuery {
     /// Filter to entries in this namespace (applied as a `vec0` partition key filter —
     /// narrows the nearest-neighbor search itself, not just the results).
     pub namespace: Option<String>,
+}
+
+/// An embedding model the user can select, as shown by `kb model list`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingModelInfo {
+    pub name: String,
+    pub dimensions: usize,
 }
 
 /// Input for generating and storing an embedding for a KB entry.

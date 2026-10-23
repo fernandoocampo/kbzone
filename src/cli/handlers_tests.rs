@@ -119,6 +119,10 @@ impl crate::ports::VectorStore for MockVectorStore {
         Ok(())
     }
 
+    fn reset_vectors(&self, _dimensions: usize) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn save_embedding(
         &self,
         _input: &crate::domain::EmbeddingInput,
@@ -2525,4 +2529,47 @@ fn render_created_kb_renders_json_and_yaml() {
     assert!(yaml.contains("key: render-key"));
     let json = render_created_kb(&kb, OutputFormat::Json).expect("json render");
     assert!(json.contains("\"key\": \"render-key\""));
+}
+
+// ---- kb model list rendering ----
+
+fn model_list_params(configured: &str, indexed: &str) -> ModelListParams {
+    ModelListParams {
+        models: vec![
+            crate::domain::EmbeddingModelInfo {
+                name: "bge-small-en-v1.5".to_string(),
+                dimensions: 384,
+            },
+            crate::domain::EmbeddingModelInfo {
+                name: "bge-base-en-v1.5".to_string(),
+                dimensions: 768,
+            },
+        ],
+        configured: configured.to_string(),
+        indexed: indexed.to_string(),
+    }
+}
+
+#[test]
+fn render_model_list_marks_a_model_that_is_configured_and_indexed() {
+    let out = render_model_list(&model_list_params("bge-small-en-v1.5", "bge-small-en-v1.5"));
+    let small = out.lines().find(|l| l.contains("bge-small")).unwrap();
+    assert!(small.contains("384"));
+    assert!(small.contains("configured, indexed"));
+    assert!(!out.contains("kb reindex"));
+}
+
+#[test]
+fn render_model_list_warns_when_configured_and_indexed_models_differ() {
+    let out = render_model_list(&model_list_params("bge-base-en-v1.5", "bge-small-en-v1.5"));
+    let base = out.lines().find(|l| l.contains("bge-base")).unwrap();
+    let small = out.lines().find(|l| l.contains("bge-small")).unwrap();
+    assert!(base.ends_with("configured"));
+    assert!(small.ends_with("indexed"));
+    assert!(out.contains("run `kb reindex`"));
+}
+
+#[test]
+fn handle_model_list_succeeds() {
+    assert!(handle_model_list(model_list_params("bge-small-en-v1.5", "bge-small-en-v1.5")).is_ok());
 }

@@ -12,6 +12,11 @@ pub trait VectorStore: Debug + Clone {
     /// Creates the vector table schema (idempotent). Must be called once at startup.
     fn initialize_vectors(&self, dimensions: usize) -> Result<(), Error>;
 
+    /// Drops every stored embedding and recreates the vector table for `dimensions`.
+    /// Used when the embedding model changes, since vectors of different models are
+    /// not comparable.
+    fn reset_vectors(&self, dimensions: usize) -> Result<(), Error>;
+
     /// Persists an embedding for the given KB entry (upsert semantics).
     fn save_embedding(&self, input: &EmbeddingInput, embedding: &[f32]) -> Result<(), Error>;
 

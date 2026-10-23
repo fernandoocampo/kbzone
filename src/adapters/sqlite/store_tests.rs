@@ -1916,3 +1916,55 @@ fn glob_to_like_pattern_translates_wildcards_and_escapes_special_chars() {
     assert_eq!(glob_to_like_pattern("100%_done"), "100\\%\\_done");
     assert_eq!(glob_to_like_pattern("a\\b"), "a\\\\b");
 }
+
+fn embedding_input(kb_id: &str) -> EmbeddingInput {
+    EmbeddingInput {
+        kb_id: kb_id.to_string(),
+        text: "text".to_string(),
+        namespace: "default".to_string(),
+    }
+}
+
+#[test]
+fn reset_vectors_removes_existing_embeddings() {
+    let store = in_memory_store();
+    store.initialize().unwrap();
+    store.initialize_vectors(4).unwrap();
+    store
+        .save_embedding(&embedding_input("id-1"), &[1.0f32, 0.0, 0.0, 0.0])
+        .unwrap();
+
+    store.reset_vectors(4).unwrap();
+
+    let conn = store.conn.lock().unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM kb_embeddings", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn reset_vectors_switches_the_embedding_dimension() {
+    let store = in_memory_store();
+    store.initialize().unwrap();
+    store.initialize_vectors(4).unwrap();
+    assert!(
+        store
+            .save_embedding(&embedding_input("id-1"), &[1.0f32; 8])
+            .is_err(),
+        "an 8-dim vector must not fit a 4-dim table"
+    );
+
+    store.reset_vectors(8).unwrap();
+
+    store
+        .save_embedding(&embedding_input("id-1"), &[1.0f32; 8])
+        .expect("8-dim vector should fit after reset_vectors(8)");
+}
+
+#[test]
+fn reset_vectors_works_when_the_table_is_missing() {
+    let store = in_memory_store();
+    store.initialize().unwrap();
+    assert!(store.reset_vectors(4).is_ok());
+}

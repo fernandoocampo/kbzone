@@ -127,7 +127,7 @@ const CREATE_EMBEDDINGS_TABLE_TPL: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS kb
 const GET_EMBEDDINGS_TABLE_SQL: &str =
     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'kb_embeddings'";
 
-const DROP_EMBEDDINGS_TABLE: &str = "DROP TABLE kb_embeddings";
+const DROP_EMBEDDINGS_TABLE: &str = "DROP TABLE IF EXISTS kb_embeddings";
 
 const INSERT_EMBEDDING: &str =
     "INSERT INTO kb_embeddings(kb_id, namespace, embedding) VALUES (?1, ?2, ?3)";
@@ -1059,6 +1059,13 @@ fn build_fts_extra_filters(filter: &KbFilter) -> (String, Vec<String>) {
 // VectorStore implementation
 // ---------------------------------------------------------------------------
 
+/// Creates the `kb_embeddings` vec0 table for `dimensions` if it does not exist yet.
+fn create_embeddings_table(conn: &Connection, dimensions: usize) -> Result<(), Error> {
+    let ddl = CREATE_EMBEDDINGS_TABLE_TPL.replace("{}", &dimensions.to_string());
+    conn.execute_batch(&ddl)
+        .map_err(|e| Error::VectorStoreInitError(e.to_string()))
+}
+
 impl VectorStore for SqliteStore {
     fn initialize_vectors(&self, dimensions: usize) -> Result<(), Error> {
         let conn = self.conn.lock().expect("mutex poisoned");
@@ -1076,10 +1083,14 @@ impl VectorStore for SqliteStore {
                 .map_err(|e| Error::VectorStoreInitError(e.to_string()))?;
         }
 
-        let ddl = CREATE_EMBEDDINGS_TABLE_TPL.replace("{}", &dimensions.to_string());
-        conn.execute_batch(&ddl)
+        create_embeddings_table(&conn, dimensions)
+    }
+
+    fn reset_vectors(&self, dimensions: usize) -> Result<(), Error> {
+        let conn = self.conn.lock().expect("mutex poisoned");
+        conn.execute(DROP_EMBEDDINGS_TABLE, [])
             .map_err(|e| Error::VectorStoreInitError(e.to_string()))?;
-        Ok(())
+        create_embeddings_table(&conn, dimensions)
     }
 
     fn save_embedding(&self, input: &EmbeddingInput, embedding: &[f32]) -> Result<(), Error> {

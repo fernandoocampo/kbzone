@@ -336,6 +336,12 @@ impl KbStore for GhostItemKbStore {
 struct MockVectorStore {
     indexed: Rc<RefCell<Vec<(String, String)>>>,
     deleted: Rc<RefCell<Vec<String>>>,
+    /// Vector passed to each `save_embedding` call.
+    embeddings: Rc<RefCell<Vec<Vec<f32>>>>,
+    /// Dimensions passed to each `reset_vectors` call.
+    resets: Rc<RefCell<Vec<usize>>>,
+    /// (threshold, embedding) of each `search_similar` call.
+    searches: Rc<RefCell<Vec<(Option<f32>, Vec<f32>)>>>,
 }
 
 impl Default for MockVectorStore {
@@ -343,6 +349,9 @@ impl Default for MockVectorStore {
         Self {
             indexed: Rc::new(RefCell::new(Vec::new())),
             deleted: Rc::new(RefCell::new(Vec::new())),
+            embeddings: Rc::new(RefCell::new(Vec::new())),
+            resets: Rc::new(RefCell::new(Vec::new())),
+            searches: Rc::new(RefCell::new(Vec::new())),
         }
     }
 }
@@ -352,10 +361,16 @@ impl VectorStore for MockVectorStore {
         Ok(())
     }
 
-    fn save_embedding(&self, input: &EmbeddingInput, _embedding: &[f32]) -> Result<(), Error> {
+    fn reset_vectors(&self, dimensions: usize) -> Result<(), Error> {
+        self.resets.borrow_mut().push(dimensions);
+        Ok(())
+    }
+
+    fn save_embedding(&self, input: &EmbeddingInput, embedding: &[f32]) -> Result<(), Error> {
         self.indexed
             .borrow_mut()
             .push((input.kb_id.clone(), input.namespace.clone()));
+        self.embeddings.borrow_mut().push(embedding.to_vec());
         Ok(())
     }
 
@@ -366,9 +381,12 @@ impl VectorStore for MockVectorStore {
 
     fn search_similar(
         &self,
-        _query: &SemanticQuery,
-        _embedding: &[f32],
+        query: &SemanticQuery,
+        embedding: &[f32],
     ) -> Result<Vec<ScoredKbItem>, Error> {
+        self.searches
+            .borrow_mut()
+            .push((query.threshold, embedding.to_vec()));
         Ok(vec![])
     }
 }
@@ -381,6 +399,12 @@ struct FailingVectorStore;
 impl VectorStore for FailingVectorStore {
     fn initialize_vectors(&self, _dimensions: usize) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn reset_vectors(&self, _dimensions: usize) -> Result<(), Error> {
+        Err(Error::VectorStoreInitError(
+            "forced reset failure".to_string(),
+        ))
     }
 
     fn save_embedding(&self, _input: &EmbeddingInput, _embedding: &[f32]) -> Result<(), Error> {
@@ -412,6 +436,29 @@ impl EmbeddingProvider for MockEmbeddingProvider {
 
     fn dimensions(&self) -> usize {
         4
+    }
+}
+
+// ---- ModelAwareEmbeddingProvider: distinguishes queries from documents ----
+
+#[derive(Debug, Clone)]
+struct ModelAwareEmbeddingProvider;
+
+impl EmbeddingProvider for ModelAwareEmbeddingProvider {
+    fn embed(&self, _text: &str) -> Result<Vec<f32>, Error> {
+        Ok(vec![0.0; 8])
+    }
+
+    fn embed_query(&self, _text: &str) -> Result<Vec<f32>, Error> {
+        Ok(vec![1.0; 8])
+    }
+
+    fn dimensions(&self) -> usize {
+        8
+    }
+
+    fn default_threshold(&self) -> f32 {
+        0.42
     }
 }
 
@@ -773,7 +820,7 @@ fn update_kb_changing_namespace_reindexes_with_new_namespace() {
 }
 
 #[test]
-fn update_kb_skips_reindex_when_only_notes_changes() {
+fn update_kb_reindexes_when_only_notes_change() {
     let original = make_kb("id-1", "rust-ownership");
     let store = MockKbStore::with(vec![original]);
     let vector = MockVectorStore::default();
@@ -801,7 +848,11 @@ fn update_kb_skips_reindex_when_only_notes_changes() {
         label: None,
     };
     assert!(svc.update_kb(update).is_ok());
-    assert!(vector.indexed.borrow().is_empty());
+    // Notes are part of `embedding_text()`, so changing them must refresh the vector.
+    assert_eq!(
+        vector.indexed.borrow().as_slice(),
+        &[("id-1".to_string(), "default".to_string())]
+    );
 }
 
 #[test]
@@ -2058,4 +2109,114 @@ fn count_kbs_filters_by_date_range() {
     };
     let count = svc.count_kbs(&filter).unwrap();
     assert_eq!(count, 1);
+}
+
+// ---- ask: query embedding and threshold resolution ----
+
+fn make_svc_with_model_aware_embedder(
+    vector_store: MockVectorStore,
+) -> KBService<
+    MockKbStore,
+    MockVectorStore,
+    ModelAwareEmbeddingProvider,
+    MockMediaStore,
+    MockMediaFetcher,
+> {
+    KBService::new(
+        MockKbStore::new(),
+        ServiceDeps {
+            vector_store,
+            embedder: ModelAwareEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    )
+}
+
+fn ask_query(threshold: Option<f32>) -> SemanticQuery {
+    SemanticQuery {
+        text: "rust memory".to_string(),
+        limit: Some(5),
+        threshold,
+        category: None,
+        namespace: None,
+    }
+}
+
+#[test]
+fn ask_embeds_the_query_with_embed_query() {
+    let vector_store = MockVectorStore::default();
+    let svc = make_svc_with_model_aware_embedder(vector_store.clone());
+    svc.ask(&ask_query(None)).unwrap();
+    let searches = vector_store.searches.borrow();
+    assert_eq!(searches.len(), 1);
+    assert_eq!(searches[0].1, vec![1.0; 8]);
+}
+
+#[test]
+fn ask_uses_the_models_default_threshold_when_none_given() {
+    let vector_store = MockVectorStore::default();
+    let svc = make_svc_with_model_aware_embedder(vector_store.clone());
+    svc.ask(&ask_query(None)).unwrap();
+    assert_eq!(vector_store.searches.borrow()[0].0, Some(0.42));
+}
+
+#[test]
+fn ask_explicit_threshold_wins_over_the_models_default() {
+    let vector_store = MockVectorStore::default();
+    let svc = make_svc_with_model_aware_embedder(vector_store.clone());
+    svc.ask(&ask_query(Some(0.7))).unwrap();
+    assert_eq!(vector_store.searches.borrow()[0].0, Some(0.7));
+}
+
+#[test]
+fn indexing_embeds_documents_with_embed_not_embed_query() {
+    let vector_store = MockVectorStore::default();
+    let svc = KBService::new(
+        MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]),
+        ServiceDeps {
+            vector_store: vector_store.clone(),
+            embedder: ModelAwareEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    );
+    svc.reindex().unwrap();
+    assert_eq!(vector_store.embeddings.borrow().as_slice(), &[vec![0.0; 8]]);
+}
+
+// ---- reindex: vector table reset ----
+
+#[test]
+fn reindex_resets_vectors_with_the_embedders_dimensions() {
+    let vector_store = MockVectorStore::default();
+    let svc = KBService::new(
+        MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]),
+        ServiceDeps {
+            vector_store: vector_store.clone(),
+            embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    );
+    svc.reindex().unwrap();
+    assert_eq!(vector_store.resets.borrow().as_slice(), &[4]);
+}
+
+#[test]
+fn reindex_fails_when_the_vector_reset_fails() {
+    let svc = KBService::new(
+        MockKbStore::with(vec![make_kb("id-1", "rust-ownership")]),
+        ServiceDeps {
+            vector_store: FailingVectorStore,
+            embedder: MockEmbeddingProvider,
+            media_store: MockMediaStore::default(),
+            media_fetcher: MockMediaFetcher,
+            base_dir: String::new(),
+        },
+    );
+    assert!(matches!(svc.reindex(), Err(Error::VectorStoreInitError(_))));
 }

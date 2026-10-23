@@ -1,32 +1,60 @@
 use clap::Parser;
 
-use crate::adapters::fastembed::FastEmbedProvider;
+use crate::adapters::fastembed::{FastEmbedParams, FastEmbedProvider, SupportedModel};
 use crate::adapters::filesystem::FileSystemMediaStore;
 use crate::adapters::http::HttpMediaFetcher;
 use crate::adapters::sqlite::SqliteStore;
 use crate::application::config::Config;
-use crate::cli::commands::{Cli, Command};
+use crate::cli::commands::{Cli, Command, ModelAction};
 use crate::cli::handlers::{
     self, AddParams, AskParams, CategoriesParams, DeleteParams, ExportParams, ExportServices,
-    GetParams, GetServices, GraphViewCliParams, ImportParams, ImportServices, NamespacesParams,
-    RandomParams, RelatedParams, SearchParams, TreeParams, UnlinkParams, UpdateParams,
+    GetParams, GetServices, GraphViewCliParams, ImportParams, ImportServices, ModelListParams,
+    NamespacesParams, RandomParams, RelatedParams, SearchParams, TreeParams, UnlinkParams,
+    UpdateParams,
 };
-use crate::domain::{KbUpdate, LinkParams, SemanticQuery};
-use crate::errors::AppError;
+use crate::domain::{EmbeddingModelInfo, KbUpdate, LinkParams, SemanticQuery};
+use crate::errors::{AppError, Error};
 use crate::ports::{EmbeddingProvider, KbGraph, KbStore, VectorStore};
 use crate::service::{GraphService, KBService, ServiceDeps};
 
+type AppService =
+    KBService<SqliteStore, SqliteStore, FastEmbedProvider, FileSystemMediaStore, HttpMediaFetcher>;
+
 /// Top-level application object. Owns the unified service and drives the CLI.
 pub struct App {
-    svc: KBService<
-        SqliteStore,
-        SqliteStore,
-        FastEmbedProvider,
-        FileSystemMediaStore,
-        HttpMediaFetcher,
-    >,
+    svc: AppService,
     graph_svc: GraphService<SqliteStore, SqliteStore>,
     base_dir: String,
+    config: Config,
+    store: SqliteStore,
+}
+
+/// Wires a `KBService` around `embedder`; shared by startup and `kb model set`.
+fn build_service(store: &SqliteStore, embedder: FastEmbedProvider, base_dir: &str) -> AppService {
+    KBService::new(
+        store.clone(),
+        ServiceDeps {
+            vector_store: store.clone(),
+            embedder,
+            media_store: FileSystemMediaStore,
+            media_fetcher: HttpMediaFetcher,
+            base_dir: base_dir.to_string(),
+        },
+    )
+}
+
+/// Builds the embedding provider for the model named in `config`.
+fn build_embedder(config: &Config) -> Result<FastEmbedProvider, AppError> {
+    let model: SupportedModel = config
+        .embedding
+        .model
+        .parse()
+        .map_err(|e: Error| AppError::EmbeddingSetupError(e.to_string()))?;
+    FastEmbedProvider::new(FastEmbedParams {
+        model,
+        cache_dir: config.model_cache_dir(),
+    })
+    .map_err(|e| AppError::EmbeddingSetupError(e.to_string()))
 }
 
 impl App {
@@ -42,8 +70,7 @@ impl App {
             .initialize()
             .map_err(|e| AppError::StorageError(e.to_string()))?;
 
-        let embedder = FastEmbedProvider::new(config.model_cache_dir())
-            .map_err(|e| AppError::EmbeddingSetupError(e.to_string()))?;
+        let embedder = build_embedder(&config)?;
 
         store
             .initialize_vectors(embedder.dimensions())
@@ -58,28 +85,65 @@ impl App {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        let svc = KBService::new(
-            store.clone(),
-            ServiceDeps {
-                vector_store: store.clone(),
-                embedder,
-                media_store: FileSystemMediaStore,
-                media_fetcher: HttpMediaFetcher,
-                base_dir: base_dir.clone(),
-            },
-        );
-        let graph_svc = GraphService::new(store.clone(), store);
+        let svc = build_service(&store, embedder, &base_dir);
+        let graph_svc = GraphService::new(store.clone(), store.clone());
 
         Ok(App {
             svc,
             graph_svc,
             base_dir,
+            config,
+            store,
         })
     }
 
+    /// Fails when the stored embeddings were built with a different model than the
+    /// configured one: searching or indexing against them would give wrong results.
+    fn ensure_index_current(&self) -> Result<(), AppError> {
+        self.config.index_is_current().then_some(()).ok_or_else(|| {
+            AppError::IndexOutOfDate(format!(
+                "embeddings were built with '{}' but '{}' is configured; run `kb reindex` to rebuild them",
+                self.config.indexed_model_name(),
+                self.config.embedding.model
+            ))
+        })
+    }
+
+    /// Records that every embedding now matches the configured model.
+    fn mark_index_current(&mut self) -> Result<(), AppError> {
+        self.config.mark_indexed();
+        self.config.persist().map_err(AppError::ConfigError)
+    }
+
+    /// Switches the configured model, then rebuilds every embedding with it.
+    fn set_model(&mut self, name: &str) -> Result<(), AppError> {
+        let model: SupportedModel = name
+            .parse()
+            .map_err(|e: Error| AppError::EmbeddingSetupError(e.to_string()))?;
+        self.config.embedding.model = model.name().to_string();
+        self.config.persist().map_err(AppError::ConfigError)?;
+
+        let embedder = build_embedder(&self.config)?;
+        let svc = build_service(&self.store, embedder, &self.base_dir);
+        handlers::handle_reindex(&svc)?;
+        self.mark_index_current()?;
+        handlers::handle_model_set_done(model.name())?;
+        Ok(())
+    }
+
     /// Parses the CLI arguments and dispatches to the appropriate handler.
-    pub fn run(self) -> Result<(), AppError> {
+    pub fn run(mut self) -> Result<(), AppError> {
         let cli = Cli::parse();
+
+        if matches!(
+            cli.command,
+            Command::Add { .. }
+                | Command::Update { .. }
+                | Command::Ask { .. }
+                | Command::Import { .. }
+        ) {
+            self.ensure_index_current()?;
+        }
 
         match cli.command {
             Command::Add {
@@ -221,7 +285,7 @@ impl App {
                     query: SemanticQuery {
                         text: query,
                         limit: Some(limit),
-                        threshold: Some(threshold),
+                        threshold,
                         category,
                         namespace,
                     },
@@ -252,7 +316,25 @@ impl App {
                 handlers::handle_namespaces(&self.svc, NamespacesParams { filter, out })?
             }
 
-            Command::Reindex => handlers::handle_reindex(&self.svc)?,
+            Command::Reindex => {
+                handlers::handle_reindex(&self.svc)?;
+                self.mark_index_current()?;
+            }
+
+            Command::Model { action } => match action {
+                ModelAction::List => handlers::handle_model_list(ModelListParams {
+                    models: SupportedModel::ALL
+                        .iter()
+                        .map(|m| EmbeddingModelInfo {
+                            name: m.name().to_string(),
+                            dimensions: m.dimensions(),
+                        })
+                        .collect(),
+                    configured: self.config.embedding.model.clone(),
+                    indexed: self.config.indexed_model_name().to_string(),
+                })?,
+                ModelAction::Set { name } => self.set_model(&name)?,
+            },
 
             Command::Export {
                 file_name,

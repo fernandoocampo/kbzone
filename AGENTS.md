@@ -12,8 +12,10 @@ local SQLite file. The binary is named `kb`.
 - `kb update`                  — Update an entry (also re-indexes embedding); flags include `--metadata` (comma-separated `key=value` pairs; replaces existing metadata; empty string clears all), `--path` (empty string clears the path), `--label` (empty string clears the label), and `--out` (`json`\|`yaml`, optional — default is plain text)
 - `kb delete`                  — Delete an entry (also removes embedding); flags: `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
 - `kb search`                  — Search/list entries; flags: `--keyword`, `--category`, `--namespace` (supports `*` glob wildcards for prefix/suffix/contains matching, e.g. `company.domain.*`, `*.domain.subdomain`, `*.domain.subdomain.*`; case-insensitive when a wildcard is used — exact/case-sensitive otherwise), `--path` (supports `*` glob wildcards for prefix/suffix/contains matching, e.g. `/personal/cars/*`, `*/engines`, `*/cars/*`; always case-insensitive, same matching behavior as `--namespace`), `--key` (supports `*` glob wildcards for prefix/suffix/contains matching on the entry key, e.g. `user-*`, `*-handler`, `*auth*`; always case-insensitive, same matching behavior as `--path`), `--tags`, `--reference`, `--start-date`, `--end-date` (both `YYYY-MM-DD`, filter on `created_on`, inclusive), `--limit`, `--offset`, `--out` (`json`\|`yaml`, optional — default is plain text); uses FTS5 when `--keyword` is set, otherwise a regular SQL filter; `--namespace`/`--path`/`--key` wildcards work in both the FTS and non-FTS paths — unlike `--namespace` on `export`/`ask`/`categories`/`random`, which stays exact-match only
-- `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default `0.9` — results above this value are excluded), `--category` (post-filter), `--namespace` (`vec0` partition filter — narrows the vector search itself), `--out` (`json`\|`yaml`, optional — default is plain text)
-- `kb reindex`                 — Rebuild embeddings for all entries
+- `kb ask "<query>"`           — Semantic / vector search (natural language); flags: `--limit`, `--threshold` (max distance; default is the configured embedding model's own default — `0.9` for bge-small — results above this value are excluded), `--category` (post-filter), `--namespace` (`vec0` partition filter — narrows the vector search itself), `--out` (`json`\|`yaml`, optional — default is plain text)
+- `kb reindex`                 — Drop and rebuild the vector table and embeddings for all entries with the configured model, then record it as `indexed_model` in `config.yaml`
+- `kb model list`              — List the supported embedding models, their dimensions, and which is configured / indexed
+- `kb model set <name>`        — Switch `embedding.model` in `config.yaml` and re-index every entry with it (downloads the model if needed)
 - `kb export`                  — Export KB entries and their graph relationships to a single-document YAML file with `kbs`/`graph` sections; flags: `--file-name` (optional), `--folder-output` (required), `--category`, `--namespace`, `--limit`, `--offset`; `Path` field included when set; an edge appears in `graph` only when *both* its endpoints are present in the exported `kbs` set
 - `kb import`                  — Import KB entries from a multi-document YAML file; `Path` field is validated and normalised on import
 - `kb random`                  — Print a random entry from a category; flags: `--category` (required), `--namespace` (optional), `--include-notes` (optional — append notes if present), `--out` (`json`, optional — default is plain text; on error, `--out json` also prints a JSON error object to stdout)
@@ -33,18 +35,43 @@ The config file is **auto-created with defaults on first run** if it does not ex
 db_path: ~/.kbzona/kbzona.db
 embedding:
   provider: fastembed   # default; only supported value for now
+  model: bge-small-en-v1.5          # desired model; see "Embedding models" below
+  indexed_model: bge-small-en-v1.5  # written by kb after a successful reindex — don't edit
 ```
 
 - `$KBZONA_HOME` overrides the base directory (default: `~/.kbzona/`).
 - Embedding model cache: `{db_path_parent}/fastembed_cache/`.
+
+#### Embedding models
+
+`SupportedModel` (`adapters/fastembed/model.rs`) is the curated list: `bge-small-en-v1.5`
+(default, 384d), `bge-base-en-v1.5` (768d), `nomic-embed-text-v1.5` (768d),
+`multilingual-e5-small` (384d). Each carries its dimensions, its query/passage prefixes
+(nomic: `search_query: `/`search_document: `; e5: `query: `/`passage: `; bge: none) and
+its own `default_threshold()`. Unknown names fail with an error listing the valid ones.
+
+The stored embeddings are only valid for the model that built them. `Config::index_is_current()`
+compares `model` with `indexed_model` (a missing `indexed_model` means the default model —
+legacy configs). When they differ, `kb add`/`update`/`ask`/`import` fail with
+`AppError::IndexOutOfDate` and tell the user to run `kb reindex`. `kb reindex` and
+`kb model set` call `VectorStore::reset_vectors(dims)` (drop + recreate the `vec0` table,
+since its dimension is fixed) and then `Config::mark_indexed()`.
+
+`EmbeddingProvider::embed` embeds a *document* (indexing); `embed_query` embeds a search
+query (defaults to `embed`; the fastembed provider applies the per-model prefix).
+`KBService::ask` uses `embed_query` and, when no threshold is given, the provider's
+`default_threshold()`.
 
 #### Embedding text construction
 
 When indexing an entry (on `add`, `update`, or `reindex`), the text fed to the embedding model is:
 
 ```
-"{key} {category} {namespace} {reference} {tags_as_string} {value[0..200]}"
+"{key} {category} {namespace} {reference} {tags_as_string} {value[0..1000]} {notes[0..500]}"
 ```
+
+(`EMBEDDING_VALUE_CHARS` / `EMBEDDING_NOTES_CHARS` in `domain/kb.rs`.) Changing the
+embedding text does not auto-invalidate the index: run `kb reindex` after upgrading.
 
 Note: `metadata` is **not** included in the embedding text and does not trigger a re-index when updated (updates to only metadata are skipped).
 
@@ -162,7 +189,8 @@ src/
                                    key-or-id resolution; unit tests (MockKbStore, MockKbGraph)
   adapters/sqlite/store.rs       SqliteStore implements KbStore + VectorStore + KbGraph;
                                    integration tests (in-memory + sqlite-vec)
-  adapters/fastembed/provider.rs FastEmbedProvider (bge-small-en-v1.5, 384 dims)
+  adapters/fastembed/provider.rs FastEmbedProvider (local fastembed model)
+  adapters/fastembed/model.rs    SupportedModel — curated models, dims, prefixes, default threshold
   cli/commands.rs                Clap derive subcommands (incl. ask, reindex, link,
                                    unlink, related, tree, graph)
   cli/handlers.rs                Free `handle_*` functions per command, each taking
@@ -173,7 +201,7 @@ src/
   cli/browser.rs                 One-shot local HTTP hand-off for `kb graph` — serves
                                    the rendered HTML once over loopback, opens the
                                    default browser, writes no file to disk
-  application/config.rs          Config (YAML) — db_path + embedding.provider
+  application/config.rs          Config (YAML) — db_path + embedding.provider/model/indexed_model
   application/app.rs             App::build() wires deps (holds both KBService and
                                    GraphService); App::run() dispatches CLI
 ```

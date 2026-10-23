@@ -26,11 +26,12 @@ pub use graph::{
     TreeRoot, TreeWalkParams,
 };
 pub use kb::{
-    AddJsonInput, CategoriesErrorResponse, DeleteConfirmation, DeleteErrorResponse, EmbeddingInput,
-    ExportKbItem, ExportMediaParams, FailedImportItem, GetErrorResponse, ImportBatchResult,
-    ImportKbItem, Kb, KbFilter, KbItem, KbSearchResult, KbUpdate, MediaPathParams,
-    NamespacesErrorResponse, NewKb, OutputFormat, RandomErrorResponse, ReindexResult, ScoredKbItem,
-    SemanticQuery, StoreMediaParams, build_metadata, file_extension, format_metadata,
-    is_media_category, media_file_path, normalize_path, parse_metadata_input,
+    AddJsonInput, CategoriesErrorResponse, DEFAULT_SEMANTIC_THRESHOLD, DeleteConfirmation,
+    DeleteErrorResponse, EMBEDDING_NOTES_CHARS, EMBEDDING_VALUE_CHARS, EmbeddingInput,
+    EmbeddingModelInfo, ExportKbItem, ExportMediaParams, FailedImportItem, GetErrorResponse,
+    ImportBatchResult, ImportKbItem, Kb, KbFilter, KbItem, KbSearchResult, KbUpdate,
+    MediaPathParams, NamespacesErrorResponse, NewKb, OutputFormat, RandomErrorResponse,
+    ReindexResult, ScoredKbItem, SemanticQuery, StoreMediaParams, build_metadata, file_extension,
+    format_metadata, is_media_category, media_file_path, normalize_path, parse_metadata_input,
 };
 pub use tag_suggestion::{TagSuggestionInput, suggest_tags};

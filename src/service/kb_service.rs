@@ -207,15 +207,29 @@ impl<S: KbStore, V: VectorStore, E: EmbeddingProvider, M: MediaStore, F: MediaFe
         self.store.get_namespaces(filter)
     }
 
+    /// Semantic search. The query is embedded as a query (not a document) and, when
+    /// `query.threshold` is `None`, the embedding model's default threshold applies.
     pub fn ask(&self, query: &SemanticQuery) -> Result<Vec<ScoredKbItem>, Error> {
-        let embedding = self.embedder.embed(&query.text)?;
-        self.vector_store.search_similar(query, &embedding)
+        let embedding = self.embedder.embed_query(&query.text)?;
+        let query = SemanticQuery {
+            threshold: Some(
+                query
+                    .threshold
+                    .unwrap_or_else(|| self.embedder.default_threshold()),
+            ),
+            ..query.clone()
+        };
+        self.vector_store.search_similar(&query, &embedding)
     }
 
-    /// Re-indexes all entries. Outer `Err` only if `list_kbs` fails.
+    /// Re-indexes all entries from scratch: the vector table is dropped and recreated
+    /// for the embedder's dimensions first, so no vector from a previous model survives.
+    /// Outer `Err` only if `list_kbs` or the table reset fails.
     /// Per-entry failures are collected in `ReindexResult::failed`.
     pub fn reindex(&self) -> Result<ReindexResult, Error> {
         let items = self.store.get_kbs(&KbFilter::default())?;
+        self.vector_store
+            .reset_vectors(self.embedder.dimensions())?;
         let mut succeeded = Vec::new();
         let mut failed = Vec::new();
 

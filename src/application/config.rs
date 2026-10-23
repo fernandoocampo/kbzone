@@ -1,22 +1,38 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::adapters::fastembed::SupportedModel;
+
 /// Configuration for the embedding provider.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingConfig {
     /// Which provider to use. Supported values: `"fastembed"` (default).
     #[serde(default = "default_provider")]
     pub provider: String,
+    /// The embedding model the user wants (see `SupportedModel` for valid names).
+    #[serde(default = "default_model")]
+    pub model: String,
+    /// The model the stored embeddings were built with. Written by `kb` after a
+    /// successful reindex; never edit by hand. When absent (configs from before model
+    /// selection existed) the default model is assumed, since it was the only one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub indexed_model: Option<String>,
 }
 
 fn default_provider() -> String {
     "fastembed".to_string()
 }
 
+fn default_model() -> String {
+    SupportedModel::DEFAULT.name().to_string()
+}
+
 impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
             provider: default_provider(),
+            model: default_model(),
+            indexed_model: Some(default_model()),
         }
     }
 }
@@ -91,6 +107,31 @@ impl Config {
     /// Returns the expanded (tilde-resolved) `db_path`.
     pub fn resolved_db_path(&self) -> String {
         expand_tilde(&self.db_path)
+    }
+
+    /// Name of the model the stored embeddings were built with.
+    pub fn indexed_model_name(&self) -> &str {
+        self.embedding
+            .indexed_model
+            .as_deref()
+            .unwrap_or(SupportedModel::DEFAULT.name())
+    }
+
+    /// True when the stored embeddings were built with the configured model.
+    pub fn index_is_current(&self) -> bool {
+        self.indexed_model_name()
+            .trim()
+            .eq_ignore_ascii_case(self.embedding.model.trim())
+    }
+
+    /// Records that the stored embeddings now match the configured model.
+    pub fn mark_indexed(&mut self) {
+        self.embedding.indexed_model = Some(self.embedding.model.clone());
+    }
+
+    /// Writes the config back to its file (`config_file_path`).
+    pub fn persist(&self) -> Result<(), String> {
+        self.save(&Self::config_file_path())
     }
 
     /// Returns the directory used to cache embedding model files.
