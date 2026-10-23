@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.20.1](https://github.com/fernandoocampo/kbzone/compare/060adfde047e33c641efe84991ba9636c080a4da..v0.20.1) - 2026-10-23
+#### Bug Fixes
+- update deps for vulnerabilities - ([060adfd](https://github.com/fernandoocampo/kbzone/commit/060adfde047e33c641efe84991ba9636c080a4da)) - Fernando Ocampo
+
+- - -
+
 ## [v0.20.0](https://github.com/fernandoocampo/kbzone/compare/27cf1716441f4dfe622dc8f29e6962e155b31e47..v0.20.0) - 2026-10-23
 #### Features
 - add ask models - ([8a7c647](https://github.com/fernandoocampo/kbzone/commit/8a7c64776c355e0c6b41afd3510fb3cb919a5f6b)) - Fernando Ocampo
