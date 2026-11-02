@@ -490,6 +490,41 @@ make fmt-check  # check formatting without modifying files
 make lint       # run clippy (deny warnings)
 ```
 
+## Requesting a feature, fix, or chore
+
+Work is driven by the AI-method workflow in [`.ai/`](.ai/); the full rationale is in [`.ai/GUIDE.md`](.ai/GUIDE.md) (sections 3 and 4). The Makefile workflow is reusable, so a task is one written request, not a new prompt.
+
+0. **Starting a second or later task? Reset the per-task state first.** Only `00_governance.md` is permanent; the rest of `.ai/state/` belongs to one task, and leftover `approvals/*.ok` files would pre-approve the next task's gates. From the repo root:
+
+   ```sh
+   T=.ai/history/$(date +%F)-<task-slug>
+   mkdir -p "$T"
+   mv .ai/state/{10,15,20,30,40,99}_*.md .ai/state/approvals "$T"/
+   mkdir -p .ai/state/approvals
+   cp <ai-method>/templates/state/{10,15,20,30,40,99}_*.md .ai/state/
+   ```
+
+   This keeps the old task's record under `.ai/history/` and restores blank placeholders. Skip it on the very first task.
+
+1. Fill in `.ai/state/10_ticket.md`: replace its placeholder comment with the template from [`.ai/request.md`](.ai/request.md), plus the ticket id, branch and date at the top:
+   - **Request**: one sentence stating the outcome you want.
+   - **Premises**: what you believe is true (e.g. "the bug reproduces on `main`"); the agent verifies each before promising anything.
+   - **Conditions of Satisfaction**: checks a command can prove, e.g. `make test` passes with a new test that failed before, `make lint` is clean, only these paths change.
+   - **By-When**: a gate or deadline, e.g. "plan for approval before any code".
+2. Start a session and say: `Execute make finish for the request in .ai/state/10_ticket.md.`
+3. Act only at the gates. Approve by creating the file in `.ai/state/approvals/`:
+
+   | Gate | You approve with |
+   |---|---|
+   | Plan | `touch .ai/state/approvals/plan.ok` |
+   | Review findings | `touch .ai/state/approvals/review.ok` |
+   | Commit | `touch .ai/state/approvals/commit.ok` |
+   | Push / land | `push.ok` / `land.ok` |
+
+4. After the task, review the scar diff the agent proposes (`.ai/scars/`).
+
+If a premise turns out false, the agent answers with a counter-offer instead of code. `make status` shows where a task stands.
+
 ## Architecture
 
 `kbzone` follows a **hexagonal (ports and adapters) architecture**:
